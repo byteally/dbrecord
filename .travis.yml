@@ -1,3 +1,5 @@
+# Taken from https://github.com/commercialhaskell/stack
+
 # Here, we test with both stack and cabal. The reasons to test with cabal are
 # twofold:
 #
