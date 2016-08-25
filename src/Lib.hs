@@ -70,11 +70,11 @@ instance Table TestDB Profile where
   
 instance Table TestDB User where
   type HasDefault User   = '["name"]
-  type Check User        = '[ CheckOn '["name"] "notnull"
-                            , CheckOn '["email"] "emailValidity"
+  type Check User        = '[ 'CheckOn '["name"] "notnull"
+                            , 'CheckOn '["email"] "emailValidity"
                             ]
-  type ForeignKey User   = '[ RefBy '["age"] User '["name"]
-                            , Ref "id" User
+  type ForeignKey User   = '[ 'RefBy '["age"] User '["name"]
+                            , 'Ref "id" User
                             ]
   type PrimaryKey User   = '["id"]
   type Unique User       = '[ '["name"], '["id"]]
@@ -85,7 +85,7 @@ instance Table TestDB User where
     )
 
   checks = dbChecks
-    (  check @"notnull" (\name -> True)
+    (  check @"notnull" (\name -> name == name)
     :& check @"emailValidity" (\email -> null email)
     :& end
     )

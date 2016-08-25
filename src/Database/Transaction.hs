@@ -26,7 +26,6 @@ import           Control.Monad.Trans.Writer   (WriterT)
 import           Data.Pool                    (withResource, createPool, Pool)
 import           Database.PostgreSQL.Simple (ConnectInfo (..), Connection)
 import qualified Database.PostgreSQL.Simple   as PG
-import qualified Data.Text as T
 import           System.IO                  (hPutStrLn, stderr)
 
 newtype PG a = PG { unPG :: ReaderT Connection IO a }
