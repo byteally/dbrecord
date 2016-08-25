@@ -1056,6 +1056,9 @@ instance ShowPGType 'PGDate where
 instance ShowPGType 'PGTime where
   showPGType _ = "TIME"
 
+instance ShowPGType 'PGPGUuid where
+  showPGType _ = "UUID"
+
 instance ShowPGType 'PGJsonB where
   showPGType _ = "JSONB"
   
