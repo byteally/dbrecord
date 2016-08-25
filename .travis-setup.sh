@@ -1,8 +1,8 @@
 #!/bin/sh
 
-# Taken from https://github.com/commercialhaskell/stack
-
 set -eux
+
+# Taken from https://github.com/commercialhaskell/stack
 
 travis_retry() {
   cmd=$*

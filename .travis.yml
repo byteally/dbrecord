@@ -24,7 +24,7 @@ matrix:
       compiler: ": #GHC 8.0.1"
       addons: {apt: {packages: [cabal-install-1.24,ghc-8.0.1], sources: [hvr-ghc]}}
 
-    - env: BUILD=stack GHCVER=8.0.1 STACK_YAML=stack-8.0.yaml
+    - env: BUILD=stack GHCVER=8.0.1 STACK_YAML=stack.yaml
       compiler: ": #stack 8.0.1"
       addons: {apt: {packages: [ghc-8.0.1], sources: [hvr-ghc]}}
 
@@ -39,7 +39,7 @@ before_install:
      cabal)
        export PATH=$HOME/.cabal/bin:/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH;;
    esac
- - ./.travis-setup.sh
+ - sh .travis-setup.sh
 
 install:
  - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
@@ -49,9 +49,7 @@ install:
      cabal)
        cabal --version;
        travis_retry cabal update;
-       rm -f $(stack --compiler=ghc-$GHCVER path --dist-dir)/stack-*.tar.gz &&
        stack --compiler=ghc-$GHCVER sdist --pvp-bounds=both &&
-       tar xf $(stack --compiler=ghc-$GHCVER path --dist-dir)/stack-*.tar.gz --wildcards --strip-components=1 '*/stack.cabal' &&
        cabal install --only-dependencies --enable-tests --enable-benchmarks --force-reinstalls --ghc-options=-O0 --reorder-goals --max-backjumps=-1;;
    esac
 
@@ -66,10 +64,4 @@ script:
        cabal check;
        cabal sdist;
        cabal copy;
-       cd test/integration;
-       true stack setup --compiler=ghc-$GHCVER;
-       true stack test --compiler=ghc-$GHCVER;
-       cd ../..;
-       SRC_TGZ=$(cabal info . | awk '{print $2;exit}').tar.gz &&
-       (cd dist && cabal install --force-reinstalls "$SRC_TGZ");;
    esac
