@@ -66,6 +66,8 @@ instance Database TestDB where
                        ]
 
 instance Table TestDB Profile where
+  type HasDefault Profile   = '["id"]
+  
 instance Table TestDB User where
   type HasDefault User   = '["name"]
   type Check User        = '[ CheckOn '["name"] "notnull"

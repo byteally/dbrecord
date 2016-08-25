@@ -297,8 +297,9 @@ data instance Sing (xs :: [k]) where
 data instance Sing (fk :: ForeignRef reft) where
   SRefBy :: ( All SingE fcols
            , All SingE rcols
+           , KnownSymbol (GetTableName reft)
            ) => Sing fcols -> Sing reft -> Sing rcols -> Sing ('RefBy fcols reft rcols)
-  SRef   :: Sing col -> Sing reft -> Sing ('Ref col reft)
+  SRef   :: KnownSymbol (GetTableName reft) => Sing col -> Sing reft -> Sing ('Ref col reft)
 
 data instance Sing (ch :: CheckCT) where
   SCheck :: ( All SingE cols
@@ -332,12 +333,16 @@ instance (Typeable t) => SingI (t :: *) where
 instance ( SingI fcols
          , SingI reft
          , SingI rcols
+         , KnownSymbol (GetTableName reft)
          , All SingE fcols
          , All SingE rcols
          ) => SingI ('RefBy fcols reft rcols) where
   sing = SRefBy sing sing sing
 
-instance (SingI col, SingI reft) => SingI ('Ref col reft) where
+instance ( SingI col
+         , SingI reft
+         , KnownSymbol (GetTableName reft)
+         ) => SingI ('Ref col reft) where
   sing = SRef sing sing
 
 instance ( SingI cols
@@ -367,15 +372,18 @@ instance All SingE xs => SingE (xs :: [k]) where
   fromSing SNil         = []
   fromSing (SCons x xs) = fromSing x : fromSing xs
 
+tabName :: forall t proxy.KnownSymbol (GetTableName t) => proxy t -> String
+tabName _ = symbolVal (Proxy :: Proxy (GetTableName t))
+
 instance SingE (ft :: ForeignRef reft) where
   type Demote ft = ([Text], Text, [Text])
   fromSing (SRefBy fcols reft rcols) = ( fmap T.pack $ fromSing fcols
-                                       , T.pack "$ fromSing reft"
+                                       , T.pack $ tabName reft
                                        , fmap T.pack $ fromSing fcols
                                        )
   fromSing (SRef col reft) = ( [T.pack $ fromSing col]
-                             , T.pack "$ fromSing reft"
-                             , [T.pack "$ fromSing fcols"]
+                             , T.pack $ tabName reft
+                             , []
                              )
 
 instance SingE (ch :: CheckCT) where
