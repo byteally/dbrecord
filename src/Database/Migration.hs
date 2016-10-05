@@ -123,6 +123,11 @@ class ( Database db
   checks :: DBChecks db tab
   checks = DBChecks Nil
 
+getSchemaName :: forall db.
+               ( KnownSymbol (GetSchemaName db)
+               ) => Const Text db
+getSchemaName = Const $ T.pack $ symbolVal (Proxy @(GetSchemaName db))
+
 getTableName :: forall db tab.
                ( KnownSymbol (GetTableName tab)
                ) => Const Text (db,tab)
@@ -542,6 +547,13 @@ type family GetTypeName (t :: *) :: Symbol where
 type family GetTableName (t :: *) :: Symbol where
   GetTableName (DBTable tab fs) = tab
   GetTableName t                = GenTyCon (Rep t)
+
+type family GetSchemaName (t :: *) :: Symbol where
+  -- TODO: () instance is a hack to get constraint
+  -- KnownSymbol (GetSchemaName t) instead of
+  -- KnownSymbol (Schema t)
+  GetSchemaName ()               = Schema ()
+  GetSchemaName db               = Schema db
   
 type family GetTableFields (t :: *) :: [*] where
   GetTableFields (DBTable tab fs) = fs
