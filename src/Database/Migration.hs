@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 {-# LANGUAGE DataKinds, TypeOperators, UndecidableInstances, OverloadedLabels, FlexibleInstances, MultiParamTypeClasses, DuplicateRecordFields, GADTs, TypeApplications, KindSignatures, DeriveGeneric, FlexibleContexts, FunctionalDependencies, ExplicitForAll, TypeFamilies, ScopedTypeVariables, PolyKinds, OverloadedStrings, UndecidableSuperClasses, TypeFamilyDependencies #-}
--- | 
+-- |
 
 module Database.Migration where
 
@@ -34,7 +34,7 @@ newtype (f :: Symbol) ::: t = Field t
 
 valOf :: (s ::: t) -> t
 valOf (Field v) = v
-           
+
 data Col (a :: Symbol) = Col
 data DBTable (tab :: Symbol) (cols :: [*]) = DBTable
 data DBType (tab :: Symbol) (cols :: [*]) = DBType
@@ -59,7 +59,7 @@ type family IsGenTy (ty :: *) :: Constraint where
   IsGenTy (DBType _ _ ) = ()
   IsGenTy (DBTable _ _) = ()
   IsGenTy t             = Generic t
-  
+
 -- Maybe had the cxt be in table class no need for iter
 {- and so
 type family TableCxts (ts :: [*]) :: Constraint where
@@ -79,8 +79,8 @@ type family TypeCxts (db :: *) (ts :: [*]) :: Constraint where
                                            , SingCols db (GetTypeFields t)
                                            , TypeCxts db ts
                                            )
-  TypeCxts db '[]                        = ()  
--}  
+  TypeCxts db '[]                        = ()
+-}
 
 class ( Database db
       , AssertCxt (Elem (Tables db) tab) ('Text "Database " ':<>: 'ShowType db ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
@@ -96,15 +96,15 @@ class ( Database db
       , All SingE (Check tab)
       , SingE ('DefSyms (HasDefault tab))
       , SingCols db (GetTableFields tab)
-      , KnownSymbol (GetTableName tab)
+      , KnownSymbol (TableName tab)
       , IsGenTy tab
       ) => Table (db :: *) (tab :: *) where
   type PrimaryKey tab :: [Symbol]
   type PrimaryKey tab = '[]
-  
+
   type ForeignKey tab :: [ForeignRef Type]
   type ForeignKey tab = '[]
-  
+
   type Unique tab     :: [[Symbol]]
   type Unique tab = '[]
 
@@ -117,9 +117,12 @@ class ( Database db
   type ColIgnore tab :: IgnoredCol
   type ColIgnore tab = 'IgnoreNone
 
+  type TableName tab :: Symbol
+  type TableName tab = DefaultTableName tab
+
   defaults :: DBDefaults db tab
   defaults = DBDefaults Nil
-  
+
   checks :: DBChecks db tab
   checks = DBChecks Nil
 
@@ -129,9 +132,9 @@ getSchemaName :: forall db.
 getSchemaName = Const $ T.pack $ symbolVal (Proxy @(GetSchemaName db))
 
 getTableName :: forall db tab.
-               ( KnownSymbol (GetTableName tab)
+               ( KnownSymbol (TableName tab)
                ) => Const Text (db,tab)
-getTableName = Const $ T.pack $ symbolVal (Proxy @(GetTableName tab))
+getTableName = Const $ T.pack $ symbolVal (Proxy @(TableName tab))
 
 getTableFields :: forall db tab.
                  ( SingCols db (GetTableFields tab)
@@ -167,7 +170,7 @@ instance ( SingAttrs db cons
 
 instance SingAttrs db '[] where
   singAttrs _ _ = Nil
-  
+
 newtype DConAttr = DConAttr (ColName, [Column])
 
 data TypeAttr
@@ -185,7 +188,7 @@ toTypeAttr hlist =
     [] -> error "@toTypeAttr: DB Type cannot be of Void type"
     cons | all isUnary cons -> EnumAttr $ fmap (\(DConAttr cattr) -> fst cattr) cons
          | otherwise        -> SumAttr $ fmap (\(DConAttr cattr) -> cattr) cons
-  
+
 mkMigration :: forall db schema tables types.
   ( Database db
   , schema ~ Schema db
@@ -226,7 +229,7 @@ mkMigrationTable _ _
                   in fmap addDef $ fromSing (sing :: Sing ('DefSyms defs))
         tabColHList = singCols (Proxy @db) (Proxy :: Proxy (GetTableFields tab))
         createTab = [CreateTable tabN $ recordToList tabColHList]
-        tabN = T.pack $ fromSing (sing :: Sing (GetTableName tab)) 
+        tabN = T.pack $ fromSing (sing :: Sing (TableName tab))
     in addPks : concat [ createTab
                        , addUqs
                        , addFks
@@ -297,9 +300,9 @@ data instance Sing (xs :: [k]) where
 data instance Sing (fk :: ForeignRef reft) where
   SRefBy :: ( All SingE fcols
            , All SingE rcols
-           , KnownSymbol (GetTableName reft)
+           , KnownSymbol (TableName reft)
            ) => Sing fcols -> Sing reft -> Sing rcols -> Sing ('RefBy fcols reft rcols)
-  SRef   :: KnownSymbol (GetTableName reft) => Sing col -> Sing reft -> Sing ('Ref col reft)
+  SRef   :: KnownSymbol (TableName reft) => Sing col -> Sing reft -> Sing ('Ref col reft)
 
 data instance Sing (ch :: CheckCT) where
   SCheck :: ( All SingE cols
@@ -308,7 +311,7 @@ data instance Sing (ch :: CheckCT) where
 data instance Sing (ch :: DefSyms) where
   SDef :: ( All SingE cols
          ) => Sing cols -> Sing ('DefSyms cols)
-  
+
 class SingI (a :: k) where
   sing :: Sing a
 
@@ -333,7 +336,7 @@ instance (Typeable t) => SingI (t :: *) where
 instance ( SingI fcols
          , SingI reft
          , SingI rcols
-         , KnownSymbol (GetTableName reft)
+         , KnownSymbol (TableName reft)
          , All SingE fcols
          , All SingE rcols
          ) => SingI ('RefBy fcols reft rcols) where
@@ -341,7 +344,7 @@ instance ( SingI fcols
 
 instance ( SingI col
          , SingI reft
-         , KnownSymbol (GetTableName reft)
+         , KnownSymbol (TableName reft)
          ) => SingI ('Ref col reft) where
   sing = SRef sing sing
 
@@ -353,7 +356,7 @@ instance ( SingI cols
 
 instance (SingI cols, All SingE cols) => SingI ('DefSyms cols) where
   sing = SDef sing
-  
+
 class SingE (a :: k) where
   type Demote a :: *
   fromSing :: Sing a -> Demote (Any :: k)
@@ -366,14 +369,14 @@ instance SingE (b :: Bool) where
 instance SingE (sy :: Symbol) where
   type Demote sy = String
   fromSing SSym = symbolVal (Proxy :: Proxy sy)
-  
+
 instance All SingE xs => SingE (xs :: [k]) where
   type Demote (xs :: [k]) = [Demote (Any :: k)]
   fromSing SNil         = []
   fromSing (SCons x xs) = fromSing x : fromSing xs
 
-tabName :: forall t proxy.KnownSymbol (GetTableName t) => proxy t -> String
-tabName _ = symbolVal (Proxy :: Proxy (GetTableName t))
+tabName :: forall t proxy.KnownSymbol (TableName t) => proxy t -> String
+tabName _ = symbolVal (Proxy :: Proxy (TableName t))
 
 instance SingE (ft :: ForeignRef reft) where
   type Demote ft = ([Text], Text, [Text])
@@ -393,7 +396,7 @@ instance SingE (ch :: CheckCT) where
 instance SingE (defs :: DefSyms) where
   type Demote defs = [DefExpr]
   fromSing (SDef cols) = fmap T.pack $ fromSing cols
-  
+
 newtype I a = I a
   deriving (Show, Eq)
 
@@ -414,7 +417,7 @@ type family If (c :: Bool) (t :: k) (f :: k) :: k where
 type family ValidateTableProps (tab :: *) :: Constraint where
   ValidateTableProps tab = ( MissingField tab (ElemFields1 (GetTableFields tab) (PrimaryKey tab))
                            , MissingField tab (ElemFields1 (GetTableFields tab) (HasDefault tab))
-                           , MissingField tab (ElemFields2 (GetTableFields tab) (Unique tab)) 
+                           , MissingField tab (ElemFields2 (GetTableFields tab) (Unique tab))
                            , ValidateTabFk tab (ForeignKey tab)
                            , ValidateTabCk tab (Check tab)
                            , ValidateTabIx tab
@@ -423,7 +426,7 @@ type family ValidateTableProps (tab :: *) :: Constraint where
 type family ValidateTabPk (tab :: *) (pks :: [Symbol]) :: Constraint where
   ValidateTabPk tab (p ': ps) = If (ElemField (GetTableFields tab) p) (ValidateTabPk tab ps) (TypeError ('Text "column " ':<>: ('ShowType p) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)))
   ValidateTabPk tab '[]       = ()
-                                   
+
 type family ValidateTabFk tab (fks :: [ForeignRef Type]) :: Constraint where
   ValidateTabFk tab ('Ref fn reft ': fks) = (MatchFkRefFld tab reft fn (FindField (GetTableFields tab) fn) (FindField (GetTableFields reft) (HeadPk reft (PrimaryKey reft))),  ValidateTabFk tab fks)
   ValidateTabFk tab ('RefBy fkeys reft rkeys ': fks) = ValidateTabFk tab fks
@@ -439,7 +442,7 @@ type family MatchFkRefFld tab reft (fn :: Symbol) (t1 :: Maybe *) (t2 :: Maybe *
   MatchFkRefFld tab reft fn ('Just t1) ('Just t2) = TypeError ('Text "Type mismatch between foreign key and primary key")
   MatchFkRefFld tab reft fn ('Just t) 'Nothing    = ()
   MatchFkRefFld tab reft fn 'Nothing t            = TypeError ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
-  
+
 
 type family ValidateTabCk tab (chks :: [CheckCT]) :: Constraint where
   ValidateTabCk tab ('CheckOn fs cn ': chks) = ValidateTabCk' (ElemFields1 (GetTableFields tab) fs) tab cn chks
@@ -451,7 +454,7 @@ type family ValidateTabCk' (mis :: Maybe Symbol) (tab :: *) (cn :: Symbol) (chks
 
 type family ValidateTabIx tab :: Constraint where
   ValidateTabIx tab = ()
-  
+
 type family ElemFields1 (flds :: [*]) (fs :: [Symbol]) :: Maybe Symbol where
   ElemFields1 flds (f :fs) = If (ElemField flds f) (ElemFields1 flds fs) ('Just f)
   ElemFields1 flds '[]     = 'Nothing
@@ -467,7 +470,7 @@ type family ElemFields2' (may :: Maybe Symbol) (flds :: [*]) (fss :: [[Symbol]])
 type family MissingField (tab :: *) (fn :: Maybe Symbol) :: Constraint where
   MissingField tab ('Just fn) = TypeError ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
   MissingField tab 'Nothing   = ()
-  
+
 data ForeignRef refd
   = RefBy [Symbol] refd [Symbol]
   | Ref Symbol refd
@@ -527,7 +530,7 @@ type family UnifyCheckFn (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) 
 
 type family PartialJust (may :: Maybe k) :: k where
   PartialJust ('Just m) = m
-  
+
 check :: forall (cn :: Symbol) (tab :: *) val args.
         ( args ~ LookupCheck (Check tab) cn
         , UnifyCheck tab cn (GetTableFields tab) args val
@@ -543,10 +546,10 @@ type family ValidateDBFld tab (fn :: Symbol) t :: Constraint where
 type family GetTypeName (t :: *) :: Symbol where
   GetTypeName (DBType ty fs) = ty
   GetTypeName t              = GenTyCon (Rep t)
-  
-type family GetTableName (t :: *) :: Symbol where
-  GetTableName (DBTable tab fs) = tab
-  GetTableName t                = GenTyCon (Rep t)
+
+type family DefaultTableName (t :: *) :: Symbol where
+  DefaultTableName (DBTable tab fs) = tab
+  DefaultTableName t                = GenTyCon (Rep t)
 
 type family GetSchemaName (t :: *) :: Symbol where
   -- TODO: () instance is a hack to get constraint
@@ -554,7 +557,7 @@ type family GetSchemaName (t :: *) :: Symbol where
   -- KnownSymbol (Schema t)
   GetSchemaName ()               = Schema ()
   GetSchemaName db               = Schema db
-  
+
 type family GetTableFields (t :: *) :: [*] where
   GetTableFields (DBTable tab fs) = fs
   GetTableFields (DBType ty fs)   = TypeError ('Text "GetTableFields cannot be applied on " ':<>: 'ShowType (DBType ty fs))
@@ -576,12 +579,12 @@ type family FindField (xs :: [*]) (fn :: Symbol) :: (Maybe *) where
   FindField ((fn ::: t) ': xs) fn  = 'Just t
   FindField ((fn' ::: t) ': xs) fn = FindField xs fn
   FindField '[] fn                 = 'Nothing
-  
+
 type family ElemField (xs :: [*]) (fn :: Symbol) :: Bool where
   ElemField ((fn ::: t) ': xs) fn  = 'True
   ElemField ((fn' ::: t) ': xs) fn = ElemField xs fn
   ElemField '[] fn                 = 'False
-  
+
 
 type family AssertCxt (c :: Bool) (a :: ErrorMessage) :: Constraint where
   AssertCxt 'True msg  = ()
@@ -612,13 +615,13 @@ ERROR:  there is no unique constraint matching given keys for referenced table "
  "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
  "pk": "pk_%(table_name)s"
 -}
-  
+
 type family DBConstraintFmt (tab :: *) (ct :: k) :: [Symbol] where
-  DBConstraintFmt tab (pks :: [Symbol])    = "pk" ': (GetTableName tab) ': '[]
-  DBConstraintFmt tab (uqs :: [[Symbol]])  = "uk" ': (GetTableName tab) ': (Concat uqs)
-  DBConstraintFmt tab ('Ref fld reft)     = "fk" ': (GetTableName tab) ': fld ': '[(GetTableName reft)]
-  DBConstraintFmt tab ('RefBy fs reft ft) = "fk" ': (GetTableName tab) ': (GetTableName reft) ': fs -- TODO: Maybe change the ord of reft.
-  DBConstraintFmt tab ('CheckOn fs cn)    = "ck" ': (GetTableName tab) ': '[cn]
+  DBConstraintFmt tab (pks :: [Symbol])    = "pk" ': (TableName tab) ': '[]
+  DBConstraintFmt tab (uqs :: [[Symbol]])  = "uk" ': (TableName tab) ': (Concat uqs)
+  DBConstraintFmt tab ('Ref fld reft)     = "fk" ': (TableName tab) ': fld ': '[(TableName reft)]
+  DBConstraintFmt tab ('RefBy fs reft ft) = "fk" ': (TableName tab) ': (TableName reft) ': fs -- TODO: Maybe change the ord of reft.
+  DBConstraintFmt tab ('CheckOn fs cn)    = "ck" ': (TableName tab) ': '[cn]
   DBConstraintFmt tab ('Ix col)           = '["ix", col]
 
 -- mig
@@ -653,14 +656,14 @@ data AlterTable
   | AddConstraint !ConstraintName AddConstraint
   | DropConstraint !ConstraintName
   deriving (Show)
-    
+
 data AddConstraint
   = AddPrimaryKey [ColName]
   | AddUnique [ColName]
   | AddCheck CheckExpr
   | AddForeignKey [ColName] !TabName [ColName]
   deriving (Show)
-           
+
 data AlterColumn
   = SetNotNull
   | DropNotNull
@@ -680,7 +683,7 @@ data AlterType
 data AlterAttribute
   = ChangeAttrType !ColType
   deriving (Show)
-           
+
 migrationSql :: Migration -> Text
 migrationSql (CreateTable tab cols) = T.concat
   [ "CREATE TABLE "
@@ -712,14 +715,14 @@ migrationSql (DropType ty) = T.concat
   [ "DROP TYPE "
   , ty
   , ";"
-  ]  
+  ]
 migrationSql (AlterTable tab alter) = T.concat
   [ "ALTER TABLE "
   , doubleQuote tab
   , alterTableSql alter
   , ";"
   ]
-  
+
 columnSql :: Column -> Text
 columnSql (Column name ty) = T.concat [doubleQuote name, " ", ty]
 
@@ -757,7 +760,7 @@ alterTableSql (DropConstraint cname) = T.concat
   [ " DROP CONSTRAINT "
   , cname
   ]
-  
+
 addConstraintSql :: AddConstraint -> Text
 addConstraintSql (AddPrimaryKey cols) = T.concat
   [ " PRIMARY KEY "
@@ -888,7 +891,7 @@ type family ValidateCustTy (db :: *) (isNewTy :: Bool) (t :: *) :: Constraint wh
 type family UnWrapNT (isNewTy :: Bool) (t :: *) where
   UnWrapNT 'True t  = InnerTy t
   UnWrapNT 'False t = t
-  
+
 data PGSqlName (t :: *)
 
 data PGTypeRep (rep :: PGTypeK)
@@ -945,7 +948,7 @@ type family GetPGTypeRep (t :: *) = (r :: PGTypeK) | r -> t where
   GetPGTypeRep a                  = 'PGCustomType a ('PGTypeName (GetTypeName a)) (IsNewType (Rep a))
 
 newtype CustomType a = CustomType a
-  
+
 type family GenTyCon (rep :: * -> *) :: Symbol where
   GenTyCon (D1 ('MetaData tyName _ _ _) _) = tyName
   GenTyCon r                               = TypeError ('Text "GenTyCon expects only generic rep of type, but found " ':<>: 'ShowType r)
@@ -976,7 +979,7 @@ type family InnerTy (t :: *) :: * where
   InnerTy (DBType ty flds)   = DBType ty flds
   InnerTy (CustomType a)     = CustomType a
   InnerTy a                  = GenInnerTy (Rep a)
-  
+
 type family GenInnerTy (rep :: * -> *) :: * where
   GenInnerTy (D1 _ (C1 _ (S1 _ (K1 _ t)))) = InnerTy t
   GenInnerTy r = TypeError ('Text "Expecting a newtype rep but found: " ':<>: 'ShowType r)
@@ -1015,7 +1018,7 @@ type family GenProdTyFields (rep :: * -> *) :: [*] where
   GenProdTyFields U1        = '[]
   GenProdTyFields (f :*: g) = GenProdTyFields f :++ GenProdTyFields g
   GenProdTyFields (S1 ('MetaSel ('Just sn) _ _ _) (K1 i f)) = '[sn ::: f]
-  
+
 type family GenTabFields (rep :: * -> *) :: [*] where
   GenTabFields (D1 i f)  = GenTabFields f
   GenTabFields (f :+: g) = TypeError ('Text "Table cannot be a sum type")
@@ -1023,7 +1026,7 @@ type family GenTabFields (rep :: * -> *) :: [*] where
   GenTabFields (C1 i c) = GenTabFields c
   GenTabFields (f :*: g) = GenTabFields f :++ GenTabFields g
   GenTabFields (S1 ('MetaSel ('Just sn) _ _ _) (K1 i f)) = '[sn ::: f]
-  
+
 newtype JsonStr a = JsonStr a
 newtype Json a = Json a
 
@@ -1038,7 +1041,7 @@ class ShowPGType (pgTy :: PGTypeK) where
 
 instance ShowPGType 'PGInt2 where
   showPGType _ = "SMALLINT"
-  
+
 instance ShowPGType 'PGInt4 where
   showPGType _ = "INTEGER"
 
@@ -1053,12 +1056,12 @@ instance ShowPGType 'PGFloat8 where
 
 instance KnownNat n => ShowPGType ('PGChar n) where
   showPGType _ = T.pack $ "CHARACTER (" ++ (show $ natVal $ Proxy @n) ++ ")"
-  
+
 instance ShowPGType 'PGText where
   showPGType _ = "TEXT"
 
 instance ShowPGType 'PGByteArr where
-  showPGType _ = "BYTEA"  
+  showPGType _ = "BYTEA"
 
 instance ShowPGType 'PGTimestamptz where
   showPGType _ = "TIMESTAMPTZ"
@@ -1077,13 +1080,13 @@ instance ShowPGType 'PGUuid where
 
 instance ShowPGType 'PGJsonB where
   showPGType _ = "JSONB"
-  
-instance ShowPGType pgTy => ShowPGType ('PGNullable pgTy) where 
+
+instance ShowPGType pgTy => ShowPGType ('PGNullable pgTy) where
   showPGType _ = showPGType (Proxy :: Proxy pgTy)
 
 instance ShowPGType pgTy => ShowPGType ('PGArray pgTy) where
   showPGType _ = showPGType (Proxy :: Proxy pgTy) `T.append` "[]"
-  
+
 instance KnownSymbol tab => ShowPGType ('PGTypeName tab) where
   showPGType _ = T.toUpper $ T.pack $ symbolVal (Proxy :: Proxy tab)
 
@@ -1101,10 +1104,10 @@ class (Applicative f) => GTypeToRec f rep xs | rep -> xs where
 
 instance GTypeToRec f d ts => GTypeToRec f (D1 ('MetaData tyn pkgn modn isNew) d) ts where
   gTypeToRec (M1 a) = gTypeToRec a
-  
+
 instance GTypeToRec f c ts => GTypeToRec f (C1 ('MetaCons cn fix 'True) c) ts where
   gTypeToRec (M1 a) = gTypeToRec a
-  
+
 instance ( GTypeToRec m f fs
          , GTypeToRec m g gs
          , ts ~ (fs :++ gs)
@@ -1117,7 +1120,7 @@ instance (GTypeToRec m s '[t], Applicative m) => GTypeToRec m (S1 ('MetaSel ('Ju
 
 instance (Applicative m) => GTypeToRec m (K1 k f) '[f] where
   gTypeToRec (K1 a) = pure a :& Nil
-  
+
 rappend
   :: HList f as
   -> HList f bs
@@ -1130,13 +1133,13 @@ typeToRec t = gTypeToRec (from t)
 
 recToType :: (Generic t, GRecToType f (Rep t) ts, Extract f) => HList f ts -> t
 recToType r = to $ gRecToType r
- 
+
 class GRecToType f rep ts where
   gRecToType :: Extract f => HList f ts -> rep a
 
 instance (GRecToType f d xs) => GRecToType f (D1 ('MetaData tyn pkgn modn isNew) d) xs where
   gRecToType hrec = M1 $ gRecToType hrec
-  
+
 instance (GRecToType f c xs) => GRecToType f (C1 ('MetaCons cn fix 'True) c) xs where
   gRecToType hrec = M1 $ gRecToType hrec
 
@@ -1158,7 +1161,7 @@ instance ( isMat ~ (fn == fn2)
 
 instance TypeError ('Text "Unable to find field " ':<>: 'ShowType fn) => RElem f fn ((fn1 ::: t1) ': '[]) 'False () where
   rGet _ _ _ = error "Unreachable code"
-  
+
 instance Functor f => RElem f fn ((fn' ::: t) ': xs) 'True t where
   rGet _ _ (v :& _) = valOf <$> v
 
@@ -1167,7 +1170,7 @@ instance Extract Identity where
 
 class Extract w where
   extract :: w a -> a
-  
+
 {- Invariants
    **********
 User Def Type
@@ -1183,7 +1186,7 @@ A type can be used a both table and db-type
  Un-named fields is not supported in initial version
   Can be sum type
  Type can't be U1 & V1
- 
+
 -}
 
 getColumns :: IO ()
@@ -1216,5 +1219,5 @@ getColumns = do
                       ,"AND NOT k.constraint_type IN ('PRIMARY KEY', 'FOREIGN KEY') "
                       ,"ORDER BY c.constraint_name, c.column_name"]
   return ()
-    
+
 type ConnectionString = ByteString
