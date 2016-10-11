@@ -36,8 +36,6 @@ valOf :: (s ::: t) -> t
 valOf (Field v) = v
 
 data Col (a :: Symbol) = Col
-data DBTable (tab :: Symbol) (cols :: [*]) = DBTable
-data DBType (tab :: Symbol) (cols :: [*]) = DBType
 data DefSyms = DefSyms [Symbol]
 
 col :: forall (a :: Symbol). Col a
@@ -55,33 +53,6 @@ class ( -- TypeCxts db (Types db)
 
 type family CustomPGTypeRep (ty :: *)  :: PGTypeK
 
-type family IsGenTy (ty :: *) :: Constraint where
-  IsGenTy (DBType _ _ ) = ()
-  IsGenTy (DBTable _ _) = ()
-  IsGenTy t             = Generic t
-
--- Maybe had the cxt be in table class no need for iter
-{- and so
-type family TableCxts (ts :: [*]) :: Constraint where
-  TableCxts ((DBType _ _ ) ': ts) = TableCxts ts
-  TableCxts ((DBTable _ _) ': ts) = TableCxts ts
-  TableCxts (t             ': ts) = (Generic t, TableCxts ts)
-  TableCxts '[]                   = ()
--}
-{-
-type family TypeCxts (db :: *) (ts :: [*]) :: Constraint where
-  TypeCxts db ((DBType tyn flds ) ': ts) = ( KnownSymbol tyn
-                                           , SingCols db flds
-                                           , TypeCxts db ts
-                                           )
-  TypeCxts db (t             ': ts)      = ( Generic t
-                                           , ShowPGType (GetPGTypeRep t)
-                                           , SingCols db (GetTypeFields t)
-                                           , TypeCxts db ts
-                                           )
-  TypeCxts db '[]                        = ()
--}
-
 class ( Database db
       , AssertCxt (Elem (Tables db) tab) ('Text "Database " ':<>: 'ShowType db ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
       , ValidateTableProps tab
@@ -95,9 +66,9 @@ class ( Database db
       , All SingE (ForeignKey tab)
       , All SingE (Check tab)
       , SingE ('DefSyms (HasDefault tab))
-      , SingCols db (GetTableFields tab)
+      , SingCols db (OriginalTableFields tab) (ColumnNames tab)
       , KnownSymbol (TableName tab)
-      , IsGenTy tab
+      , Generic tab
       ) => Table (db :: *) (tab :: *) where
   type PrimaryKey tab :: [Symbol]
   type PrimaryKey tab = '[]
@@ -120,6 +91,9 @@ class ( Database db
   type TableName tab :: Symbol
   type TableName tab = DefaultTableName tab
 
+  type ColumnNames tab :: [(Symbol, Symbol)]
+  type ColumnNames tab = '[]
+
   defaults :: DBDefaults db tab
   defaults = DBDefaults Nil
 
@@ -137,34 +111,42 @@ getTableName :: forall db tab.
 getTableName = Const $ T.pack $ symbolVal (Proxy @(TableName tab))
 
 getTableFields :: forall db tab.
-                 ( SingCols db (GetTableFields tab)
+                 ( SingCols db (OriginalTableFields tab) (ColumnNames tab)
                  ) => Const [Column] (db, tab)
-getTableFields = Const $ recordToList $ singCols (Proxy @db) (Proxy @(GetTableFields tab))
+getTableFields = Const $ recordToList $ singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames tab))
 
-class SingCols (db :: *) (cols :: [*]) where
-  singCols :: Proxy db -> Proxy cols -> HList (Const Column) cols
+getTableHFields ::  forall db tab.
+                   ( SingCols db (OriginalTableFields tab) (ColumnNames tab)
+                   ) => Proxy db -> Proxy tab -> HList (Const Column) (OriginalTableFields tab)
+getTableHFields _ _ = singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames tab))
+                 
 
-instance ( SingCols db cols
+class SingCols (db :: *) (cols :: [*]) (colMap :: [(Symbol, Symbol)]) where
+  singCols :: Proxy db -> Proxy cols -> Proxy colMap -> HList (Const Column) cols
+
+instance ( SingCols db cols colMap
          , KnownSymbol cn
          , InvalidPGType db ct
          , ShowPGType (GetPGTypeRep ct)
-         ) => SingCols db ((cn ::: ct) ': cols) where
-  singCols _ _ = let pgTy = showPGType (Proxy :: Proxy (GetPGTypeRep ct))
-                     colN = T.pack $ symbolVal (Proxy @cn)
-                 in (Const $ Column colN pgTy) :& singCols (Proxy @db) (Proxy :: Proxy cols)
+         , aliasedCol ~ AliasedCol cn colMap
+         , KnownSymbol aliasedCol
+         ) => SingCols db ((cn ::: ct) ': cols) colMap where
+  singCols _ _ _ = let pgTy = showPGType (Proxy :: Proxy (GetPGTypeRep ct))
+                       colN = T.pack $ symbolVal (Proxy @aliasedCol)
+                   in (Const $ Column colN pgTy) :& singCols (Proxy @db) (Proxy :: Proxy cols) (Proxy @colMap)
 
-instance SingCols db '[] where
-  singCols _ _ = Nil
+instance SingCols db '[] colMap where
+  singCols _ _ _ = Nil
 
 class SingAttrs (db :: *) (attrs :: [(Symbol, [*])]) where
   singAttrs :: Proxy db -> Proxy attrs -> HList (Const DConAttr) attrs
 
 instance ( SingAttrs db cons
-         , SingCols db flds
+         , SingCols db flds '[] -- TODO: composite type alias
          , KnownSymbol c
          ) => SingAttrs db ('(c, flds) ': cons) where
   singAttrs pxyDB _ =
-    let colHLists = singCols (Proxy @db) (Proxy @flds)
+    let colHLists = singCols (Proxy @db) (Proxy @flds) (Proxy @('[]))
         cn = T.pack $ symbolVal (Proxy @c)
     in Const (DConAttr (cn, recordToList colHLists)) :& singAttrs pxyDB (Proxy @cons)
 
@@ -227,7 +209,7 @@ mkMigrationTable _ _
                   in fmap addChk $ fromSing (sing :: Sing chks)
         addDefs = let addDef dfExpr = AlterTable tabN $ AlterColumn "col" $ AddDefault dfExpr
                   in fmap addDef $ fromSing (sing :: Sing ('DefSyms defs))
-        tabColHList = singCols (Proxy @db) (Proxy :: Proxy (GetTableFields tab))
+        tabColHList = singCols (Proxy @db) (Proxy :: Proxy (OriginalTableFields tab)) (Proxy @(ColumnNames tab))
         createTab = [CreateTable tabN $ recordToList tabColHList]
         tabN = T.pack $ fromSing (sing :: Sing (TableName tab))
     in addPks : concat [ createTab
@@ -415,20 +397,30 @@ type family If (c :: Bool) (t :: k) (f :: k) :: k where
   If 'False t f = f
 
 type family ValidateTableProps (tab :: *) :: Constraint where
-  ValidateTableProps tab = ( MissingField tab (ElemFields1 (GetTableFields tab) (PrimaryKey tab))
-                           , MissingField tab (ElemFields1 (GetTableFields tab) (HasDefault tab))
-                           , MissingField tab (ElemFields2 (GetTableFields tab) (Unique tab))
+  ValidateTableProps tab = ( MissingField tab (ElemFields1 (OriginalTableFields tab) (PrimaryKey tab))
+                           , MissingField tab (ElemFields1 (OriginalTableFields tab) (HasDefault tab))
+                           , MissingField tab (ElemFields2 (OriginalTableFields tab) (Unique tab))
                            , ValidateTabFk tab (ForeignKey tab)
                            , ValidateTabCk tab (Check tab)
                            , ValidateTabIx tab
+                           , ValidateColumnAlias tab (OriginalTableFields tab) (ColumnNames tab)
                            )
 
+type family ValidateColumnAlias (tab :: *) (flds :: [*]) (colMap :: [(Symbol, Symbol)]) :: Constraint where
+  ValidateColumnAlias tab flds ('(fn, _) ': colMaps) = (ValidateColumnAlias' tab flds fn, ValidateColumnAlias tab flds colMaps)
+  ValidateColumnAlias _ flds '[] = ()
+
+type family ValidateColumnAlias' (tab :: *) (flds :: [*]) (aliased :: Symbol) :: Constraint where
+  ValidateColumnAlias' _ (fn ::: _ ': flds) fn   = ()
+  ValidateColumnAlias' tab (fn ::: _ ': flds) cn = ValidateColumnAlias' tab flds cn
+  ValidateColumnAlias' tab '[] cn                = TypeError ('Text "column " ':<>: ('ShowType cn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
+  
 type family ValidateTabPk (tab :: *) (pks :: [Symbol]) :: Constraint where
-  ValidateTabPk tab (p ': ps) = If (ElemField (GetTableFields tab) p) (ValidateTabPk tab ps) (TypeError ('Text "column " ':<>: ('ShowType p) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)))
+  ValidateTabPk tab (p ': ps) = If (ElemField (OriginalTableFields tab) p) (ValidateTabPk tab ps) (TypeError ('Text "column " ':<>: ('ShowType p) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)))
   ValidateTabPk tab '[]       = ()
 
 type family ValidateTabFk tab (fks :: [ForeignRef Type]) :: Constraint where
-  ValidateTabFk tab ('Ref fn reft ': fks) = (MatchFkRefFld tab reft fn (FindField (GetTableFields tab) fn) (FindField (GetTableFields reft) (HeadPk reft (PrimaryKey reft))),  ValidateTabFk tab fks)
+  ValidateTabFk tab ('Ref fn reft ': fks) = (MatchFkRefFld tab reft fn (FindField (OriginalTableFields tab) fn) (FindField (OriginalTableFields reft) (HeadPk reft (PrimaryKey reft))),  ValidateTabFk tab fks)
   ValidateTabFk tab ('RefBy fkeys reft rkeys ': fks) = ValidateTabFk tab fks
   ValidateTabFk tab '[]         = ()
 
@@ -445,7 +437,7 @@ type family MatchFkRefFld tab reft (fn :: Symbol) (t1 :: Maybe *) (t2 :: Maybe *
 
 
 type family ValidateTabCk tab (chks :: [CheckCT]) :: Constraint where
-  ValidateTabCk tab ('CheckOn fs cn ': chks) = ValidateTabCk' (ElemFields1 (GetTableFields tab) fs) tab cn chks
+  ValidateTabCk tab ('CheckOn fs cn ': chks) = ValidateTabCk' (ElemFields1 (OriginalTableFields tab) fs) tab cn chks
   ValidateTabCk tab '[] = ()
 
 type family ValidateTabCk' (mis :: Maybe Symbol) (tab :: *) (cn :: Symbol) (chks :: [CheckCT]) where
@@ -533,7 +525,7 @@ type family PartialJust (may :: Maybe k) :: k where
 
 check :: forall (cn :: Symbol) (tab :: *) val args.
         ( args ~ LookupCheck (Check tab) cn
-        , UnifyCheck tab cn (GetTableFields tab) args val
+        , UnifyCheck tab cn (OriginalTableFields tab) args val
         ) => val -> Chk tab ('CheckOn (PartialJust args) cn)
 check = Chk
 
@@ -541,14 +533,12 @@ dbChecks :: forall tab (db :: *) chks.HList (Chk tab) chks -> DBChecks db tab
 dbChecks = DBChecks
 
 type family ValidateDBFld tab (fn :: Symbol) t :: Constraint where
-  ValidateDBFld tab fn t = UnifyField (GetTableFields tab) (fn ::: t) ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
+  ValidateDBFld tab fn t = UnifyField (OriginalTableFields tab) (fn ::: t) ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
 
 type family GetTypeName (t :: *) :: Symbol where
-  GetTypeName (DBType ty fs) = ty
   GetTypeName t              = GenTyCon (Rep t)
 
 type family DefaultTableName (t :: *) :: Symbol where
-  DefaultTableName (DBTable tab fs) = tab
   DefaultTableName t                = GenTyCon (Rep t)
 
 type family GetSchemaName (t :: *) :: Symbol where
@@ -558,13 +548,21 @@ type family GetSchemaName (t :: *) :: Symbol where
   GetSchemaName ()               = Schema ()
   GetSchemaName db               = Schema db
 
-type family GetTableFields (t :: *) :: [*] where
-  GetTableFields (DBTable tab fs) = fs
-  GetTableFields (DBType ty fs)   = TypeError ('Text "GetTableFields cannot be applied on " ':<>: 'ShowType (DBType ty fs))
-  GetTableFields t                = GenTabFields (Rep t)
+type OriginalTableFields t = GenTabFields (Rep t)
 
+type family TableFields (t :: *) :: [*] where
+  TableFields t = TableFields' (GenTabFields (Rep t)) (ColumnNames t)
+
+type family TableFields' (flds :: [*]) (colMap :: [(Symbol, Symbol)]) :: [*] where
+  TableFields' ((fn ::: ft) ': flds) colMap = (AliasedCol fn colMap ::: ft) ': (TableFields' flds colMap)
+  TableFields' '[] colMap = '[]
+
+type family AliasedCol (fn :: Symbol) (colMap :: [(Symbol, Symbol)]) :: Symbol where
+  AliasedCol fn ('(fn, alias) ': colMap) = alias
+  AliasedCol fn (_ ': colMap)            = AliasedCol fn colMap
+  AliasedCol fn '[]                      = fn
+  
 type family GetTypeFields (t :: *) :: [(Symbol, [*])] where
-  GetTypeFields (DBType ty fs) = '[ '(ty, fs)]
   GetTypeFields t              = GenTyFields (Rep t)
 
 newtype EnumType a = EnumType a
@@ -873,7 +871,6 @@ type family InvalidPGType (db :: *) a :: Constraint where
   InvalidPGType db (Vector a)    = InvalidPGType db a
   InvalidPGType db (Json a)      = InvalidPGType db a
   InvalidPGType db (JsonStr a)   = InvalidPGType db a
-  InvalidPGType _ (DBType _ _)  = ()
   InvalidPGType db (CustomType a) = ()
   InvalidPGType db a = ValidateCustTy db (IsNewTy (Rep a)) a
 {-  InvalidPGType db a = AssertCxt (Elem (Types db) (UnWrapNT (IsNewTy (Rep a)) a))
@@ -943,7 +940,6 @@ type family GetPGTypeRep (t :: *) = (r :: PGTypeK) | r -> t where
   GetPGTypeRep UUID               = 'PGUuid
   GetPGTypeRep (Maybe t)          = 'PGNullable (GetPGTypeRep t)
   GetPGTypeRep (Vector t)         = 'PGArray (GetPGTypeRep t)
-  GetPGTypeRep (DBType ty flds)   = 'PGCustomType (DBType ty flds) ('PGTypeName ty) 'False
   GetPGTypeRep (CustomType a)     = 'PGCustomType (CustomType a) (CustomPGTypeRep a) 'False
   GetPGTypeRep a                  = 'PGCustomType a ('PGTypeName (GetTypeName a)) (IsNewType (Rep a))
 
@@ -976,7 +972,6 @@ type family InnerTy (t :: *) :: * where
   InnerTy UUID               = UUID
   InnerTy (Maybe t)          = Maybe t
   InnerTy (Vector t)         = Vector t
-  InnerTy (DBType ty flds)   = DBType ty flds
   InnerTy (CustomType a)     = CustomType a
   InnerTy a                  = GenInnerTy (Rep a)
 

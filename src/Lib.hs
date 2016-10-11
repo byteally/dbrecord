@@ -18,25 +18,13 @@ data Sum1 = Con1 {a :: Int, b :: Bool} | Con2 {a :: Int}
 data Prod1 = Prod1 {pa1 :: Text, pb1 :: Double}
   deriving (Show, Generic)
 
-type User = DBTable "user"
-  '[ "id"    ::: Int
-   , "name"  ::: Text
-   , "email" ::: String
-   , "role"  ::: UserRole
-   ]
-
-{-
-type Profile = DBTable "profile"
-  '[ "id"         ::: Int
-   , "first_name" ::: Text
-   , "last_name"  ::: Text
-   , "age"        ::: Maybe Int
-   , "address"    ::: Address
-   , "sum"        ::: Sum1
-   , "prod"       ::: Prod1
-   ]
--}
-
+data User = User
+  { id    :: Int
+  , name  :: Text
+  , email :: Text
+  , role  :: UserRole
+  } deriving (Generic)
+  
 data Profile = Profile
   { id         :: Int
   , first_name :: Text
@@ -47,13 +35,13 @@ data Profile = Profile
   , prod       :: Prod1
   } deriving (Generic)
 
-type Address = DBType "address"
-  '[ "id"     ::: Int
-   , "doorno" ::: Text
-   , "addr1"  ::: Text
-   , "addr2"  ::: Maybe Text
-   , "city"   ::: Text
-   ]
+data Address = Address
+  { id     :: Int
+  , doorno :: Text
+  , addr1  :: Text
+  , addr2  :: Maybe Text
+  , city   :: Text
+  } deriving (Generic)
 
 instance Database TestDB where
   type Tables TestDB = '[ User
@@ -66,7 +54,12 @@ instance Database TestDB where
                        ]
 
 instance Table TestDB Profile where
-  type HasDefault Profile   = '["id"]
+  type HasDefault Profile   = '["first_name"]
+  type TableName Profile    = "user_profile"
+  type ColumnNames Profile   = '[ '("first_name", "First Name")
+                                ]
+  type Check Profile        = '[ 'CheckOn '["first_name"] "notnull"]
+  type Unique Profile       = '[ '["first_name"]]
   
 instance Table TestDB User where
   type HasDefault User   = '["name"]
@@ -86,7 +79,7 @@ instance Table TestDB User where
 
   checks = dbChecks
     (  check @"notnull" (\name -> name == name)
-    :& check @"emailValidity" (\email -> null email)
+    :& check @"emailValidity" (\email -> email == email)
     :& end
     )
 
