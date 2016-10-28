@@ -43,15 +43,20 @@ literalExpr = Expr . PQ.ConstExpr
 
 deriving instance (NumExpr a) => NumExpr (Identity a)
 
-instance (NumExpr a) => Num (Expr sc a) where
+instance ( NumExpr a
+         , OrdExpr a
+         ) => Num (Expr sc a) where
   fromInteger = exprFromInteger
   (*)      = binOp PQ.OpMul
   (+)      = binOp PQ.OpPlus
   (-)      = binOp PQ.OpMinus
   abs      = unOp PQ.OpAbs
   negate   = unOp PQ.OpAbs
-  signum _ = undefined
-
+  signum a = case_ [ (a .== 0, 0)
+                   , (a .<  0, (-1))
+                   , (a .>  0, 1)
+                   ] a
+                     
 class IntegralExpr a where
   quot_ :: Expr sc a ->  Expr sc a -> Expr sc a
   rem_  :: Expr sc a ->  Expr sc a -> Expr sc a
@@ -66,7 +71,7 @@ instance IntegralExpr Integer
 class NumExpr a => FractionalExpr a where
   exprFromRational :: Rational -> Expr sc a
   
-instance (FractionalExpr a) => Fractional (Expr sc a) where
+instance (FractionalExpr a, OrdExpr a) => Fractional (Expr sc a) where
   fromRational = exprFromRational
   (/)    = binOp PQ.OpDiv
 
@@ -108,11 +113,11 @@ class EqExpr a where
 infix 4 .==
 infix 4 ./=
 
-class OrdExpr a where
-  (.>) :: Expr sc a -> Expr sc b -> Expr sc Bool
-  (.<)  :: Expr sc a -> Expr sc b -> Expr sc Bool
-  (.>=) :: Expr sc a -> Expr sc b -> Expr sc Bool
-  (.<=) :: Expr sc a -> Expr sc b -> Expr sc Bool
+class (EqExpr a) => OrdExpr a where
+  (.>) :: Expr sc a -> Expr sc a -> Expr sc Bool
+  (.<)  :: Expr sc a -> Expr sc a -> Expr sc Bool
+  (.>=) :: Expr sc a -> Expr sc a -> Expr sc Bool
+  (.<=) :: Expr sc a -> Expr sc a -> Expr sc Bool
   
   (.>) a b = binOp PQ.OpGt a b
   (.<) a b = binOp PQ.OpLt a b
@@ -162,7 +167,7 @@ fromNullable = flip matchNullable id
 maybeToNullable :: Maybe (Expr sc a) -> Expr sc (Maybe a)
 maybeToNullable = maybe nothing toNullable
 
-case_ :: [(Expr sc Bool, Expr sc r)] -> Expr sc r -> Expr sc r
+case_ :: [(Expr sc Bool, Expr sc r)] -> Expr sc a -> Expr sc r
 case_ alts (Expr def) = Expr $ PQ.CaseExpr (fmap (\(Expr f,Expr s) -> (f,s)) alts) def
 
 ifThenElse :: Expr sc Bool -> Expr sc a -> Expr sc a -> Expr sc a
@@ -207,6 +212,9 @@ instance EqExpr T.Text where
   a .== b = binOp PQ.OpEq a b
 
 instance EqExpr Int where
+  a .== b = binOp PQ.OpEq a b
+
+instance EqExpr Word where
   a .== b = binOp PQ.OpEq a b
 
 instance (EqExpr a) => EqExpr (Maybe a) where

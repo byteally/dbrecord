@@ -33,7 +33,7 @@ data Sym = Sym { symPrefix :: [Text]
 data PrimQuery = BaseTable TableId Clauses
                | Product (NEL.NonEmpty PrimQuery) Clauses
                | Join JoinType PrimExpr PrimQuery PrimQuery Clauses
-               -- | Values
+               -- Values
                deriving (Show, Read)
 
 data Clauses = Clauses { projections :: [(Sym, PrimExpr)]
