@@ -1,8 +1,8 @@
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 {-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications #-}
-module Database.Internal.Expr where
+module DBRecord.Internal.Expr where
 
-import qualified Database.Internal.PrimQuery as PQ
+import qualified DBRecord.Internal.PrimQuery as PQ
 import Data.Aeson as A
 import Data.Aeson.Types as A
 import qualified Data.HashMap.Strict as HM

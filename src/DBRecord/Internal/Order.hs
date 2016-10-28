@@ -1,8 +1,8 @@
 {-# LANGUAGE KindSignatures, DataKinds #-}
-module Database.Internal.Order where
+module DBRecord.Internal.Order where
 
-import qualified Database.Internal.PrimQuery as PQ
-import Database.Internal.Expr
+import qualified DBRecord.Internal.PrimQuery as PQ
+import DBRecord.Internal.Expr
 
 -- TODO: Restrict ordering only for valid types
 newtype Order (scopes :: [*]) = Order { getOrder :: [PQ.OrderExpr] }

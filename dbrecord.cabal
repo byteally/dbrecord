@@ -17,22 +17,31 @@ library
   hs-source-dirs:      src
   ghc-options:         -Wall
   exposed-modules:
-                       Database.Migration
-                       Database.Schema
-                       Database.Transaction
-                       Database.Query
-                       Database.Postgres
-                       Database.Internal.PrimQuery
-                       Database.Internal.Postgres.Pretty
-                       Database.Internal.Postgres.Types
-                       Database.Internal.Postgres.SqlGen
-                       Database.Internal.Expr
-                       Database.Internal.Order
-                       Database.Internal.Predicate
-                       -- Database.Internal.Types
-                       -- Database.Internal.Migration
+                       DBRecord.Interface
+                       DBRecord.Migration
+                       DBRecord.Migration.Interface
+                       DBRecord.Schema
+                       DBRecord.Schema.Interface
+                       DBRecord.Transaction
+                       DBRecord.Query
+                       DBRecord.Query.Interface
+                       DBRecord.Internal.Postgres
+                       DBRecord.Internal.PrimQuery
+                       DBRecord.Internal.Postgres.Pretty
+                       DBRecord.Internal.Postgres.Types
+                       DBRecord.Internal.Postgres.SqlGen
+                       DBRecord.Internal.Expr
+                       DBRecord.Internal.Order
+                       DBRecord.Internal.Predicate
+                       DBRecord.Internal.Migration.Pretty
+                       DBRecord.Internal.Migration.Types
+                       DBRecord.Internal.Migration
+                       DBRecord.Internal.Common
+                       DBRecord.Internal.Types
+                       DBRecord.Internal.DBTypeValidation
+                       DBRecord.Internal.DBTypes
+                       DBRecord.Internal.Schema
 
- 
   build-depends:       base              >= 4.7 && < 5
                      , text              >=0.11.1
                      , uuid-types        >=1.0.0

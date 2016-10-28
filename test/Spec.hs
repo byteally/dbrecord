@@ -1,7 +1,12 @@
 {-# LANGUAGE DataKinds, TypeOperators, UndecidableInstances, OverloadedLabels, FlexibleInstances, MultiParamTypeClasses, DuplicateRecordFields, GADTs, TypeApplications, KindSignatures, DeriveGeneric, FlexibleContexts, FunctionalDependencies, ExplicitForAll, TypeFamilies, ScopedTypeVariables, PolyKinds, OverloadedStrings #-}
 module Main where
 
+import Database.Schema
 import Database.Migration
+import Database.Internal.Migration
+import Database.Internal.Types
+import Database.Internal.Common
+
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Proxy
@@ -44,6 +49,7 @@ data Address = Address
   } deriving (Generic)
 
 instance Database TestDB where
+  type DB     TestDB = 'Postgres
   type Tables TestDB = '[ User
                         , Profile
                         ]
@@ -97,7 +103,7 @@ DBLeftJoin
 someFunc :: IO ()
 someFunc = do
   let mig = mkMigration (Proxy :: Proxy TestDB)
-  mapM_ (putStrLn . T.unpack) $ fmap migrationSql mig
+  mapM_ putStrLn (fmap renderMig mig)
 
 main :: IO ()
 main = do

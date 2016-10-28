@@ -1,23 +1,22 @@
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 -- | 
 
-module Database.Query
-       ( module Database.Internal.Order
-       , module Database.Internal.Expr
-       , module Database.Internal.Predicate
-       , module Database.Internal.PrimQuery
+module DBRecord.Query
+       ( module DBRecord.Internal.Order
+       , module DBRecord.Internal.Expr
+       , module DBRecord.Internal.Predicate
        , get, getBy, getAll, update
        , updateBy, updateAll, delete
        , deleteBy, deleteAll, insert
        , insertRet, upsert, count                       
        ) where
 
-import Database.Schema
+import DBRecord.Schema
 
-import Database.Internal.Order
-import Database.Internal.Expr
-import Database.Internal.Predicate
-import Database.Internal.PrimQuery
+import DBRecord.Internal.Order
+import DBRecord.Internal.Expr
+import DBRecord.Internal.Predicate
+import DBRecord.Internal.PrimQuery
 
 get :: Table db tab => db -> tab -> ()
 getBy :: ()

@@ -1,8 +1,8 @@
 {-# LANGUAGE KindSignatures, DataKinds #-}
-module Database.Internal.Predicate where
+module DBRecord.Internal.Predicate where
 
-import qualified Database.Internal.PrimQuery as PQ
-import Database.Internal.Expr
+import qualified DBRecord.Internal.PrimQuery as PQ
+import DBRecord.Internal.Expr
 
 newtype Predicate (sc :: [*]) a = Predicate { getPredicate :: PQ.PrimExpr -> PQ.PrimExpr }
 

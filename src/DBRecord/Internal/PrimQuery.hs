@@ -5,7 +5,7 @@
 --                Purely Agile Limited (c) 2014-2016
 -- License     :  BSD-style
 
-module Database.Internal.PrimQuery where
+module DBRecord.Internal.PrimQuery where
 
 import Prelude hiding (product)
 import Data.Text          (Text)
@@ -13,7 +13,7 @@ import Data.ByteString    (ByteString)
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 
--- import Database.Migration hiding (TableName)
+-- import DBRecord.Migration hiding (TableName)
 -- import GHC.TypeLits
 -- import Data.Functor.Const
 -- import Data.Proxy

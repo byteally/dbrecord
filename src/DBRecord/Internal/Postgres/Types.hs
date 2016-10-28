@@ -1,8 +1,10 @@
-{-# LANGUAGE DataKinds, KindSignatures #-}
-module Database.Internal.Postgres.Types where
+module DBRecord.Internal.Postgres.Types where
 
 import qualified Data.List.NonEmpty as NEL
 import Data.Text
+import DBRecord.Internal.Types
+import DBRecord.Internal.Common
+import GHC.Generics
 
 type TableName = Text
 type Name      = Text
@@ -126,10 +128,3 @@ data SelectBinOp = Except
                  | Intersect
                  | IntersectAll
                  deriving (Show, Read, Eq)
-
-{- Record Level Bin Ops
-
-data LimitOp = LimitOp Int | OffsetOp Int | LimitOffsetOp Int Int
-             deriving Show
--}
-

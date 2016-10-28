@@ -4,10 +4,10 @@
 --                Purely Agile Limited (c) 2014-2016
 -- License     :  BSD-style
 
-module Database.Internal.Postgres.Pretty where
+module DBRecord.Internal.Postgres.Pretty where
 
-import Database.Internal.Postgres.Types hiding (alias, criteria)
-import qualified Database.Internal.Postgres.Types as PGT
+import DBRecord.Internal.Postgres.Types hiding (alias, criteria)
+import qualified DBRecord.Internal.Postgres.Types as PGT
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 import Data.Foldable (toList)
@@ -204,7 +204,7 @@ ppUpdateReturning (Returning update returnExprs) =
   ppUpdate update
   $$ text "RETURNING"
   <+> commaV ppSqlExpr (toList returnExprs)
-  
+
 deliteral :: SqlExpr -> SqlExpr
 deliteral expr@(ConstSqlExpr _) = FunSqlExpr "COALESCE" [expr]
 deliteral expr                  = expr

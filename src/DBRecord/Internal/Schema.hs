@@ -16,7 +16,7 @@
 {-# LANGUAGE DeriveGeneric           #-}
 {-# LANGUAGE OverloadedStrings       #-}
 
-module Database.Schema where
+module DBRecord.Internal.Schema where
 
 import Data.Proxy
 import Data.Text (Text)
@@ -36,36 +36,9 @@ import Data.Time.Clock (UTCTime)
 import Data.CaseInsensitive  (CI)
 import Data.Int
 import Data.Vector (Vector)
-
-{-
-import GHC.TypeLits
-import GHC.Generics
-import GHC.Exts
-import Data.Kind
-import Data.Proxy
-import Data.Typeable
-import Data.Type.Equality
-import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Vector (Vector)
-import Data.Int
-import Data.ByteString (ByteString)
-import Data.Time.LocalTime
-import Data.Aeson
-import Data.UUID.Types
-import Data.Functor.Const
-import Data.Functor.Identity
-import           Data.CaseInsensitive  (CI)
-import           Data.Time.LocalTime (LocalTime)
-import           Data.Time.Calendar (Day)
-import           Data.Time.Clock (UTCTime)
--}
-
-newtype (f :: Symbol) ::: t = Field t
-  deriving (Show, Eq, Generic)
-
-valOf :: (s ::: t) -> t
-valOf (Field v) = v
+import DBRecord.Internal.Types
+import DBRecord.Internal.Common
+import DBRecord.Internal.DBTypes
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
@@ -83,7 +56,11 @@ class ( -- TypeCxts db (Types db)
   type TabIgnore db :: [Type]
   type TabIgnore db = '[]
 
-type family CustomPGTypeRep (ty :: *)  :: PGTypeK
+  type DB db :: DbK
+  type DB db = TypeError ('Text "DB type is not configured in the Database instance for type " ':<>: 'ShowType db ':$$:
+                          'Text "Hint: add following to the Database instance for type "       ':<>: 'ShowType db ':$$:
+                          'Text "type DB " ':<>: 'ShowType db ':<>: 'Text " = " ':<>: 'ShowType 'Postgres
+                         )
 
 class ( Database db
       , AssertCxt (Elem (Tables db) tab) ('Text "Database " ':<>: 'ShowType db ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
@@ -132,66 +109,18 @@ class ( Database db
   checks :: DBChecks db tab
   checks = DBChecks Nil
 
-getSchemaName :: forall db.
-               ( KnownSymbol (GetSchemaName db)
-               ) => Const Text db
-getSchemaName = Const $ T.pack $ symbolVal (Proxy @(GetSchemaName db))
+class ( Generic ty
+      ) => UDType (db :: *) (ty :: *) where
+  type TypeMappings ty :: UDTypeMappings
+  type TypeMappings ty = 'Flat '[]
 
-getTableName :: forall db tab.
-               ( KnownSymbol (TableName tab)
-               ) => Const Text (db,tab)
-getTableName = Const $ T.pack $ symbolVal (Proxy @(TableName tab))
-
-getTableFields :: forall db tab.
-                 ( SingCols db (OriginalTableFields tab) (ColumnNames tab)
-                 ) => Const [Column] (db, tab)
-getTableFields = Const $ recordToList $ singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames tab))
-
-getTableHFields ::  forall db tab.
-                   ( SingCols db (OriginalTableFields tab) (ColumnNames tab)
-                   ) => Proxy db -> Proxy tab -> HList (Const Column) (OriginalTableFields tab)
-getTableHFields _ _ = singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames tab))
-                 
-
-class SingCols (db :: *) (cols :: [*]) (colMap :: [(Symbol, Symbol)]) where
-  singCols :: Proxy db -> Proxy cols -> Proxy colMap -> HList (Const Column) cols
-
-instance ( SingCols db cols colMap
-         , KnownSymbol cn
-         , InvalidPGType db ct
-         , ShowPGType (GetPGTypeRep ct)
-         , aliasedCol ~ AliasedCol cn colMap
-         , KnownSymbol aliasedCol
-         ) => SingCols db ((cn ::: ct) ': cols) colMap where
-  singCols _ _ _ = let pgTy = showPGType (Proxy :: Proxy (GetPGTypeRep ct))
-                       colN = T.pack $ symbolVal (Proxy @aliasedCol)
-                   in (Const $ Column colN pgTy) :& singCols (Proxy @db) (Proxy :: Proxy cols) (Proxy @colMap)
-
-instance SingCols db '[] colMap where
-  singCols _ _ _ = Nil
-
-class SingAttrs (db :: *) (attrs :: [(Symbol, [*])]) where
-  singAttrs :: Proxy db -> Proxy attrs -> HList (Const DConAttr) attrs
-
-instance ( SingAttrs db cons
-         , SingCols db flds '[] -- TODO: composite type alias
-         , KnownSymbol c
-         ) => SingAttrs db ('(c, flds) ': cons) where
-  singAttrs pxyDB _ =
-    let colHLists = singCols (Proxy @db) (Proxy @flds) (Proxy @('[]))
-        cn = T.pack $ symbolVal (Proxy @c)
-    in Const (DConAttr (cn, recordToList colHLists)) :& singAttrs pxyDB (Proxy @cons)
-
-instance SingAttrs db '[] where
-  singAttrs _ _ = Nil
-
-newtype DConAttr = DConAttr (ColName, [Column])
+data UDTypeMappings = Composite [(Symbol, Symbol)]
+                    | Flat [(Symbol, Symbol)]
 
 type ColName = Text
 type ColType  = Text
 data Column = Column !ColName !ColType
   deriving (Show)
-
 
 data family Sing (a :: k)
 
@@ -312,20 +241,6 @@ instance SingE (defs :: DefSyms) where
 newtype I a = I a
   deriving (Show, Eq)
 
-class (AllF f xs) => All (f :: k -> Constraint) (xs :: [k])
-instance (AllF f xs) => All f xs
-
-type family AllF (c :: k -> Constraint) (xs :: [k]) :: Constraint
-type instance AllF _c '[]       = ()
-type instance AllF  c (x ': xs) = (c x, All c xs)
-
-class (AllF (All f) xss) => All2 f xss
-instance (AllF (All f) xss) => All2 f xss
-
-type family If (c :: Bool) (t :: k) (f :: k) :: k where
-  If 'True t f  = t
-  If 'False t f = f
-
 type family ValidateTableProps (tab :: *) :: Constraint where
   ValidateTableProps tab = ( MissingField tab (ElemFields1 (OriginalTableFields tab) (PrimaryKey tab))
                            , MissingField tab (ElemFields1 (OriginalTableFields tab) (HasDefault tab))
@@ -407,17 +322,6 @@ data IgnoredCol
   | IgnoreExcept [Symbol]
   | IgnoreNone
 
-data HList :: (k -> *) -> [k] -> * where
-  Nil  :: HList f '[]
-  (:&) :: f t -> HList f ts -> HList f (t ': ts)
-
-infixr 7 :&
-
-infixr 5 :++
-type family (:++) (as :: [k]) (bs :: [k]) :: [k] where
-  '[] :++ bs       = bs
-  (a ': as) :++ bs = a ': (as :++ bs)
-
 data Def (tab :: *) (fn :: Symbol) = forall v.Def v
 
 def :: forall (fn :: Symbol) (tab :: *) v.(ValidateDBFld tab fn v) => v -> Def tab fn
@@ -465,9 +369,6 @@ dbChecks = DBChecks
 type family ValidateDBFld tab (fn :: Symbol) t :: Constraint where
   ValidateDBFld tab fn t = UnifyField (OriginalTableFields tab) (fn ::: t) ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
 
-type family GetTypeName (t :: *) :: Symbol where
-  GetTypeName t              = GenTyCon (Rep t)
-
 type family DefaultTableName (t :: *) :: Symbol where
   DefaultTableName t                = GenTyCon (Rep t)
 
@@ -498,35 +399,6 @@ type family GetTypeFields (t :: *) :: [(Symbol, [*])] where
 newtype EnumType a = EnumType a
 newtype SumType a = SumType a
 
-type family Elem (xs :: [k]) (v :: k) :: Bool where
-  Elem (x ': xs) x = 'True
-  Elem (x ': xs) y = Elem xs y
-  Elem '[]       x = 'False
-
-type family FindField (xs :: [*]) (fn :: Symbol) :: (Maybe *) where
-  FindField ((fn ::: t) ': xs) fn  = 'Just t
-  FindField ((fn' ::: t) ': xs) fn = FindField xs fn
-  FindField '[] fn                 = 'Nothing
-
-type family ElemField (xs :: [*]) (fn :: Symbol) :: Bool where
-  ElemField ((fn ::: t) ': xs) fn  = 'True
-  ElemField ((fn' ::: t) ': xs) fn = ElemField xs fn
-  ElemField '[] fn                 = 'False
-
-
-type family AssertCxt (c :: Bool) (a :: ErrorMessage) :: Constraint where
-  AssertCxt 'True msg  = ()
-  AssertCxt 'False msg = TypeError msg
-
-type family UnifyField (flds :: [*]) (f :: *) (nfMsg :: ErrorMessage) :: Constraint where
-  UnifyField ((fn ::: ft') ': fs) (fn ::: ft) nfMsg  = (ft ~ ft')
-  UnifyField ((fn' ::: ft') ': fs) (fn ::: ft) nfMsg = UnifyField fs (fn ::: ft) nfMsg
-  UnifyField '[] (fn ::: ft) nfMsg                   = TypeError nfMsg
-
-type family Concat (xss :: [[k]]) :: [k] where
-  Concat (xs ': xss) = xs   -- TODO:
-  Concat '[]         = '[]
-
 {-
 ERROR:  foreign key constraint "pk_users" cannot be implemented
 DETAIL:  Key columns "id" and "id" are of incompatible types: text and integer.
@@ -552,248 +424,6 @@ type family DBConstraintFmt (tab :: *) (ct :: k) :: [Symbol] where
   DBConstraintFmt tab ('CheckOn fs cn)    = "ck" ': (TableName tab) ': '[cn]
   DBConstraintFmt tab ('Ix col)           = '["ix", col]
 
-type family InvalidPGType (db :: *) a :: Constraint where
-  InvalidPGType _ Int           = ()
-  InvalidPGType _ Double        = ()
-  InvalidPGType _ Int64         = ()
-  InvalidPGType _ Int32         = ()
-  InvalidPGType _ Bool          = ()
-  InvalidPGType _ String        = ()
-  InvalidPGType _ Text          = ()
-  InvalidPGType _ (CI Text)     = ()
-  InvalidPGType _ ByteString    = ()
-  InvalidPGType _ Value         = ()
-  InvalidPGType _ UTCTime       = ()
-  InvalidPGType _ LocalTime     = ()
-  InvalidPGType _ TimeOfDay     = ()
-  InvalidPGType _ Day           = ()
-  InvalidPGType _ UUID          = ()
-  InvalidPGType db (Maybe a)     = InvalidPGType db a
-  InvalidPGType db (Vector a)    = InvalidPGType db a
-  InvalidPGType db (Json a)      = InvalidPGType db a
-  InvalidPGType db (JsonStr a)   = InvalidPGType db a
-  InvalidPGType db (CustomType a) = ()
-  InvalidPGType db a = ValidateCustTy db (IsNewTy (Rep a)) a
-{-  InvalidPGType db a = AssertCxt (Elem (Types db) (UnWrapNT (IsNewTy (Rep a)) a))
-    ('Text "Invalid postgres type: " :<>: (ShowType (UnWrapNT (IsNewTy (Rep a)) a))
-     :$$: 'Text "Hint: Add " :<>: (ShowType (UnWrapNT (IsNewTy (Rep a)) a)) :<>: ('Text " to Types field in Database instance of ") :<>: (ShowType db)
-    )
--}
-
-type family ValidateCustTy (db :: *) (isNewTy :: Bool) (t :: *) :: Constraint where
-  ValidateCustTy db 'True t = InvalidPGType db (InnerTy t)
-  ValidateCustTy db 'False t = AssertCxt (Elem (Types db) t)
-    ('Text "Invalid postgres type: " ':<>: 'ShowType t
-     ':$$: 'Text "Hint: Add " ':<>: 'ShowType t ':<>: ('Text " to Types field in Database instance of ") ':<>: ('ShowType db)
-    )
-type family UnWrapNT (isNewTy :: Bool) (t :: *) where
-  UnWrapNT 'True t  = InnerTy t
-  UnWrapNT 'False t = t
-
-data PGSqlName (t :: *)
-
-data PGTypeRep (rep :: PGTypeK)
-
--- type instance DBTy.Column PGSqlName t = PGTypeRep (GetPGTypeRep t)
-
-data PGTypeK
-  = PGInt4
-  | PGInt8
-  | PGInt2
-  | PGFloat4
-  | PGFloat8
-  | PGBool
-  | PGNumeric Nat Nat
-  | PGChar Nat
-  | PGText
-  | PGCiText
-  | PGDate
-  | PGTime
-  | PGTimestamp
-  | PGTimestamptz
-  | PGUuid
-  | PGByteArr
-  | PGJson
-  | PGJsonB
-  | PGArray PGTypeK
-  | PGNullable PGTypeK
-  | PGCustomType Type PGTypeK Bool
-  | PGTypeName Symbol
-
-
-type family GetPGTypeRep (t :: *) = (r :: PGTypeK) | r -> t where
-  GetPGTypeRep Int                = 'PGInt4
-  GetPGTypeRep Int16              = 'PGInt2
-  GetPGTypeRep Int64              = 'PGInt8
-  GetPGTypeRep Double             = 'PGFloat8
-  GetPGTypeRep Char               = 'PGChar 1
-  GetPGTypeRep Text               = 'PGText
-  GetPGTypeRep (CI Text)          = 'PGCiText
-  GetPGTypeRep ByteString         = 'PGByteArr
-  GetPGTypeRep Bool               = 'PGBool
-  GetPGTypeRep Day                = 'PGDate
-  GetPGTypeRep UTCTime            = 'PGTimestamptz
-  GetPGTypeRep LocalTime          = 'PGTimestamp
-  GetPGTypeRep TimeOfDay          = 'PGTime
-  GetPGTypeRep Value              = 'PGJsonB
-  GetPGTypeRep (Json a)           = 'PGCustomType (Json a) 'PGJsonB 'False
-  GetPGTypeRep (JsonStr a)        = 'PGCustomType (JsonStr a) 'PGJson 'False
-  GetPGTypeRep UUID               = 'PGUuid
-  GetPGTypeRep (Maybe t)          = 'PGNullable (GetPGTypeRep t)
-  GetPGTypeRep (Vector t)         = 'PGArray (GetPGTypeRep t)
-  GetPGTypeRep (CustomType a)     = 'PGCustomType (CustomType a) (CustomPGTypeRep a) 'False
-  GetPGTypeRep a                  = 'PGCustomType a ('PGTypeName (GetTypeName a)) (IsNewType (Rep a))
-
-newtype CustomType a = CustomType a
-
-type family GenTyCon (rep :: * -> *) :: Symbol where
-  GenTyCon (D1 ('MetaData tyName _ _ _) _) = tyName
-  GenTyCon r                               = TypeError ('Text "GenTyCon expects only generic rep of type, but found " ':<>: 'ShowType r)
-
-type family IsNewType (rep :: * -> *) :: Bool where
-  IsNewType (D1 ('MetaData _ _ _ isNew) _) = isNew
-
-type family InnerTy (t :: *) :: * where
-  InnerTy Int                = Int
-  InnerTy Int16              = Int16
-  InnerTy Int64              = Int64
-  InnerTy Double             = Double
-  InnerTy Char               = Char
-  InnerTy Text               = Text
-  InnerTy (CI Text)          = CI Text
-  InnerTy ByteString         = ByteString
-  InnerTy Bool               = Bool
-  InnerTy Day                = Day
-  InnerTy UTCTime            = UTCTime
-  InnerTy LocalTime          = LocalTime
-  InnerTy TimeOfDay          = TimeOfDay
-  InnerTy Value              = Value
-  InnerTy (Json a)           = Json a
-  InnerTy (JsonStr a)        = JsonStr a
-  InnerTy UUID               = UUID
-  InnerTy (Maybe t)          = Maybe t
-  InnerTy (Vector t)         = Vector t
-  InnerTy (CustomType a)     = CustomType a
-  InnerTy a                  = GenInnerTy (Rep a)
-
-type family GenInnerTy (rep :: * -> *) :: * where
-  GenInnerTy (D1 _ (C1 _ (S1 _ (K1 _ t)))) = InnerTy t
-  GenInnerTy r = TypeError ('Text "Expecting a newtype rep but found: " ':<>: 'ShowType r)
-
-type family IsNewTy (rep :: * -> *) :: Bool where
-  IsNewTy (D1 _ (C1 _ (S1 _ (K1 _ t)))) = 'True
-  IsNewTy _                             = 'False
-
-type family (a :: Bool) && (b :: Bool) :: Bool where
-  'True && 'True = 'True
-  a     && b     = 'False
-
-data AdtK = EnumTy | SumTy Bool | ProdTy Bool
-
-type family IsEnumLike (rep :: * -> *) :: Bool where
-  IsEnumLike (D1 i f)                    = IsEnumLike f
-  IsEnumLike ((C1 i1 c1) :+: (C1 i2 c2)) = IsEnumLike c1 && IsEnumLike c2
-  IsEnumLike U1                          = 'True
-  IsEnumLike r                           = 'False
-
-type family ADTType (rep :: * -> *) :: AdtK where
-  ADTType (D1 i f)                    = ADTType f
-  ADTType ((C1 i1 U1) :+: (C1 i2 U1)) = 'EnumTy
-  ADTType ((C1 i1 U1) :+: (C1 i2 c))  = ADTType c
-  ADTType ((C1 i1 c)  :+: (C1 i2 U1)) = ADTType c
-  ADTType ((C1 i1 c1) :+: (C1 i2 c2)) = ADTType c1
-  ADTType (C1 ('MetaCons cn _ 'False) _) = TypeError ('Text "The constructor " ':<>: 'ShowType cn ':<>: 'Text " does not have named fields")
-
-type family GenTyFields (rep :: * -> *) :: [(Symbol, [*])] where
-  GenTyFields (D1 i f)  = GenTyFields f
-  GenTyFields (f :+: g) = (GenTyFields f) :++ (GenTyFields g)
-  GenTyFields (C1 ('MetaCons cn i t) c)  = '[ '(cn, GenProdTyFields (C1 ('MetaCons cn i t) c))]
-
-type family GenProdTyFields (rep :: * -> *) :: [*] where
-  GenProdTyFields (C1 i c)  = GenProdTyFields c
-  GenProdTyFields U1        = '[]
-  GenProdTyFields (f :*: g) = GenProdTyFields f :++ GenProdTyFields g
-  GenProdTyFields (S1 ('MetaSel ('Just sn) _ _ _) (K1 i f)) = '[sn ::: f]
-
-type family GenTabFields (rep :: * -> *) :: [*] where
-  GenTabFields (D1 i f)  = GenTabFields f
-  GenTabFields (f :+: g) = TypeError ('Text "Table cannot be a sum type")
-  GenTabFields (C1 ('MetaCons cn _ 'False) _) = TypeError ('Text "The constructor " ':<>: 'ShowType cn ':<>: 'Text " does not have named fields")
-  GenTabFields (C1 i c) = GenTabFields c
-  GenTabFields (f :*: g) = GenTabFields f :++ GenTabFields g
-  GenTabFields (S1 ('MetaSel ('Just sn) _ _ _) (K1 i f)) = '[sn ::: f]
-
-newtype JsonStr a = JsonStr a
-newtype Json a = Json a
-
-json :: (ToJSON a) => a -> Json a
-json = Json
-
-jsonStr :: (ToJSON a) => a -> JsonStr a
-jsonStr = JsonStr
-
-class ShowPGType (pgTy :: PGTypeK) where
-  showPGType :: Proxy pgTy -> Text
-
-instance ShowPGType 'PGInt2 where
-  showPGType _ = "SMALLINT"
-
-instance ShowPGType 'PGInt4 where
-  showPGType _ = "INTEGER"
-
-instance ShowPGType 'PGInt8 where
-  showPGType _ = "BIGINT"
-
-instance ShowPGType 'PGBool where
-  showPGType _ = "BOOLEAN"
-
-instance ShowPGType 'PGFloat8 where
-  showPGType _ = "DOUBLE PRECISION"
-
-instance KnownNat n => ShowPGType ('PGChar n) where
-  showPGType _ = T.pack $ "CHARACTER (" ++ (show $ natVal $ Proxy @n) ++ ")"
-
-instance ShowPGType 'PGText where
-  showPGType _ = "TEXT"
-
-instance ShowPGType 'PGByteArr where
-  showPGType _ = "BYTEA"
-
-instance ShowPGType 'PGTimestamptz where
-  showPGType _ = "TIMESTAMPTZ"
-
-instance ShowPGType 'PGTimestamp where
-  showPGType _ = "TIMESTAMP"
-
-instance ShowPGType 'PGDate where
-  showPGType _ = "DATE"
-
-instance ShowPGType 'PGTime where
-  showPGType _ = "TIME"
-
-instance ShowPGType 'PGUuid where
-  showPGType _ = "UUID"
-
-instance ShowPGType 'PGJsonB where
-  showPGType _ = "JSONB"
-
-instance ShowPGType pgTy => ShowPGType ('PGNullable pgTy) where
-  showPGType _ = showPGType (Proxy :: Proxy pgTy)
-
-instance ShowPGType pgTy => ShowPGType ('PGArray pgTy) where
-  showPGType _ = showPGType (Proxy :: Proxy pgTy) `T.append` "[]"
-
-instance KnownSymbol tab => ShowPGType ('PGTypeName tab) where
-  showPGType _ = T.toUpper $ T.pack $ symbolVal (Proxy :: Proxy tab)
-
-instance (ShowPGType (GetPGTypeRep (InnerTy ty))) => ShowPGType ('PGCustomType ty pgTy 'True) where
-  showPGType _ = showPGType (Proxy :: Proxy (GetPGTypeRep (InnerTy ty)))
-
-instance (ShowPGType pgTy, Typeable pgTy) => ShowPGType ('PGCustomType ty pgTy 'False) where
-  showPGType _ = if typeRepTyCon (typeRep (Proxy @pgTy)) == typeRepTyCon (typeRep (Proxy @ 'PGTypeName))
-                 then doubleQuote $ showPGType (Proxy :: Proxy pgTy)
-                 else showPGType (Proxy :: Proxy pgTy)
-
 type CheckExpr = Text
 type DefExpr = Text
 
@@ -801,14 +431,22 @@ recordToList :: HList (Const a) rs -> [a]
 recordToList Nil = []
 recordToList (x :& xs) = getConst x : recordToList xs
 
-doubleQuote :: Text -> Text
-doubleQuote = quoteBy '"' (Just '"')
+class SingCols (db :: *) (cols :: [*]) (colMap :: [(Symbol, Symbol)]) where
+  singCols :: Proxy db -> Proxy cols -> Proxy colMap -> HList (Const Column) cols
 
-quoteBy :: Char -> Maybe Char -> Text -> Text
-quoteBy ch esc s = T.pack $ ch : go esc (T.unpack s) ++ (ch:[])
-  where
-    go Nothing s'           = s'
-    go (Just _) ""          = ""
-    go (Just esch) (ch':xs)
-      | ch' == esch          = esch : ch': go esc xs
-    go esc' (x:xs)          = x : go esc' xs
+newtype DConAttr = DConAttr (ColName, [Column])
+
+class SingAttrs (db :: *) (attrs :: [(Symbol, [*])]) where
+  singAttrs :: Proxy db -> Proxy attrs -> HList (Const DConAttr) attrs
+
+instance ( SingAttrs db cons
+         , SingCols db flds '[] -- TODO: composite type alias
+         , KnownSymbol c
+         ) => SingAttrs db ('(c, flds) ': cons) where
+  singAttrs pxyDB _ =
+    let colHLists = singCols (Proxy @db) (Proxy @flds) (Proxy @('[]))
+        cn = T.pack $ symbolVal (Proxy @c)
+    in Const (DConAttr (cn, recordToList colHLists)) :& singAttrs pxyDB (Proxy @cons)
+
+instance SingAttrs db '[] where
+  singAttrs _ _ = Nil

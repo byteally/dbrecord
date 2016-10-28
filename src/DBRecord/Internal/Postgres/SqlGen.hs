@@ -5,16 +5,16 @@
 --                Purely Agile Limited (c) 2014-2016
 -- License     :  BSD-style
 
-module Database.Internal.Postgres.SqlGen where
+module DBRecord.Internal.Postgres.SqlGen where
 
 import           Prelude hiding (product)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Base16 as Base16
 import qualified Data.List.NonEmpty as NEL
-import Database.Internal.Postgres.Types hiding (alias, criteria, attrs)
-import qualified Database.Internal.Postgres.Types as PGT
-import qualified Database.Internal.PrimQuery as PQ
+import DBRecord.Internal.Postgres.Types hiding (alias, criteria, attrs)
+import qualified DBRecord.Internal.Postgres.Types as PGT
+import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import qualified Data.Maybe as M
 
