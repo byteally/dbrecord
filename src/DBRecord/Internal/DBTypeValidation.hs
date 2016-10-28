@@ -1,14 +1,13 @@
+{-# OPTIONS_GHC -fno-warn-orphans -Wno-redundant-constraints #-}
 {-# LANGUAGE TypeApplications, ScopedTypeVariables, DataKinds, KindSignatures, TypeOperators, TypeFamilies, UndecidableInstances, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts #-}
 module DBRecord.Internal.DBTypeValidation where
 
 import DBRecord.Internal.DBTypes
 import DBRecord.Internal.Schema
-import DBRecord.Internal.Types
 import DBRecord.Internal.Common
 import Data.Text (Text)
 import qualified Data.Text as T
 import DBRecord.Internal.Types
-import Data.Functor.Const
 import Data.Proxy
 import GHC.TypeLits
 import GHC.Exts

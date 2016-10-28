@@ -2,9 +2,6 @@ module DBRecord.Internal.Postgres.Types where
 
 import qualified Data.List.NonEmpty as NEL
 import Data.Text
-import DBRecord.Internal.Types
-import DBRecord.Internal.Common
-import GHC.Generics
 
 type TableName = Text
 type Name      = Text

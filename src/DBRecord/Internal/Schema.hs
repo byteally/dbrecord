@@ -26,19 +26,9 @@ import GHC.Generics
 import GHC.Exts
 import Data.Kind
 import Data.Typeable
-import Data.Aeson
-import Data.UUID.Types
 import Data.Functor.Const
-import Data.Time.LocalTime
-import Data.ByteString (ByteString)
-import Data.Time.Calendar (Day)
-import Data.Time.Clock (UTCTime)
-import Data.CaseInsensitive  (CI)
-import Data.Int
-import Data.Vector (Vector)
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
-import DBRecord.Internal.DBTypes
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
@@ -227,7 +217,7 @@ instance SingE (ft :: ForeignRef reft) where
                                        )
   fromSing (SRef coln reft) = ( [T.pack $ fromSing coln]
                              , T.pack $ tabName reft
-                             , []
+                             , [T.pack $ fromSing coln]
                              )
 
 instance SingE (ch :: CheckCT) where

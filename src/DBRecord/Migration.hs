@@ -16,6 +16,7 @@
 module DBRecord.Migration
        ( mkMigration
        , renderMig
+       , diffMigration  
        ) where
 
 import DBRecord.Internal.Migration
@@ -24,17 +25,11 @@ import DBRecord.Internal.Types
 import DBRecord.Internal.Common
 import DBRecord.Internal.DBTypes
 
-import Data.Type.Equality
-import GHC.Generics
-import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Functor.Identity
 import Data.Proxy
-import GHC.TypeLits
-import Data.ByteString (ByteString)
 import GHC.Exts
 import Data.Functor.Const
-import DBRecord.Internal.Migration
+
 
 toTypeAttr :: HList (Const DConAttr) xs -> TypeAttr
 toTypeAttr hlist =
@@ -76,7 +71,9 @@ mkMigrationTable :: forall db tab pks fks chks uqs defs.
                    , defs ~ HasDefault tab
                    ) => Proxy (db :: *) -> Sing (tab :: *) -> [Migration]
 mkMigrationTable _ _
-  = let addPks = AlterTable tabN $ AddConstraint "pk_" $ AddPrimaryKey $ fmap T.pack $ fromSing (sing :: Sing pks)
+  = let addPks = case fromSing (sing :: Sing pks) of
+                      [] -> []
+                      xs  -> [AlterTable tabN $ AddConstraint "pk_" $ AddPrimaryKey $ fmap T.pack $ xs]
         addUqs = let addUq fs = AlterTable tabN $ AddConstraint "uq_" $ AddUnique $ fmap T.pack fs
                  in fmap addUq $ fromSing (sing :: Sing uqs)
         addFks = let addFk (fcols, reft, rcols) = AlterTable tabN $ AddConstraint "fk_" $ AddForeignKey fcols reft rcols
@@ -88,12 +85,13 @@ mkMigrationTable _ _
         tabColHList = singCols (Proxy @db) (Proxy :: Proxy (OriginalTableFields tab)) (Proxy @(ColumnNames tab))
         createTab = [CreateTable tabN $ recordToList tabColHList]
         tabN = T.pack $ fromSing (sing :: Sing (TableName tab))
-    in addPks : concat [ createTab
-                       , addUqs
-                       , addFks
-                       , addChks
-                       , addDefs
-                       ]
+    in  concat [ createTab
+               , addPks  
+               , addUqs
+               , addFks
+               , addChks
+               , addDefs
+               ]
 
 type family TyCxts (db :: *) (tys :: [*]) :: Constraint where
   TyCxts db (ty ': ts) = ( ShowDBType (DB db) (GetDBTypeRep (DB db) ty)
@@ -134,4 +132,3 @@ mkMigrationType _ _
 
 diffMigration :: [Migration] -> [Migration] -> [Migration] -> [Migration]
 diffMigration _current _previous _reified = []
-

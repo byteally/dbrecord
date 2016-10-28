@@ -16,7 +16,6 @@ import DBRecord.Schema
 import DBRecord.Internal.Order
 import DBRecord.Internal.Expr
 import DBRecord.Internal.Predicate
-import DBRecord.Internal.PrimQuery
 
 get :: Table db tab => db -> tab -> ()
 getBy :: ()

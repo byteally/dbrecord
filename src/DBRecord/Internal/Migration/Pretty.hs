@@ -4,22 +4,40 @@ module DBRecord.Internal.Migration.Pretty where
 import DBRecord.Internal.Migration.Types
 import DBRecord.Internal.Schema (Column (..))
 
-import Data.Foldable (toList)
-import Data.Monoid ((<>))
-import Data.List (intersperse)
-import Data.Text (Text, unpack)
-import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
-                                  parens, comma, punctuate, quotes,
-                                  hcat, vcat, brackets, doubleQuotes,
-                                  hsep, equals, char, semi, render)
+import Data.Text (Text, unpack, pack)
+import qualified Text.PrettyPrint.HughesPJ as Pretty
+import Text.PrettyPrint.HughesPJ (Doc, (<+>), text, 
+                                  parens, comma, punctuate,
+                                  hsep, semi, render)
+
+escQuote :: Text -> Text
+escQuote = escapeBy (Just '\'')
+
+escDoubleQuote :: Text -> Text
+escDoubleQuote = escapeBy (Just '"')
+
+escapeBy :: Maybe Char -> Text -> Text
+escapeBy esc s = pack $ go esc (unpack s)
+  where
+    go Nothing s'           = s'
+    go (Just _) ""          = ""
+    go (Just esch) (ch':xs)
+      | ch' == esch          = esch : ch': go esc xs
+    go esc' (x:xs)          = x : go esc' xs
 
 text_ :: Text -> Doc
 text_ = text . unpack
 
+quotes :: Text -> Doc
+quotes = Pretty.quotes . text_ . escQuote
+
+doubleQuotes :: Text -> Doc
+doubleQuotes = Pretty.doubleQuotes . text_ . escDoubleQuote
+
 ppMigration :: Migration -> Doc
 ppMigration (CreateTable tab cols) =
       text "CREATE TABLE"
-  <+> doubleQuotes (text_ tab)
+  <+> doubleQuotes tab
   <+> parens (hsep (punctuate comma (map ppColumn cols)))
   <+> semi
 ppMigration (CreateType ty cols) =
@@ -32,11 +50,11 @@ ppMigration (CreateEnum ty cols) =
       text "CREATE TYPE"
   <+> text_ ty
   <+> text "AS ENUM"
-  <+> parens (hsep (punctuate comma (map (quotes . text_) cols)))
+  <+> parens (hsep (punctuate comma (map quotes cols)))
   <+> semi
 ppMigration (DropTable tab) =
       text "DROP TABLE"
-  <+> doubleQuotes (text_ tab)
+  <+> doubleQuotes tab
   <+> semi
 ppMigration (DropType ty) =
       text "DROP TYPE"
@@ -44,13 +62,18 @@ ppMigration (DropType ty) =
   <+> semi
 ppMigration (AlterTable tab alter) =
       text "ALTER TABLE"
-  <+> doubleQuotes (text_ tab)
+  <+> doubleQuotes tab
   <+> ppAlterTable alter
   <+> semi
+ppMigration (AlterType typ alter) =
+      text "ALTER TYPE"
+  <+> doubleQuotes typ
+  <+> ppAlterType alter
+  <+> semi  
 
 ppColumn :: Column -> Doc
 ppColumn (Column name ty) =
-      doubleQuotes (text_ name)
+      doubleQuotes name
   <+> text_ ty 
 
 ppAlterTable :: AlterTable -> Doc
@@ -94,7 +117,7 @@ ppAddConstraint (AddForeignKey fcols rtab rcols) =
       text "FOREIGN KEY"
   <+> parens (hsep (punctuate comma (map text_ fcols)))
   <+> text "REFERENCES"
-  <+> doubleQuotes (text_ rtab)
+  <+> doubleQuotes rtab
   <+> parens (hsep (punctuate comma (map text_ rcols)))
 
 ppAlterColumn :: AlterColumn -> Doc
@@ -110,24 +133,28 @@ ppAlterColumn DropDefault =
      text "DROP DEFAULT"
 
 ppAlterType :: AlterType -> Doc
-ppAlterType (RenameType newTy) =
+ppAlterType (RenameType typ) =
       text "RENAME TO"
-  <+> doubleQuotes (text_ newTy)
-ppAlterType (AddAttribute colN) =
+  <+> doubleQuotes typ
+  <+> semi
+ppAlterType (AddAttribute col) =
       text "ADD ATTRIBUTE"
-  <+> ppColumn colN
-ppAlterType (DropAttribute cname) =
-     text "DROP ATTRIBUTE"
-  <+> text_ cname
-ppAlterType (AddAfterEnumVal newVal oldVal) =
-     text "ADD VALUE"
-  <+> text_ newVal
+  <+> ppColumn col
+  <+> semi
+ppAlterType (DropAttribute col) =
+      text "DROP ATTRIBUTE"
+  <+> doubleQuotes col
+  <+> semi
+ppAlterType (AlterAttribute col altAttr) =
+      text "ALTER ATTRIBUTE"
+  <+> doubleQuotes col
+  <+> ppAlterAttr altAttr
+  <+> semi
+ppAlterType (AddAfterEnumVal newEnum prevEnum) =
+      text "ADD VALUE"
+  <+> text_ newEnum
   <+> text "AFTER"
-  <+> text_ oldVal
-ppAlterType (AlterAttribute cname alter) =
-     text "ALTER ATTRIBUTE"
-  <+> text_ cname
-  <+> ppAlterAttr alter
+  <+> text_ prevEnum
 
 ppAlterAttr :: AlterAttribute -> Doc
 ppAlterAttr (ChangeAttrType ty) =

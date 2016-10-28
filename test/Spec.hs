@@ -1,11 +1,11 @@
 {-# LANGUAGE DataKinds, TypeOperators, UndecidableInstances, OverloadedLabels, FlexibleInstances, MultiParamTypeClasses, DuplicateRecordFields, GADTs, TypeApplications, KindSignatures, DeriveGeneric, FlexibleContexts, FunctionalDependencies, ExplicitForAll, TypeFamilies, ScopedTypeVariables, PolyKinds, OverloadedStrings #-}
 module Main where
 
-import Database.Schema
-import Database.Migration
-import Database.Internal.Migration
-import Database.Internal.Types
-import Database.Internal.Common
+import DBRecord.Schema
+import DBRecord.Migration
+import DBRecord.Internal.Migration
+import DBRecord.Internal.Types
+import DBRecord.Internal.Common
 
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -77,6 +77,7 @@ instance Table TestDB User where
                             ]
   type PrimaryKey User   = '["id"]
   type Unique User       = '[ '["name"], '["id"]]
+  type TableName User    = "usr"
   defaults = dbDefaults
     (  def @"id"   1
     :& def @"role" Admin

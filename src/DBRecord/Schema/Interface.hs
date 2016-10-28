@@ -1,13 +1,13 @@
-module Database.Schema.Interface
-       ( module Database.Internal.Types
-       , module Database.Internal.Common
-       , module Database.Internal.Schema
-       , module Database.Internal.DBTypes
-       , module Database.Internal.DBTypeValidation
+module DBRecord.Schema.Interface
+       ( module DBRecord.Internal.Types
+       , module DBRecord.Internal.Common
+       , module DBRecord.Internal.Schema
+       , module DBRecord.Internal.DBTypes
+       , module DBRecord.Internal.DBTypeValidation
        ) where
 
-import Database.Internal.Types
-import Database.Internal.Common
-import Database.Internal.Schema
-import Database.Internal.DBTypes
-import Database.Internal.DBTypeValidation
+import DBRecord.Internal.Types
+import DBRecord.Internal.Common
+import DBRecord.Internal.Schema
+import DBRecord.Internal.DBTypes
+import DBRecord.Internal.DBTypeValidation

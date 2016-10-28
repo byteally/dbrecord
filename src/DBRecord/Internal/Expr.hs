@@ -3,18 +3,18 @@
 module DBRecord.Internal.Expr where
 
 import qualified DBRecord.Internal.PrimQuery as PQ
-import Data.Aeson as A
-import Data.Aeson.Types as A
+-- import Data.Aeson as A
+-- import Data.Aeson.Types as A
 import qualified Data.HashMap.Strict as HM
-import qualified Data.Vector as V
+-- import qualified Data.Vector as V
 import qualified Data.Foldable as F
 import Data.String
 import qualified Data.Text as T
 import Data.Functor.Identity
 import Data.Typeable
-import Data.Scientific
+-- import Data.Scientific
 import GHC.Exts
-import Data.Typeable
+-- import Data.Typeable
 import qualified Debug.Trace as DT
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word8, Word16, Word32, Word64)
@@ -579,6 +579,7 @@ lookupField (fld : flds) scrMap = case lookupScopeRepMap fld scrMap of
     _  -> Nothing
   Just (ScopeRepNode scs) -> lookupField flds scs
   Nothing -> Nothing 
+lookupField _ _ = Nothing
   
 checkFieldType :: (Typeable t) => [T.Text] -> Proxy t -> ScopeRepMap -> Bool
 checkFieldType colPieces t scrMap =
@@ -602,9 +603,9 @@ exprParseErr :: Validation a
 exprParseErr = Left [ParseErr]
 
 formatCol :: T.Text -> Maybe [T.Text]
-formatCol t
-  | isCol t   = Just (splitCol t)
-  | otherwise = Nothing
+formatCol col
+  | isCol col   = Just (splitCol col)
+  | otherwise   = Nothing
 
   where isCol t = case T.null t of
           True  -> False
@@ -637,8 +638,8 @@ parseLiteral = (Expr . PQ.ConstExpr <$>) . go
         tRep = typeRep (Proxy @t)
 
 parseLitNull :: TypeRep -> T.Text -> Validation ()
-parseLitNull tRep t
-  | t == "null" = hasMaybeWrapper tRep
+parseLitNull txtRep t
+  | t == "null" = hasMaybeWrapper txtRep
   | otherwise   = exprParseErr
   where hasMaybeWrapper tRep = case splitTyConApp tRep of
           (tc, tReps) -> case (typeRepTyCon maybeTRep == tc) of
@@ -655,9 +656,9 @@ parseLitBool tRep t
   | otherwise = exprParseErr
 
 parseLitString :: TypeRep -> T.Text -> Validation T.Text
-parseLitString tRep t
-  | tRep == typeRep (Proxy :: Proxy T.Text) && isLitStr t = pure (dropQuotes t)
-  | otherwise                                             = exprParseErr
+parseLitString tRep txt
+  | tRep == typeRep (Proxy :: Proxy T.Text) && isLitStr txt = pure (dropQuotes txt)
+  | otherwise                                               = exprParseErr
 
   where isLitStr t = case T.null t of
           True  -> False

@@ -3,7 +3,6 @@ module DBRecord.Internal.DBTypes where
 
 import Data.Aeson
 import Data.UUID.Types
-import Data.Functor.Const
 import Data.Time.LocalTime
 import Data.ByteString (ByteString)
 import Data.Time.Calendar (Day)

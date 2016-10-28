@@ -1,5 +1,6 @@
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric #-}
-module Database.Internal.Types where
+module DBRecord.Internal.Types where
 
 import GHC.Generics
 import GHC.TypeLits
