@@ -152,9 +152,6 @@ isNotNull = unOp PQ.OpIsNotNull
 nothing :: Expr sc (Maybe a)
 nothing = Expr $ PQ.ConstExpr PQ.Null
 
-dbDefault :: Expr sc a
-dbDefault = Expr $ PQ.ConstExpr PQ.Default
-
 toNullable :: Expr sc a -> Expr sc (Maybe a)
 toNullable = unsafeCoerceExpr
 
@@ -199,6 +196,12 @@ false = Expr $ PQ.ConstExpr $ PQ.Bool False
 
 text :: T.Text -> Expr sc T.Text
 text = fromString . T.unpack
+
+dbDefault :: Expr sc a
+dbDefault = Expr $ PQ.DefaultInsertExpr
+
+dbDefault' :: PQ.PrimExpr
+dbDefault' = PQ.DefaultInsertExpr
 
 
 {- TODO
