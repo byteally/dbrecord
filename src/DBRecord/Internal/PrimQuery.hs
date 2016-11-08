@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveGeneric, FlexibleInstances #-}
 -- |
 -- Copyright   :  Daan Leijen (c) 1999, daan@cs.uu.nl
 --                HWT Group (c) 2003, haskelldb-users@lists.sourceforge.net
@@ -12,6 +12,9 @@ import Data.Text          (Text)
 import Data.ByteString    (ByteString)
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
+import Data.Binary
+import Data.Aeson
+import GHC.Generics
 
 -- import DBRecord.Migration hiding (TableName)
 -- import GHC.TypeLits
@@ -24,17 +27,17 @@ type Assoc     = [(Attribute, PrimExpr)]
 type Scheme    = [Attribute]
 type Name      = Text
 
-data JoinType = LeftJoin | RightJoin | FullJoin | InnerJoin deriving (Show, Read)
+data JoinType = LeftJoin | RightJoin | FullJoin | InnerJoin deriving (Show, Read, Generic)
 
 data Sym = Sym { symPrefix :: [Text]
                , symField  :: Text
-               } deriving (Show, Read)
+               } deriving (Show, Read, Generic)
 
 data PrimQuery = BaseTable TableId Clauses
                | Product (NEL.NonEmpty PrimQuery) Clauses
                | Join JoinType PrimExpr PrimQuery PrimQuery Clauses
                -- Values
-               deriving (Show, Read)
+               deriving (Show, Read, Generic)
 
 data Clauses = Clauses { projections :: [(Sym, PrimExpr)]
                        , criteria    :: [PrimExpr]
@@ -44,12 +47,12 @@ data Clauses = Clauses { projections :: [(Sym, PrimExpr)]
                        , limit       :: Maybe Int
                        , offset      :: Maybe Int
                        , alias       :: Maybe Text  
-                       } deriving (Show, Read)
+                       } deriving (Show, Read, Generic)
                          
 data TableId = TableId
   { schema :: Name
   , tableName :: TableName
-  } deriving (Show, Read)
+  } deriving (Show, Read, Generic)
 
 data Lit = Null
          | Default
@@ -59,7 +62,7 @@ data Lit = Null
          | Integer Integer
          | Double Double
          | Other Text
-         deriving (Show, Read)
+         deriving (Show, Read, Generic)
 
 data BinOp = OpEq | OpLt | OpLtEq | OpGt | OpGtEq | OpNotEq
            | OpAnd | OpOr
@@ -69,7 +72,7 @@ data BinOp = OpEq | OpLt | OpLtEq | OpGt | OpGtEq | OpNotEq
            | OpPlus | OpMinus | OpMul | OpDiv | OpMod
            | OpBitNot | OpBitAnd | OpBitOr | OpBitXor
            | OpAsg | OpAtTimeZone
-           deriving (Show,Read)
+           deriving (Show, Read, Generic)
 
 data UnOp = OpNot
           | OpIsNull
@@ -80,30 +83,30 @@ data UnOp = OpNot
           | OpLower
           | OpUpper
           | UnOpOther String
-          deriving (Show,Read)
+          deriving (Show, Read, Generic)
 
 data AggrOp = AggrCount | AggrSum | AggrAvg | AggrMin | AggrMax
             | AggrStdDev | AggrStdDevP | AggrVar | AggrVarP
             | AggrBoolOr | AggrBoolAnd | AggrArr | AggrStringAggr PrimExpr
             | AggrOther String
-            deriving (Show, Read)
+            deriving (Show, Read, Generic)
 
 data LimitOp = LimitOp Int | OffsetOp Int | LimitOffsetOp Int Int
-             deriving (Show, Read)
+             deriving (Show, Read, Generic)
                      
 data OrderExpr = OrderExpr OrderOp PrimExpr
-               deriving (Show,Read)
+               deriving (Show, Read, Generic)
 
 data OrderNulls = NullsFirst | NullsLast
-                deriving (Show,Read)
+                deriving (Show, Read, Generic)
 
 data OrderDirection = OpAsc | OpDesc
-                    deriving (Show,Read)
+                    deriving (Show, Read, Generic)
 
 data OrderOp = OrderOp
   { orderDirection :: OrderDirection
   , orderNulls     :: OrderNulls
-  } deriving (Show,Read)
+  } deriving (Show, Read, Generic)
 
 data PrimExpr = AttrExpr Sym -- Eg?
               | BaseTableAttrExpr Attribute
@@ -123,7 +126,7 @@ data PrimExpr = AttrExpr Sym -- Eg?
                                     -- here.  Perhaps a special type is
                                     -- needed for insert expressions.
               | ArrayExpr [PrimExpr] -- ^ ARRAY[..]
-              deriving (Read,Show)
+              deriving (Read, Show, Generic)
 
 data PrimQueryFold p = PrimQueryFold
   { baseTable :: TableId -> Clauses -> p
@@ -184,3 +187,44 @@ toSym flds = case flds of
 
 unsafeToSym :: [T.Text] -> Sym
 unsafeToSym = maybe (error "Panic: unsafeToSym") id . toSym 
+
+instance Binary PrimExpr
+instance Binary OrderExpr
+instance Binary AggrOp
+instance Binary OrderOp
+instance Binary UnOp
+instance Binary OrderDirection
+instance Binary OrderNulls
+instance Binary BinOp
+instance Binary Lit
+instance Binary Sym
+
+instance FromJSON PrimExpr
+instance FromJSON OrderExpr
+instance FromJSON AggrOp
+instance FromJSON OrderOp
+instance FromJSON UnOp
+instance FromJSON OrderDirection
+instance FromJSON OrderNulls
+instance FromJSON BinOp
+instance FromJSON Lit
+instance FromJSON Sym
+
+instance FromJSON ByteString where
+  parseJSON = undefined
+
+instance ToJSON PrimExpr
+instance ToJSON OrderExpr
+instance ToJSON AggrOp
+instance ToJSON OrderOp
+instance ToJSON UnOp
+instance ToJSON OrderDirection
+instance ToJSON OrderNulls
+instance ToJSON BinOp
+instance ToJSON Lit
+instance ToJSON Sym
+
+instance ToJSON ByteString where
+  toEncoding = undefined
+  toJSON     = undefined
+

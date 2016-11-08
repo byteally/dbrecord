@@ -3,22 +3,21 @@
 module DBRecord.Internal.Expr where
 
 import qualified DBRecord.Internal.PrimQuery as PQ
--- import Data.Aeson as A
--- import Data.Aeson.Types as A
 import qualified Data.HashMap.Strict as HM
--- import qualified Data.Vector as V
 import qualified Data.Foldable as F
 import Data.String
 import qualified Data.Text as T
 import Data.Functor.Identity
 import Data.Typeable
--- import Data.Scientific
 import GHC.Exts
--- import Data.Typeable
 import qualified Debug.Trace as DT
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Text.Read as R
+import Data.Aeson
+import Data.Aeson.Types (Parser, typeMismatch)
+import Data.Monoid ((<>))
+import Data.Binary
 
 newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
                                       deriving Show
@@ -714,3 +713,77 @@ parseLitOther _ _ = exprParseErr
 getParsedVal :: Proxy i -> Either String (i, T.Text) -> Validation i
 getParsedVal _ (Right (v, "")) = Right v
 getParsedVal _ _               = exprParseErr
+
+instance ToJSON (Expr sc a) where
+  toEncoding e = pairs ("trusted" .= getExpr e)
+  toJSON     e = object ["trusted" .= getExpr e]
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Int) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Int8) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Int16) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Int32) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Int64) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Bool) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Char) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Float) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Double) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word8) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word16) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word32) where
+  parseJSON = parseJSONExpr
+
+instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word64) where
+  parseJSON = parseJSONExpr
+
+parseJSONExpr :: (Typeable a, ToScopeRep sc (Proxy ('[] :: [* -> *]))) => Value -> Parser (Expr sc a)
+parseJSONExpr (Object eobj) = do
+  tst  <- eobj .:? "trusted"
+  case tst of
+    Just e -> pure (Expr e)
+    Nothing -> case withText "Expr" go <$> (HM.lookup "untrusted" eobj) of
+      Just p  -> p
+      Nothing -> fail "key not found"    
+  where go texpr = case parseExpr texpr of
+          Left  errs -> fail (T.unpack (renderErrs errs))
+          Right v    -> pure v
+parseJSONExpr e = typeMismatch "Expr" e
+                           
+renderErrs :: [ExprError] -> T.Text
+renderErrs errs =
+  "Following errors occured while parsing the Expr\n" <>
+  T.concat (map renderErr errs)
+
+  where renderErr (TypeMismatch exp got) =
+          "Couldn't match expected type '" <> (T.pack (show exp)) <> "' with actual type '" <> (T.pack (show got)) <> "\n"
+        renderErr (ParseErr)             =
+          "Parse error"
+
+-- We trust the binary input
+instance Binary (Expr sc a) where
+  put = put . getExpr
+  get = Expr <$> get
