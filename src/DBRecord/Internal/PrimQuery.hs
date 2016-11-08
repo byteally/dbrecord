@@ -13,8 +13,11 @@ import Data.ByteString    (ByteString)
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 import Data.Binary
-import Data.Aeson
+import Data.Aeson (FromJSON (..), ToJSON (..))
+import qualified Data.Aeson as A
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import GHC.Generics
+import qualified Data.ByteString.Base64 as B64
 
 -- import DBRecord.Migration hiding (TableName)
 -- import GHC.TypeLits
@@ -211,7 +214,10 @@ instance FromJSON Lit
 instance FromJSON Sym
 
 instance FromJSON ByteString where
-  parseJSON = undefined
+  parseJSON = A.withText "Order" go
+    where go t = case B64.decode (encodeUtf8 t) of
+            Left e  -> fail e
+            Right o -> pure o
 
 instance ToJSON PrimExpr
 instance ToJSON OrderExpr
@@ -225,6 +231,6 @@ instance ToJSON Lit
 instance ToJSON Sym
 
 instance ToJSON ByteString where
-  toEncoding = undefined
-  toJSON     = undefined
+  -- toEncoding = E.string . B64.encode
+  toJSON     = A.String . decodeUtf8 . B64.encode
 

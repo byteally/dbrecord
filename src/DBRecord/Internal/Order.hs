@@ -41,7 +41,6 @@ descNullsLast = order PQ.OrderOp { PQ.orderDirection = PQ.OpDesc
                                  , PQ.orderNulls = PQ.NullsLast
                                  }
 
-
 instance ToJSON (Order sc) where
   toEncoding e = pairs  ("trusted" .= getOrder e)
   toJSON     e = object ["trusted" .= getOrder e]
