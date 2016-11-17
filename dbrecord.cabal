@@ -33,6 +33,7 @@ library
                        DBRecord.Internal.Expr
                        DBRecord.Internal.Order
                        DBRecord.Internal.Predicate
+                       DBRecord.Internal.Window
                        DBRecord.Internal.Migration.Pretty
                        DBRecord.Internal.Migration.Types
                        DBRecord.Internal.Migration

@@ -24,11 +24,12 @@ import qualified Data.ByteString.Base64 as B64
 -- import Data.Functor.Const
 -- import Data.Proxy
 
-type TableName = Text
-type Attribute = Text
-type Assoc     = [(Attribute, PrimExpr)]
-type Scheme    = [Attribute]
-type Name      = Text
+type TableName  = Text
+type WindowName = Text
+type Attribute  = Text
+type Assoc      = [(Attribute, PrimExpr)]
+type Scheme     = [Attribute]
+type Name       = Text
 
 data JoinType = LeftJoin | RightJoin | FullJoin | InnerJoin deriving (Show, Read, Generic)
 
@@ -44,6 +45,7 @@ data PrimQuery = BaseTable TableId Clauses
 
 data Clauses = Clauses { projections :: [(Sym, PrimExpr)]
                        , criteria    :: [PrimExpr]
+                       , windows     :: [WindowClause]
                        , groupbys    :: [PrimExpr]
                        , havings     :: [PrimExpr]
                        , orderbys    :: [OrderExpr]
@@ -51,7 +53,17 @@ data Clauses = Clauses { projections :: [(Sym, PrimExpr)]
                        , offset      :: Maybe Int
                        , alias       :: Maybe Text  
                        } deriving (Show, Read, Generic)
-                         
+
+data WindowClause = WindowClause
+  { windowName    :: Text
+  , wpartitionbys :: WindowPart
+  } deriving (Show, Read, Generic)
+
+data WindowPart = WindowPart
+  { wpartExpr :: [PrimExpr]
+  , worderbys :: [OrderExpr]
+  } deriving (Show, Read, Generic)
+             
 data TableId = TableId
   { schema :: Name
   , tableName :: TableName
@@ -129,6 +141,7 @@ data PrimExpr = AttrExpr Sym -- Eg?
                                     -- here.  Perhaps a special type is
                                     -- needed for insert expressions.
               | ArrayExpr [PrimExpr] -- ^ ARRAY[..]
+              | WindowExpr WindowName PrimExpr -- OVER   
               deriving (Read, Show, Generic)
 
 data PrimQueryFold p = PrimQueryFold
@@ -201,6 +214,7 @@ instance Binary OrderNulls
 instance Binary BinOp
 instance Binary Lit
 instance Binary Sym
+instance Binary WindowPart
 
 instance FromJSON PrimExpr
 instance FromJSON OrderExpr
@@ -212,6 +226,7 @@ instance FromJSON OrderNulls
 instance FromJSON BinOp
 instance FromJSON Lit
 instance FromJSON Sym
+instance FromJSON WindowPart
 
 instance FromJSON ByteString where
   parseJSON = A.withText "Order" go
@@ -229,6 +244,7 @@ instance ToJSON OrderNulls
 instance ToJSON BinOp
 instance ToJSON Lit
 instance ToJSON Sym
+instance ToJSON WindowPart
 
 instance ToJSON ByteString where
   -- toEncoding = E.string . B64.encode

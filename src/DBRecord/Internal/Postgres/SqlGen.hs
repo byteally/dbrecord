@@ -42,14 +42,15 @@ newSelect = SelectFrom {
   limit     = Nothing,
   offset    = Nothing,
   having    = [],
-  window    = (),
-  PGT.alias     = Nothing            
+  windows   = [],
+  PGT.alias = Nothing            
   }
 
 baseClauses :: PQ.Clauses -> SelectFrom
 baseClauses cs = 
     newSelect { PGT.attrs    = Columns (ensureColumns (map sqlBinding (PQ.projections cs)))
               , PGT.criteria = map toSqlExpr (PQ.criteria cs)
+              , windows      = map toSqlWindow (PQ.windows cs)                 
               , groupby  = case (PQ.groupbys cs) of
                              [] -> Nothing
                              xs -> Just (NEL.fromList (map toSqlExpr xs))
@@ -92,12 +93,23 @@ sqlOrder gen (PQ.OrderExpr o e) =
             PQ.NullsFirst -> SqlNullsFirst
             PQ.NullsLast  -> SqlNullsLast
 
+sqlWindow :: SqlGenerator -> PQ.WindowClause -> WindowExpr
+sqlWindow gen (PQ.WindowClause wn p) =
+  WindowExpr (T.unpack wn) (sqlPartition gen p)
+
+sqlPartition :: SqlGenerator -> PQ.WindowPart -> WindowPart
+sqlPartition gen (PQ.WindowPart es oes) =
+  WindowPart (map (sqlExpr gen) es) (map (sqlOrder gen) oes)
+
 -- TODO: should be sqlExpr
 toSqlExpr :: PQ.PrimExpr -> SqlExpr
 toSqlExpr = sqlExpr defaultSqlGenerator
 
 toSqlOrder :: PQ.OrderExpr -> (SqlExpr,SqlOrder)
 toSqlOrder = sqlOrder defaultSqlGenerator
+
+toSqlWindow :: PQ.WindowClause -> WindowExpr
+toSqlWindow = sqlWindow defaultSqlGenerator
 
 data SqlGenerator = SqlGenerator
     {
@@ -177,6 +189,7 @@ defaultSqlExpr gen expr = case expr of
   PQ.CastExpr typ e1     -> CastSqlExpr (T.unpack typ) (sqlExpr gen e1)
   PQ.DefaultInsertExpr   -> DefaultSqlExpr
   PQ.ArrayExpr es        -> ArraySqlExpr (map (sqlExpr gen) es)
+  PQ.WindowExpr w e      -> WindowSqlExpr (T.unpack w) (sqlExpr gen e)
 
 showBinOp :: PQ.BinOp -> String
 showBinOp  PQ.OpEq         = "="

@@ -64,6 +64,7 @@ parseJSONOrder e = typeMismatch "Order" e
 parseOrder :: (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => T.Text -> Validation (Order sc)
 parseOrder = undefined
 
+-- We trust the binary input
 instance Binary (Order sc) where
   put = put . getOrder
   get = Order <$> get

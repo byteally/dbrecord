@@ -67,6 +67,7 @@ data SqlSelect = SqlProduct [SqlSelect] SelectFrom -- ^ product
 data SelectFrom = SelectFrom
   { options   :: [String]                 -- ^ DISTINCT, ALL etc.
   , attrs     :: SelectAttrs              -- ^ result
+  , windows   :: [WindowExpr]             -- ^ windows  
   , criteria  :: [SqlExpr]                -- ^ WHERE
   , groupby   :: Maybe (NEL.NonEmpty SqlExpr) -- ^ GROUP BY
   , orderby   :: [(SqlExpr,SqlOrder)]
@@ -74,9 +75,18 @@ data SelectFrom = SelectFrom
   , offset    :: Maybe Int
   , having    :: [SqlExpr]
   , alias     :: Alias
-  , window    :: ()  -- TODO
   } deriving (Show, Read, Eq)
-  
+
+data WindowExpr = WindowExpr
+  { wname   :: String
+  , wpart   :: WindowPart
+  } deriving (Show, Read, Eq)
+
+data WindowPart = WindowPart
+  { partExpr :: [SqlExpr]
+  , wordbys  :: [(SqlExpr, SqlOrder)]
+  } deriving (Show, Read, Eq)
+             
 type SelectAttrs = Mark
 
 data Mark = All
@@ -114,6 +124,7 @@ data SqlExpr = ColumnSqlExpr  SqlColumn
              | CastSqlExpr String SqlExpr
              | CompositeSqlExpr SqlExpr String
              | ArraySqlExpr [SqlExpr]
+             | WindowSqlExpr String SqlExpr  
              | DefaultSqlExpr
              deriving (Show, Read, Eq)
 

@@ -16,7 +16,7 @@ import Data.List (intersperse)
 import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   parens, comma, punctuate,
                                   hcat, vcat, brackets, doubleQuotes,
-                                  hsep, equals, char)
+                                  hsep, equals, char, empty)
 
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
@@ -33,6 +33,7 @@ ppSelectWith from tabDoc =
       text "SELECT"
   <+> ppAttrs (attrs from)
   $$  text "FROM " <+> tabDoc
+  $$  ppWindows (windows from)
   $$  ppWhere (PGT.criteria from)
   $$  ppGroupBy (groupby from)
   $$  ppOrderBy (orderby from)
@@ -99,6 +100,23 @@ ppValues vals = ppAs (Just (text "V")) (parens (text "VALUES" $$ commaV ppValues
 ppValuesRow :: [SqlExpr] -> Doc
 ppValuesRow = parens . commaH ppSqlExpr
 
+ppWindows :: [WindowExpr] -> Doc
+ppWindows [] = empty
+ppWindows ws = hsep (map ppWindow ws)
+  where ppWindow (WindowExpr wn part) =
+              text "WINDOW"
+          <+> text wn
+          <+> text "AS"
+          <+> parens (ppPartition part)
+
+ppPartition :: WindowPart -> Doc
+ppPartition (WindowPart [] [])
+  = empty
+ppPartition (WindowPart es [])
+  = text "PARTITION BY" <+> commaH ppSqlExpr es
+ppPartition (WindowPart es oeds)
+  = text "PARTITION BY" <+> commaH ppSqlExpr es <+> text "ORDER BY" <+> commaH ppOrd oeds
+  
 ppWhere :: [SqlExpr] -> Doc
 ppWhere []    = empty
 ppWhere exprs = text "WHERE" <+>  hsep (intersperse (text "AND")
@@ -114,7 +132,9 @@ ppGroupBy (Just exprs) = go (toList exprs)
 ppOrderBy :: [(SqlExpr,SqlOrder)] -> Doc
 ppOrderBy []   = empty
 ppOrderBy ords = text "ORDER BY" <+> commaV ppOrd ords
-  where ppOrd (e, o) = ppSqlExpr (deliteral e)
+
+ppOrd :: (SqlExpr, SqlOrder) -> Doc
+ppOrd (e, o) = ppSqlExpr (deliteral e)
                     <+> ppOrdDir o
                     <+> ppNullOrd o
 
@@ -173,6 +193,7 @@ ppSqlExpr expr =
     DefaultSqlExpr    -> text "DEFAULT"
     ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppSqlExpr es)
     ExistsSqlExpr s     -> text "EXISTS" <+> parens (ppSelect s)
+    WindowSqlExpr w e -> ppSqlExpr e <+> text "OVER" <+> text w 
 
 ppInsert :: SqlInsert -> Doc
 ppInsert (SqlInsert table names values)

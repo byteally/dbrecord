@@ -6,6 +6,7 @@ import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Foldable as F
 import Data.String
+import GHC.TypeLits
 import qualified Data.Text as T
 import Data.Functor.Identity
 import Data.Typeable
@@ -778,8 +779,8 @@ renderErrs errs =
   "Following errors occured while parsing the Expr\n" <>
   T.concat (map renderErr errs)
 
-  where renderErr (TypeMismatch exp got) =
-          "Couldn't match expected type '" <> (T.pack (show exp)) <> "' with actual type '" <> (T.pack (show got)) <> "\n"
+  where renderErr (TypeMismatch expr got) =
+          "Couldn't match expected type '" <> (T.pack (show expr)) <> "' with actual type '" <> (T.pack (show got)) <> "\n"
         renderErr (ParseErr)             =
           "Parse error"
 
