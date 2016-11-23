@@ -6,12 +6,10 @@ import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Foldable as F
 import Data.String
-import GHC.TypeLits
 import qualified Data.Text as T
 import Data.Functor.Identity
 import Data.Typeable
 import GHC.Exts
-import qualified Debug.Trace as DT
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Text.Read as R
@@ -19,6 +17,7 @@ import Data.Aeson
 import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Monoid ((<>))
 import Data.Binary
+import Data.Time
 
 newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
                                       deriving Show
@@ -203,13 +202,16 @@ dbDefault = Expr $ PQ.DefaultInsertExpr
 dbDefault' :: PQ.PrimExpr
 dbDefault' = PQ.DefaultInsertExpr
 
+utcToLocalTime :: Expr sc T.Text
+               -> Expr sc UTCTime
+               -> Expr sc LocalTime
+utcToLocalTime tz ut = binOp PQ.OpAtTimeZone ut tz
 
-{- TODO
-timestamptzAtTimeZone :: Expr sc UTCTime
-                      -> Expr sc T.Text
-                      -> Expr sc LocalTime
-timestamptzAtTimeZone = binOp PQ.OpAtTimeZone
--}
+localTimeToUTC :: Expr sc T.Text
+               -> Expr sc LocalTime
+               -> Expr sc UTCTime
+localTimeToUTC tz lt = binOp PQ.OpAtTimeZone lt tz
+
 
 instance EqExpr T.Text where
   a .== b = binOp PQ.OpEq a b
@@ -225,337 +227,6 @@ instance (EqExpr a) => EqExpr (Maybe a) where
 
 deriving instance (EqExpr a) => EqExpr (Identity a)
 
-{-
-instance (ToJSON a) => ToJSON (Expr sc a) where
-  toJSON (Expr exp) = undefined
-
-instance (FromJSON (ParseTag PQ.PrimExpr (Expr sc a))) => FromJSON (Expr sc a) where
-  parseJSON v = undefined
-
-data ParseTag t a = ParseTag a
-                  deriving (Show)
-
-invalidLit :: (Show act) => String -> act -> Parser a
-invalidLit expected act = Prelude.fail $ "Invalid Literal. Expected: " ++ expected ++ ", Actual: " ++ (show act)
-
-instance FromJSON (ParseTag PQ.Lit (Expr sc Int)) where
-  parseJSON (A.Number n) = case floatingOrInteger n of
-    Left f  -> invalidLit "Int" (typeOf (f :: Double))
-    Right r -> pure $ ParseTag $ fromIntegral r
-
-instance FromJSON (ParseTag PQ.Lit (Expr sc Word)) where
-  parseJSON (A.Number n) = case floatingOrInteger n of
-    Left f  -> invalidLit "Word" (typeOf (f :: Double))
-    Right r -> pure $ ParseTag $ fromIntegral r    
-
-instance FromJSON (ParseTag PQ.Lit (Expr sc Double)) where
-  parseJSON (A.Number n) = case floatingOrInteger n of
-    Left f  -> pure $ ParseTag $ fromRational $ toRational f
-    Right r -> pure $ ParseTag $ fromIntegral r
-
-instance FromJSON (ParseTag PQ.Lit (Expr sc Float)) where
-  parseJSON (A.Number n) = case floatingOrInteger n of
-    Left f  -> pure $ ParseTag $ fromRational $ toRational f
-    Right r -> pure $ ParseTag $ fromIntegral r
-
-instance FromJSON (ParseTag PQ.Lit (Expr sc Bool)) where
-  parseJSON (A.Bool b) = if b then pure $ ParseTag true else pure $ ParseTag false
-  parseJSON v          = typeMismatch "Bool" v
-
-instance Typeable a => FromJSON (ParseTag PQ.Lit (Expr sc (Maybe a))) where
-  parseJSON (A.Null) = pure $ ParseTag nothing
-  parseJSON v          = typeMismatch (show $ typeRep (Proxy :: Proxy (Maybe a))) v
-
-instance FromJSON (ParseTag PQ.Lit (Expr sc T.Text)) where
-  parseJSON (A.String s) = pure $ ParseTag $ text s
-  parseJSON v            = typeMismatch "Text" v  
-
-
-{-
-data Fn (a :: k) = Fn
-
-class HasFun a f where
-  hasFun :: Fn a -> f
-
-instance (fn ~ (Expr sc a -> Expr sc a -> Expr sc a), NumExpr a)
-         => HasFun 'PQ.OpPlus fn where
-  hasFun _ = (+)
-
-instance (fn ~ (Expr sc a -> Expr sc a -> Expr sc Bool), OrdExpr a)
-         => HasFun 'PQ.OpLt fn where
-  hasFun _ = (.<)  
-
-data Ap f a = Ap
-
-instance ( HasFun f (Expr sc a -> Expr sc r)
-         ) => FromJSON (ParseTag (Fn f) (Expr sc a -> Expr sc r)) where
-  parseJSON v = pure $ ParseTag $ hasFun (Fn :: Fn f)
-
-type family ApRes f :: * where
-  ApRes (a -> r) = ApRes r
-  ApRes r       = r
-  
-class ApplyExpr f where
-  applyExpr :: Value -> Parser f -> Parser (ApRes f)
-
-instance ( ApplyExpr (Expr sc a)
-         , NumExpr a
---         , ApplyExpr (Expr sc a -> Expr sc a -> Expr sc a)
-         , ApplyExpr r
-         ) => ApplyExpr (Expr sc a -> r) where
-  applyExpr val fn = applyExpr val (fn Prelude.<*> parseJSON val)
-  
-{-
-instance FromJSON (ParseTag (Ap (Expr sc a -> Expr sc r) (Expr sc a)) (Expr sc r)) where
-  parseJSON v = 
-  
-instance FromJSON (ParseTag (Fn ()) (Expr sc a -> Expr sc r)) where
-  parseJSON v = undefined
-
-instance FromJSON (ParseTag (Fn ()) (Expr sc r)) where
-  parseJSON v = undefined
--}
-instance ( ApplyExpr (Expr sc a -> Expr sc a -> Expr sc a)
-         , NumExpr a
-         ) => FromJSON (ParseTag PQ.PrimExpr (Expr sc a)) where
-  parseJSON v@(Object obj) | isBinOp obj = ParseTag <$> (applyExpr v $ (pure $ hasFun (Fn :: Fn 'PQ.OpPlus)))
-
-{-
-instance ( ApplyExpr (Expr sc a -> Expr sc a -> Expr sc a)
-         , NumExpr a
-         ) => FromJSON (ParseTag PQ.PrimExpr (Expr sc Bool)) where
-  parseJSON v@(Object obj) | isBinOp obj = ParseTag <$> (applyExpr v $ (pure $ hasFun (Fn :: Fn 'PQ.OpPlus)))  
--}
--}
-
-primExprFromJSON :: Value -> Parser PQ.PrimExpr
-primExprFromJSON lit | isLitVal lit      = PQ.ConstExpr <$>  litFromJSON lit
-primExprFromJSON (isTypedLit -> Just lit') = case lit' of
-  Right (lit, ty) -> (PQ.CastExpr ty . PQ.ConstExpr) <$>  litFromJSON lit
-  Left err        -> Prelude.fail err
-primExprFromJSON (isBinOpVal -> Just bOpVal) = undefined
-  
-
-isTypedLit :: Value -> Maybe (Either String (Value, T.Text))
-isTypedLit (Object obj) = case HM.toList obj of
-  [("$type", Array vals)] -> case V.toList vals of
-    [litVal, String ty] | isLitVal litVal -> Just $ Right (litVal, ty)
-    [_,_] -> Just $ Left "Typed Literal show have second elem as type name"
-  xs | HM.member "$type" obj  -> Just $ Left "Typed literal object should have exactly one elem"
-  _  -> Nothing
-isTypedLit _            = Nothing
-
-isBinOpVal :: Value -> Maybe Value
-isBinOpVal = undefined
-
-binOps :: [T.Text]
-binOps = ["$eq", "$lt", "$lte", "$gt", "$gte", "$ne"]
-
-isBinOp :: Object -> Bool
-isBinOp obj = case HM.toList obj of
-  [(bop, val)] | bop `elem` binOps -> True
-  _ -> False
-
-{-
-$<binOp> : [expr1, expr2]
-$<unOp>  : expr1
-$<aggOp> : [expr, order]
--}
-
-primExprToJSON :: PQ.PrimExpr -> Value
-primExprToJSON (PQ.ConstExpr lit) = litToJSON lit
-primExprToJSON (PQ.AttrExpr sym) = A.String (PQ.renderSym sym)
-primExprToJSON (PQ.BaseTableAttrExpr col) = A.String col
-primExprToJSON (PQ.BinExpr bOp expr1 expr2) = object [bOpKey bOp A..= [
-                                                         primExprToJSON expr1,
-                                                         primExprToJSON expr2
-                                                                      ]]
-primExprToJSON (PQ.UnExpr uOp expr) = object [uOpKey uOp A..= primExprToJSON expr]
-primExprToJSON (PQ.AggrExpr agOp expr ords) = undefined
-
-tagVal :: Maybe T.Text -> Value -> Value
-tagVal (Just t) v = object [t A..= v]
-tagVal Nothing v  = v
-
-isLitVal :: Value -> Bool
-isLitVal = not . isTLVal
-    
-isTLVal :: Value -> Bool
-isTLVal (Object _ ) = True
-isTLVal (Array _ )  = True
-isTLVal _           = False
-
-instance FromJSON PQ.OrderOp where
-  parseJSON = orderOpFromJSON
-
-instance FromJSON PQ.PrimExpr where
-  parseJSON = undefined
-
-orderExprToJSON :: PQ.OrderExpr -> Value
-orderExprToJSON (PQ.OrderExpr ordOp expr)
-  = let exprVal' = primExprToJSON expr
-        ordOpVal = orderOpToJSON ordOp
-        exprVal  = case exprVal' of
-          String s -> object [s A..= ordOpVal]
-          _        -> object ["$by" A..= exprVal', "$op" A..=ordOpVal]      
-    in object [orderTag A..= exprVal]
-
-orderOpToJSON :: PQ.OrderOp -> Value
-orderOpToJSON (PQ.OrderOp PQ.OpAsc PQ.NullsLast)   = A.Number 1
-orderOpToJSON (PQ.OrderOp PQ.OpDesc PQ.NullsFirst) = A.Number (-1)
-orderOpToJSON (PQ.OrderOp PQ.OpAsc PQ.NullsFirst)  = object
-  [ orderDirTag A..= A.Number 1
-  , orderNullTag A..= A.Number 1
-  ]
-orderOpToJSON (PQ.OrderOp PQ.OpDesc PQ.NullsLast)  = object
-  [ orderDirTag A..= A.Number (-1)
-  , orderNullTag A..= A.Number (-1)
-  ]
-
-orderExprFromJSON :: Value -> Parser PQ.OrderExpr
-orderExprFromJSON v = withObject "OrderExpr" parseOrdE v
-  where parseOrdE obj = case HM.toList obj of
-          [(otag, val)] | otag == orderTag -> withObject "OrderOp" parseOrdExpr val
-          _ -> Prelude.fail "Unable to parse OrderExpr"
-        parseOrdExpr obj = case HM.size obj of
-          1 -> do
-            let [(col, opVal)] = HM.toList obj
-            op <- orderOpFromJSON opVal
-            return $ PQ.OrderExpr op (PQ.BaseTableAttrExpr col)
-          2 -> do
-            expr <- obj .: "$by"
-            op <- obj .: "$op"
-            return $ PQ.OrderExpr op expr
-          _ -> Prelude.fail "Unable to parse Order Expression"
-          
-
-orderOpFromJSON :: Value -> Parser PQ.OrderOp
-orderOpFromJSON (A.Number 1) = return (PQ.OrderOp PQ.OpAsc PQ.NullsLast)
-orderOpFromJSON (A.Number (-1)) = return (PQ.OrderOp PQ.OpAsc PQ.NullsLast)
-orderOpFromJSON (Object obj) = case HM.toList obj of
-  [(dirT, Number 1), (nullT, Number 1)]
-    | dirT == orderDirTag && nullT == orderNullTag ->
-        return (PQ.OrderOp PQ.OpAsc PQ.NullsFirst)
-  [(dirT, Number (-1)), (nullT, Number (-1))]
-    | dirT == orderDirTag && nullT == orderNullTag ->
-        return (PQ.OrderOp PQ.OpDesc PQ.NullsLast)
-  _ -> Prelude.fail "Unable to parse Order Op"
-
-orderTag,orderDirTag,orderNullTag :: T.Text
-orderTag = "$order"
-orderDirTag = "$dir"
-orderNullTag = "$nulls"
-  
-
-litToJSON :: PQ.Lit -> Value
-litToJSON (PQ.Null) = A.Null
-litToJSON (PQ.Bool b) = A.Bool b
-litToJSON (PQ.String s) = A.String s
-litToJSON (PQ.Integer i) = A.Number $ fromIntegral i
-litToJSON (PQ.Double d) = A.Number $ fromFloatDigits d
-litToJSON PQ.Default    = String "DEFAULT"
-litToJSON _             = undefined
-
-litFromJSON :: Value -> Parser PQ.Lit
-litFromJSON A.Null = return PQ.Null
-litFromJSON (A.Bool b) = return $ PQ.Bool b
-litFromJSON (A.String "DEFAULT") = return $ PQ.Default
-litFromJSON (A.String s) = return $ PQ.String s
-litFromJSON (A.Number n) = return $ either PQ.Double PQ.Integer $ floatingOrInteger n
-litFromJSON _ = Prelude.fail "Unable to parse to Literal"
-
-bOpKey :: PQ.BinOp -> T.Text
-bOpKey PQ.OpEq = "$eq"
-
-uOpKey :: PQ.UnOp -> T.Text
-uOpKey PQ.OpNot = "$not"
-
-  
-{-  
-data Expr (scopes :: [*]) (t :: *)
-  = Col Symbol
-  | ColRef (Tab scopes) Symbol
-  | Num Nat
-  | Str Symbol
-  | Array [Expr scopes t]
-  | SubScript (Expr scopes t) Nat
-  | SubScript2d (Expr scopes t) Nat Nat
-  | SubScript3d (Expr scopes t) Nat Nat Nat
-  | Splice (Expr scopes t) Nat Nat
-  | Sel (Expr scopes t) Symbol
-  | BinOp BinOp (Expr scopes t) (Expr scopes t)
-  | UnOp UnOp (Expr scopes t)
-  | Symbol `Ap` [(Expr scopes t)]
-            
-data Cond (scopes :: [*]) (t :: *)
-  = LT (Expr scopes t) (Expr scopes t)
-  | GT (Expr scopes t) (Expr scopes t)
-  | EQ (Expr scopes t) (Expr scopes t)
-  | LE (Expr scopes t) (Expr scopes t)
-  | GE (Expr scopes t) (Expr scopes t)
-  | NE (Expr scopes t) (Expr scopes t)
-  | And (Cond scopes t) (Cond scopes t)
-  | Or (Cond scopes t) (Cond scopes t)
-  | Not (Cond scopes t)
-  | Between (Cond scopes t) (Cond scopes t)
-  | NotBetween (Cond scopes t) (Cond scopes t)
-  | IS IsCond        
-data IsCond = Null
-            | NotNull
-            | Distinct
-            | NotDistint
-
-type UserR =
-  '[ "name" ::: T.Text
-   , "age"  ::: Int
-   ]
--}
-
-{-
--- Mathematical Operators
-data (+) (expr1 :: Expr *) (expr2 :: Expr *)
-data (-) (expr1 :: Expr *) (expr2 :: Expr *)
-data (*) (expr1 :: Expr *) (expr2 :: Expr *)
-data (/) (expr1 :: Expr *) (expr2 :: Expr *)
-data (%) (expr1 :: Expr *) (expr2 :: Expr *)
-data (^) (expr1 :: Expr *) (expr2 :: Expr *)
-
-data SqaureRoot (expr :: Expr *)
-data CubeRoot (expr :: Expr *)
-data Fact (expr :: Expr *)
-data Abs' (expr :: Expr *)
--}
-{-
-type family ExprType' (flds :: [*]) (expr :: Expr *) :: * where
-  ExprType' 
--}
-{-
-
-"age" :? LT (Num 2 * (Col "b"))
-Distinct '[Max "a", "b", "c"]
-OrderBy '[Date "a"]
-
-Filter '[ "age"              `Is` LT (Input "max_limit") && GE (Input "min_limit")
-        , "user_id"          `Is` Eq (ColRef User "id")
-        , DateOf "date_time" `Is` Eq (Input "serv_date")
-        , DateOf "date_time" :? Eq (Input "serv_date")
-        ] '["user"]
-
-user.filter.max_limit = 60
-user.filter.min_limit = 60
-user.filter.serv_date = '10-10-2020'
-
-Filter '["age" ::: NoInput, "date_time" ::: ]
-LT ""
-LT (ColRef Tab "")
-LT (AsParam "foo")
-
-{ "max_limit" :: Int
-, "min_limit" :: Int
-, "serv_date" :: Day
-}
--}
--}
 
 data ScopeRep = FieldRepNode  TypeRep
               | ScopeRepNode  ScopeRepMap
@@ -594,7 +265,7 @@ lookupField _ _ = Nothing
   
 checkFieldType :: (Typeable t) => [T.Text] -> Proxy t -> ScopeRepMap -> Bool
 checkFieldType colPieces t scrMap =
-  DT.trace (show (colPieces,  scrMap, tyRep)) $ maybe False (== tyRep) (lookupField colPieces scrMap)
+  maybe False (== tyRep) (lookupField colPieces scrMap)
   where tyRep = typeRep t
 
 type Validation = Either [ExprError]

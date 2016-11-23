@@ -6,14 +6,20 @@ import DBRecord.Internal.Expr
 import DBRecord.Internal.Order
 import GHC.TypeLits
 import Data.Binary
+import Data.Semigroup
 
 newtype Window (w :: Symbol) (sc :: [*]) = Window { getPartitions :: PQ.WindowPart }
 
-window :: Expr sc a -> Order sc -> Window w sc
-window e oe = Window (PQ.WindowPart [getExpr e] (getOrder oe))
+newtype Partition (sc :: [*]) = Partition { getPartExprs :: [PQ.PrimExpr] }
 
-addWindowExpr :: Expr sc a -> Window w sc -> Window w sc
-addWindowExpr e (Window (PQ.WindowPart es os)) = Window (PQ.WindowPart (es ++ [getExpr e]) os)
+instance Semigroup (Partition sc) where
+  (Partition p1) <> (Partition p2) = Partition (p1 <> p2)
+  
+partition :: Expr sc a -> Partition sc
+partition = Partition . (:[]) . getExpr
+
+window :: Partition sc -> Order sc -> Window w sc
+window pe oe = Window (PQ.WindowPart (getPartExprs pe) (getOrder oe))
 
 -- We trust the binary input
 instance Binary (Window w sc) where

@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# LANGUAGE KindSignatures, DataKinds, FlexibleContexts, UndecidableInstances, OverloadedStrings #-}
 module DBRecord.Internal.Order where
 
@@ -10,33 +11,32 @@ import qualified Data.HashMap.Strict as HM
 import Data.Proxy
 import Data.Binary
 import qualified Data.Text as T
+import Data.Semigroup
 
--- TODO: Restrict ordering only for valid types
 newtype Order (scopes :: [*]) = Order { getOrder :: [PQ.OrderExpr] }
 
-instance Monoid (Order sc) where
-  mempty = Order mempty
-  mappend (Order o1) (Order o2) = Order (o1 `mappend` o2)
+instance Semigroup (Order sc) where
+  (Order o1) <> (Order o2) = Order (o1 <> o2)
 
-order :: PQ.OrderOp -> Expr sc a -> Order sc
+order :: OrdExpr a => PQ.OrderOp -> Expr sc a -> Order sc
 order op (Expr expr) = Order $ [PQ.OrderExpr op expr]
 
-asc :: Expr sc a -> Order sc
+asc :: OrdExpr a => Expr sc a -> Order sc
 asc = order PQ.OrderOp { PQ.orderDirection = PQ.OpAsc
                        , PQ.orderNulls = PQ.NullsLast
                        }
 
-desc :: Expr sc a -> Order sc
+desc :: OrdExpr a => Expr sc a -> Order sc
 desc = order PQ.OrderOp { PQ.orderDirection = PQ.OpDesc
                         , PQ.orderNulls = PQ.NullsFirst
                         }
 
-ascNullsFirst :: Expr sc a -> Order sc
+ascNullsFirst :: OrdExpr a => Expr sc a -> Order sc
 ascNullsFirst = order PQ.OrderOp { PQ.orderDirection = PQ.OpAsc
                                  , PQ.orderNulls = PQ.NullsFirst
                                  }
 
-descNullsLast :: Expr sc a -> Order sc
+descNullsLast :: OrdExpr a => Expr sc a -> Order sc
 descNullsLast = order PQ.OrderOp { PQ.orderDirection = PQ.OpDesc
                                  , PQ.orderNulls = PQ.NullsLast
                                  }
