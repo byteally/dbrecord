@@ -336,13 +336,17 @@ type family LookupCheck (chks :: [CheckCT]) (cn :: Symbol) :: Maybe [Symbol] whe
 
 type family UnifyCheck (tab :: *) (cn :: Symbol) (flds :: [*]) (args :: Maybe [Symbol]) (val :: *) :: Constraint where
   UnifyCheck tab cn flds 'Nothing val = TypeError ('Text "check constraint " ':<>: 'ShowType cn ':<>: 'Text " does not exist on table " ':<>: 'ShowType tab)
-  UnifyCheck tab cn flds ('Just args) val = UnifyCheckFn tab args val flds
+  UnifyCheck tab cn flds ('Just args) val = UnifyOrErr (SeqEither (MkCheckFn tab args val flds)) val
 
-type family UnifyCheckFn (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: Constraint where
-  UnifyCheckFn tab '[] (t -> r) flds = TypeError ('Text "Arity mismatch! Check function accepts more argument than required")
-  UnifyCheckFn tab (fn ': fs) (t -> r) flds = (UnifyField flds (fn ::: t) ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)), UnifyCheckFn tab fs r flds)
-  UnifyCheckFn tab (fn ': fs) r flds = TypeError ('Text "Arity mismatch! Check function accepts less argument than required")
-  UnifyCheckFn tab '[] r flds = (r ~ Bool)
+type family UnifyOrErr (res :: Either ErrorMessage [Type]) (v :: Type) :: Constraint where
+  UnifyOrErr ('Right lhs) rhs = (MkFun lhs) ~ rhs
+  UnifyOrErr ('Left err) _    = TypeError err
+  
+type family MkCheckFn (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: [Either ErrorMessage *] where
+  MkCheckFn tab (fn ': fs) chkFun flds = Note (ColNotFoundMsg fn tab) (FindField flds fn) ': MkCheckFn tab fs chkFun flds
+  MkCheckFn tab '[] r flds = '[ 'Right Bool]
+
+type ColNotFoundMsg (col :: Symbol) (tab :: Type) = ('Text "column " ':<>: ('ShowType col) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))  
 
 type family PartialJust (may :: Maybe k) :: k where
   PartialJust ('Just m) = m

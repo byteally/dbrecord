@@ -85,8 +85,8 @@ instance Table TestDB User where
     )
 
   checks = dbChecks
-    (  check @"notnull" (\name -> name == name)
-    :& check @"emailValidity" (\email -> email == email)
+    (  check @"notnull" (\n -> n == n)
+    :& check @"emailValidity" (\em -> em == em)
     :& end
     )
 

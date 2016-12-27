@@ -114,6 +114,11 @@ type family FindField (xs :: [*]) (fn :: Symbol) :: (Maybe *) where
   FindField ((fn' ::: t) ': xs) fn = FindField xs fn
   FindField '[] fn                 = 'Nothing
 
+type family FindFieldOrErr (xs :: [*]) (fn :: Symbol) (msg :: ErrorMessage) :: * where
+  FindFieldOrErr ((fn ::: t) ': xs) fn msg  = t
+  FindFieldOrErr ((fn' ::: t) ': xs) fn msg = FindFieldOrErr xs fn msg
+  FindFieldOrErr '[] fn msg                 = TypeError msg  
+
 type family ElemField (xs :: [*]) (fn :: Symbol) :: Bool where
   ElemField ((fn ::: t) ': xs) fn  = 'True
   ElemField ((fn' ::: t) ': xs) fn = ElemField xs fn
@@ -131,6 +136,23 @@ type family UnifyField (flds :: [*]) (f :: *) (nfMsg :: ErrorMessage) :: Constra
 type family Concat (xss :: [[k]]) :: [k] where
   Concat (xs ': xss) = xs   -- TODO:
   Concat '[]         = '[]
+
+type family Note (note :: k) (may :: Maybe *) :: Either k * where
+  Note _ ('Just v)   = 'Right v
+  Note note 'Nothing = 'Left note
+
+type family SeqEither (eithers :: [Either k k1]) :: Either k [k1] where
+  SeqEither ('Left l ': _)   = 'Left l
+  SeqEither ('Right r ': es) = SeqEither' (SeqEither es) r
+  SeqEither '[]              = 'Right '[]
+
+type family SeqEither' (res :: Either k [k1]) (r :: k1) :: Either k [k1] where
+  SeqEither' ('Left l) _   = 'Left l
+  SeqEither' ('Right rs) r = 'Right (r ': rs)
+
+type family MkFun (tys :: [*]) :: * where
+  MkFun (t ': '[]) = t 
+  MkFun (t ': ts)  = t -> MkFun ts
 
 class (AllF f xs) => All (f :: k -> Constraint) (xs :: [k])
 instance (AllF f xs) => All f xs
