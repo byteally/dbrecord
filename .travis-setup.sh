@@ -29,7 +29,7 @@ fi
 case "$BUILD" in
   stack)
     # However, we only need stack to download GHC for stack builds.
-    travis_retry stack --no-terminal setup;
+    travis_retry stack --system-ghc --no-terminal setup;
     ;;
   cabal)
 mkdir -p $HOME/.cabal
