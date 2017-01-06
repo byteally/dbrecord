@@ -64,11 +64,11 @@ mkMigrationTables pxyDB (SCons tab tabs) = mkMigrationTable pxyDB tab ++ mkMigra
 
 mkMigrationTable :: forall db tab pks fks chks uqs defs.
                    ( Table db tab
-                   , pks ~ PrimaryKey tab
-                   , fks ~ ForeignKey tab
-                   , chks ~ Check tab
-                   , uqs ~ Unique tab
-                   , defs ~ HasDefault tab
+                   , pks ~ PrimaryKey db tab
+                   , fks ~ ForeignKey db tab
+                   , chks ~ Check db tab
+                   , uqs ~ Unique db tab
+                   , defs ~ HasDefault db tab
                    ) => Proxy (db :: *) -> Sing (tab :: *) -> [Migration]
 mkMigrationTable _ _
   = let addPks = case fromSing (sing :: Sing pks) of
@@ -76,15 +76,15 @@ mkMigrationTable _ _
                       xs  -> [AlterTable tabN $ AddConstraint "pk_" $ AddPrimaryKey $ fmap T.pack $ xs]
         addUqs = let addUq fs = AlterTable tabN $ AddConstraint "uq_" $ AddUnique $ fmap T.pack fs
                  in fmap addUq $ fromSing (sing :: Sing uqs)
-        addFks = let addFk (fcols, reft, rcols) = AlterTable tabN $ AddConstraint "fk_" $ AddForeignKey fcols reft rcols
-                 in fmap addFk $ fromSing (sing :: Sing fks)
+        addFks = let addFk (DemotedDBTagFk fcols reft rcols) = AlterTable tabN $ AddConstraint "fk_" $ AddForeignKey fcols reft rcols
+                 in fmap addFk  $ fromSing (sing :: Sing (TagEachFks db fks))
         addChks = let addChk chExpr = AlterTable tabN $ AddConstraint "ch_" $ AddCheck chExpr
                   in fmap addChk $ fromSing (sing :: Sing chks)
         addDefs = let addDef dfExpr = AlterTable tabN $ AlterColumn "col" $ AddDefault dfExpr
                   in fmap addDef $ fromSing (sing :: Sing ('DefSyms defs))
-        tabColHList = singCols (Proxy @db) (Proxy :: Proxy (OriginalTableFields tab)) (Proxy @(ColumnNames tab))
+        tabColHList = singCols (Proxy @db) (Proxy :: Proxy (OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
         createTab = [CreateTable tabN $ recordToList tabColHList]
-        tabN = T.pack $ fromSing (sing :: Sing (TableName tab))
+        tabN = T.pack $ fromSing (sing :: Sing (TableName db tab))
     in  concat [ createTab
                , addPks  
                , addUqs

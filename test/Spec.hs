@@ -3,12 +3,8 @@ module Main where
 
 import DBRecord.Schema
 import DBRecord.Migration
-import DBRecord.Internal.Migration
 import DBRecord.Internal.Types
-import DBRecord.Internal.Common
-
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Proxy
 import GHC.Generics
 
@@ -60,24 +56,24 @@ instance Database TestDB where
                        ]
 
 instance Table TestDB Profile where
-  type HasDefault Profile   = '["first_name"]
-  type TableName Profile    = "user_profile"
-  type ColumnNames Profile   = '[ '("first_name", "First Name")
-                                ]
-  type Check Profile        = '[ 'CheckOn '["first_name"] "notnull"]
-  type Unique Profile       = '[ '["first_name"]]
+  type HasDefault TestDB Profile   = '["first_name"]
+  type TableName TestDB Profile    = "user_profile"
+  type ColumnNames TestDB Profile  = '[ '("first_name", "First Name")
+                                      ]
+  type Check TestDB Profile        = '[ 'CheckOn '["first_name"] "notnull"]
+  type Unique TestDB Profile       = '[ '["first_name"]]
 
 instance Table TestDB User where
-  type HasDefault User   = '["name"]
-  type Check User        = '[ 'CheckOn '["name"] "notnull"
-                            , 'CheckOn '["email"] "emailValidity"
-                            ]
-  type ForeignKey User   = '[ 'RefBy '["age"] User '["name"]
-                            , 'Ref "id" User
-                            ]
-  type PrimaryKey User   = '["id"]
-  type Unique User       = '[ '["name"], '["id"]]
-  type TableName User    = "usr"
+  type HasDefault TestDB User   = '["name"]
+  type Check TestDB User        = '[ 'CheckOn '["name"] "notnull"
+                                   , 'CheckOn '["email"] "emailValidity"
+                                   ]
+  type ForeignKey TestDB User   = '[ 'RefBy '["age"] User '["name"]
+                                   , 'Ref "id" User
+                                   ]
+  type PrimaryKey TestDB User   = '["id"]
+  type Unique TestDB User       = '[ '["name"], '["id"]]
+  type TableName TestDB User    = "usr"
   defaults = dbDefaults
     (  def @"id"   1
     :& def @"role" Admin

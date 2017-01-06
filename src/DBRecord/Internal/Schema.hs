@@ -54,44 +54,44 @@ class ( -- TypeCxts db (Types db)
 
 class ( Database db
       , AssertCxt (Elem (Tables db) tab) ('Text "Database " ':<>: 'ShowType db ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
-      , ValidateTableProps tab
-      , SingI (PrimaryKey tab)
-      , SingI (Unique tab)
-      , SingI (ForeignKey tab)
-      , SingI (Check tab)
-      , SingI ('DefSyms (HasDefault tab))
-      , All SingE (PrimaryKey tab)
-      , All SingE (Unique tab)
-      , All SingE (ForeignKey tab)
-      , All SingE (Check tab)
-      , SingE ('DefSyms (HasDefault tab))
-      , SingCols db (OriginalTableFields tab) (ColumnNames tab)
-      , KnownSymbol (TableName tab)
+      , ValidateTableProps db tab
+      , SingI (PrimaryKey db tab)
+      , SingI (Unique db tab)
+      , SingI (TagEachFks db (ForeignKey db tab))
+      , SingI (Check db tab)
+      , SingI ('DefSyms (HasDefault db tab))
+      , All SingE (PrimaryKey db tab)
+      , All SingE (Unique db tab)
+      , All SingE (TagEachFks db (ForeignKey db tab))
+      , All SingE (Check db tab)
+      , SingE ('DefSyms (HasDefault db tab))
+      , SingCols db (OriginalTableFields tab) (ColumnNames db tab)
+      , KnownSymbol (TableName db tab)
       , Generic tab
       ) => Table (db :: *) (tab :: *) where
-  type PrimaryKey tab :: [Symbol]
-  type PrimaryKey tab = '[]
+  type PrimaryKey db tab :: [Symbol]
+  type PrimaryKey db tab = '[]
 
-  type ForeignKey tab :: [ForeignRef Type]
-  type ForeignKey tab = '[]
+  type ForeignKey db tab :: [ForeignRef Type Type]
+  type ForeignKey db tab = '[]
 
-  type Unique tab     :: [[Symbol]]
-  type Unique tab = '[]
+  type Unique db tab     :: [[Symbol]]
+  type Unique db tab = '[]
 
-  type HasDefault tab :: [Symbol]
-  type HasDefault tab = '[]
+  type HasDefault db tab :: [Symbol]
+  type HasDefault db tab = '[]
 
-  type Check tab :: [CheckCT]
-  type Check tab = '[]
+  type Check db tab :: [CheckCT]
+  type Check db tab = '[]
 
-  type ColIgnore tab :: IgnoredCol
-  type ColIgnore tab = 'IgnoreNone
+  type ColIgnore db tab :: IgnoredCol
+  type ColIgnore db tab = 'IgnoreNone
 
-  type TableName tab :: Symbol
-  type TableName tab = DefaultTableName tab
+  type TableName db tab :: Symbol
+  type TableName db tab = DefaultTableName tab
 
-  type ColumnNames tab :: [(Symbol, Symbol)]
-  type ColumnNames tab = '[]
+  type ColumnNames db tab :: [(Symbol, Symbol)]
+  type ColumnNames db tab = '[]
 
   defaults :: DBDefaults db tab
   defaults = DBDefaults Nil
@@ -112,6 +112,13 @@ type ColType  = Text
 data Column = Column !ColName !ColType
   deriving (Show)
 
+data DBTag (db :: *) (tab :: *) =
+  DBTagFk db (ForeignRef db tab)
+
+type family TagEachFks (db :: *) (ents :: [ForeignRef Type Type]) :: [DBTag Type Type] where
+  TagEachFks db '[]       = '[]
+  TagEachFks db (e ': es) = 'DBTagFk db e ': TagEachFks db es
+
 data family Sing (a :: k)
 
 data instance Sing (s :: Symbol) where
@@ -128,12 +135,12 @@ data instance Sing (xs :: [k]) where
   SNil  :: Sing '[]
   SCons :: Sing x -> Sing xs -> Sing (x ': xs)
 
-data instance Sing (fk :: ForeignRef reft) where
-  SRefBy :: ( All SingE fcols
-           , All SingE rcols
-           , KnownSymbol (TableName reft)
-           ) => Sing fcols -> Sing reft -> Sing rcols -> Sing ('RefBy fcols reft rcols)
-  SRef   :: KnownSymbol (TableName reft) => Sing col -> Sing reft -> Sing ('Ref col reft)
+data instance Sing (dbTag :: DBTag db tab) where
+  SDBTagRefBy :: ( All SingE fcols
+                 , All SingE rcols
+                 , KnownSymbol (TableName db reft)
+                 ) => Sing db -> Sing fcols -> Sing reft -> Sing rcols -> Sing ('DBTagFk db ('RefBy fcols reft rcols))
+  SDBTagRef :: KnownSymbol (TableName db reft) => Sing db -> Sing col -> Sing reft -> Sing ('DBTagFk db ('Ref col reft))
 
 data instance Sing (ch :: CheckCT) where
   SCheck :: ( All SingE cols
@@ -164,20 +171,23 @@ instance (KnownSymbol sy) => SingI (sy :: Symbol) where
 instance (Typeable t) => SingI (t :: *) where
   sing = STypeRep
 
-instance ( SingI fcols
+instance ( SingI db
+         , SingI fcols
          , SingI reft
          , SingI rcols
-         , KnownSymbol (TableName reft)
          , All SingE fcols
          , All SingE rcols
-         ) => SingI ('RefBy fcols reft rcols) where
-  sing = SRefBy sing sing sing
+         , KnownSymbol (TableName db reft)
+         ) => SingI ('DBTagFk (db :: *) ('RefBy fcols (reft :: *) rcols)) where
+  sing = SDBTagRefBy sing sing sing sing
 
-instance ( SingI col
+instance ( SingI db
+         , SingI col
          , SingI reft
-         , KnownSymbol (TableName reft)
-         ) => SingI ('Ref col reft) where
-  sing = SRef sing sing
+         , KnownSymbol (TableName db reft)
+         ) => SingI ('DBTagFk (db :: *) ('Ref col (reft :: *))) where
+  sing = SDBTagRef sing sing sing  
+
 
 instance ( SingI cols
          , KnownSymbol cname
@@ -206,19 +216,9 @@ instance All SingE xs => SingE (xs :: [k]) where
   fromSing SNil         = []
   fromSing (SCons x xs) = fromSing x : fromSing xs
 
-tabName :: forall t proxy.KnownSymbol (TableName t) => proxy t -> String
-tabName _ = symbolVal (Proxy :: Proxy (TableName t))
-
-instance SingE (ft :: ForeignRef reft) where
-  type Demote ft = ([Text], Text, [Text])
-  fromSing (SRefBy fcols reft rcols) = ( fmap T.pack $ fromSing fcols
-                                       , T.pack $ tabName reft
-                                       , fmap T.pack $ fromSing rcols
-                                       )
-  fromSing (SRef coln reft) = ( [T.pack $ fromSing coln]
-                             , T.pack $ tabName reft
-                             , [T.pack $ fromSing coln]
-                             )
+tabName :: forall db t proxy.
+  KnownSymbol (TableName db t) => proxy db -> proxy t -> String
+tabName _ _ = symbolVal (Proxy :: Proxy (TableName db t))
 
 instance SingE (ch :: CheckCT) where
   type Demote ch = CheckExpr
@@ -228,18 +228,32 @@ instance SingE (defs :: DefSyms) where
   type Demote defs = [DefExpr]
   fromSing (SDef cols) = fmap T.pack $ fromSing cols
 
+data DemotedDBTag = DemotedDBTagFk ![Text] !Text ![Text]
+  
+
+instance SingE (dbtag :: DBTag Type Type) where
+  type Demote dbtag = DemotedDBTag
+  fromSing (SDBTagRefBy db fcols reft rcols) =
+    DemotedDBTagFk (fmap T.pack $ fromSing fcols)
+    (T.pack $ tabName db reft)
+    (fmap T.pack $ fromSing rcols)
+  fromSing (SDBTagRef db coln reft) =
+    DemotedDBTagFk [T.pack $ fromSing coln]
+    (T.pack $ tabName db reft) [T.pack $ fromSing coln]
+
 newtype I a = I a
   deriving (Show, Eq)
 
-type family ValidateTableProps (tab :: *) :: Constraint where
-  ValidateTableProps tab = ( MissingField tab (ElemFields1 (OriginalTableFields tab) (PrimaryKey tab))
-                           , MissingField tab (ElemFields1 (OriginalTableFields tab) (HasDefault tab))
-                           , MissingField tab (ElemFields2 (OriginalTableFields tab) (Unique tab))
-                           , ValidateTabFk tab (ForeignKey tab)
-                           , ValidateTabCk tab (Check tab)
-                           , ValidateTabIx tab
-                           , ValidateColumnAlias tab (OriginalTableFields tab) (ColumnNames tab)
-                           )
+type family ValidateTableProps (db :: *) (tab :: *) :: Constraint where
+  ValidateTableProps db tab =
+    ( MissingField tab (ElemFields1 (OriginalTableFields tab) (PrimaryKey db tab))
+    , MissingField tab (ElemFields1 (OriginalTableFields tab) (HasDefault db tab))
+    , MissingField tab (ElemFields2 (OriginalTableFields tab) (Unique db tab))
+    , ValidateTabFk db tab (ForeignKey db tab)
+    , ValidateTabCk tab (Check db tab)
+    , ValidateTabIx tab
+    , ValidateColumnAlias tab (OriginalTableFields tab) (ColumnNames db tab)
+    )
 
 type family ValidateColumnAlias (tab :: *) (flds :: [*]) (colMap :: [(Symbol, Symbol)]) :: Constraint where
   ValidateColumnAlias tab flds ('(fn, _) ': colMaps) = (ValidateColumnAlias' tab flds fn, ValidateColumnAlias tab flds colMaps)
@@ -254,10 +268,10 @@ type family ValidateTabPk (tab :: *) (pks :: [Symbol]) :: Constraint where
   ValidateTabPk tab (p ': ps) = If (ElemField (OriginalTableFields tab) p) (ValidateTabPk tab ps) (TypeError ('Text "column " ':<>: ('ShowType p) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)))
   ValidateTabPk tab '[]       = ()
 
-type family ValidateTabFk tab (fks :: [ForeignRef Type]) :: Constraint where
-  ValidateTabFk tab ('Ref fn reft ': fks) = (MatchFkRefFld tab reft fn (FindField (OriginalTableFields tab) fn) (FindField (OriginalTableFields reft) (HeadPk reft (PrimaryKey reft))),  ValidateTabFk tab fks)
-  ValidateTabFk tab ('RefBy fkeys reft rkeys ': fks) = ValidateTabFk tab fks
-  ValidateTabFk tab '[]         = ()
+type family ValidateTabFk db tab (fks :: [ForeignRef Type Type]) :: Constraint where
+  ValidateTabFk db tab ('Ref fn reft ': fks) = (MatchFkRefFld tab reft fn (FindField (OriginalTableFields tab) fn) (FindField (OriginalTableFields reft) (HeadPk reft (PrimaryKey db reft))),  ValidateTabFk db tab fks)
+  ValidateTabFk db tab ('RefBy fkeys reft rkeys ': fks) = ValidateTabFk db tab fks
+  ValidateTabFk db tab '[]         = ()
 
 type family HeadPk (tab :: *) (pks :: [Symbol]) where
   HeadPk tab '[pk] = pk
@@ -298,7 +312,7 @@ type family MissingField (tab :: *) (fn :: Maybe Symbol) :: Constraint where
   MissingField tab ('Just fn) = TypeError ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
   MissingField tab 'Nothing   = ()
 
-data ForeignRef refd
+data ForeignRef (db :: *) (refd :: *)
   = RefBy [Symbol] refd [Symbol]
   | Ref Symbol refd
 
@@ -325,9 +339,9 @@ end = Nil
 dbDefaults :: forall tab db xs.HList (Def tab) xs -> DBDefaults db tab
 dbDefaults = DBDefaults
 
-data Chk (tab :: *) (chk :: CheckCT) = forall val.Chk val
+data Chk (db :: *) (tab :: *) (chk :: CheckCT) = forall val.Chk val
 
-data DBChecks (db :: *) tab = forall chks.DBChecks (HList (Chk tab) chks)
+data DBChecks (db :: *) tab = forall chks.DBChecks (HList (Chk db tab) chks)
 
 type family LookupCheck (chks :: [CheckCT]) (cn :: Symbol) :: Maybe [Symbol] where
   LookupCheck ('CheckOn args cn ': chks) cn  = 'Just args
@@ -351,13 +365,13 @@ type ColNotFoundMsg (col :: Symbol) (tab :: Type) = ('Text "column " ':<>: ('Sho
 type family PartialJust (may :: Maybe k) :: k where
   PartialJust ('Just m) = m
 
-check :: forall (cn :: Symbol) (tab :: *) val args.
-        ( args ~ LookupCheck (Check tab) cn
+check :: forall (cn :: Symbol) (db :: *) (tab :: *) val args.
+        ( args ~ LookupCheck (Check db tab) cn
         , UnifyCheck tab cn (OriginalTableFields tab) args val
-        ) => val -> Chk tab ('CheckOn (PartialJust args) cn)
+        ) => val -> Chk db tab ('CheckOn (PartialJust args) cn)
 check = Chk
 
-dbChecks :: forall tab (db :: *) chks.HList (Chk tab) chks -> DBChecks db tab
+dbChecks :: forall tab (db :: *) chks.HList (Chk db tab) chks -> DBChecks db tab
 dbChecks = DBChecks
 
 type family ValidateDBFld tab (fn :: Symbol) t :: Constraint where
@@ -375,8 +389,8 @@ type family GetSchemaName (t :: *) :: Symbol where
 
 type OriginalTableFields t = GenTabFields (Rep t)
 
-type family TableFields (t :: *) :: [*] where
-  TableFields t = TableFields' (GenTabFields (Rep t)) (ColumnNames t)
+type family TableFields (db :: *) (t :: *) :: [*] where
+  TableFields db t = TableFields' (GenTabFields (Rep t)) (ColumnNames db t)
 
 type family TableFields' (flds :: [*]) (colMap :: [(Symbol, Symbol)]) :: [*] where
   TableFields' ((fn ::: ft) ': flds) colMap = (AliasedCol fn colMap ::: ft) ': (TableFields' flds colMap)
@@ -410,13 +424,15 @@ ERROR:  there is no unique constraint matching given keys for referenced table "
  "pk": "pk_%(table_name)s"
 -}
 
-type family DBConstraintFmt (tab :: *) (ct :: k) :: [Symbol] where
-  DBConstraintFmt tab (pks :: [Symbol])    = "pk" ': (TableName tab) ': '[]
-  DBConstraintFmt tab (uqs :: [[Symbol]])  = "uk" ': (TableName tab) ': (Concat uqs)
-  DBConstraintFmt tab ('Ref fld reft)     = "fk" ': (TableName tab) ': fld ': '[(TableName reft)]
-  DBConstraintFmt tab ('RefBy fs reft ft) = "fk" ': (TableName tab) ': (TableName reft) ': fs -- TODO: Maybe change the ord of reft.
-  DBConstraintFmt tab ('CheckOn fs cn)    = "ck" ': (TableName tab) ': '[cn]
-  DBConstraintFmt tab ('Ix col)           = '["ix", col]
+{-
+type family DBConstraintFmt db (tab :: *) (ct :: k) :: [Symbol] where
+  DBConstraintFmt db tab (pks :: [Symbol])    = "pk" ': (TableName db tab) ': '[]
+  DBConstraintFmt db tab (uqs :: [[Symbol]])  = "uk" ': (TableName db tab) ': (Concat uqs)
+  DBConstraintFmt db tab ('Ref fld reft)     = "fk" ': (TableName db tab) ': fld ': '[(TableName db reft)]
+  DBConstraintFmt db tab ('RefBy fs reft ft) = "fk" ': (TableName db tab) ': (TableName db reft) ': fs -- TODO: Maybe change the ord of reft.
+  DBConstraintFmt db tab ('CheckOn fs cn)    = "ck" ': (TableName db tab) ': '[cn]
+  DBConstraintFmt db tab ('Ix col)           = '["ix", col]
+-}
 
 type CheckExpr = Text
 type DefExpr = Text
