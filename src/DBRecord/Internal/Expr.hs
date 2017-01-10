@@ -104,7 +104,6 @@ instance (IsString (Expr sc a)
 
 class EqExpr a where
   (.==) :: Expr sc a -> Expr sc a -> Expr sc Bool
-  (.==) a b = not_ (a ./= b)
   
   (./=) :: Expr sc a -> Expr sc a -> Expr sc Bool
   (./=) a b = not_ (a .== b)
