@@ -104,9 +104,11 @@ instance (IsString (Expr sc a)
 
 class EqExpr a where
   (.==) :: Expr sc a -> Expr sc a -> Expr sc Bool
+  (.==) a b = not_ (a ./= b)
   
   (./=) :: Expr sc a -> Expr sc a -> Expr sc Bool
   (./=) a b = not_ (a .== b)
+  {-# MINIMAL (.==) | (./=) #-}
 
 infix 4 .==
 infix 4 ./=
@@ -117,18 +119,22 @@ class (EqExpr a) => OrdExpr a where
   (.>=) :: Expr sc a -> Expr sc a -> Expr sc Bool
   (.<=) :: Expr sc a -> Expr sc a -> Expr sc Bool
   
-  (.>) a b = binOp PQ.OpGt a b
-  (.<) a b = binOp PQ.OpLt a b
-  (.>=) a b = binOp PQ.OpGtEq a b
-  (.<=) a b = binOp PQ.OpLtEq a b
+  (.>) a b  = not_ (a .<= b)
+  (.<) a b  = (a .<= b) .&& not_ (a .== b)
+  (.>=) a b = not_ (a .<= b) .|| (a .== b)
+
+  {-# MINIMAL (.<=) #-}
 
 infix 4 .>
 infix 4 .<
 infix 4 .>=
 infix 4 .<=
 
-instance OrdExpr Int
-instance OrdExpr Word
+instance OrdExpr Int where
+  a .<= b = binOp PQ.OpLtEq a b
+
+instance OrdExpr Word where
+  a .<= b = binOp PQ.OpLtEq a b
 
 infixr 3 .&&
 (.&&) :: Expr sc Bool -> Expr sc Bool -> Expr sc Bool
