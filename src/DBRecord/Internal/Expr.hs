@@ -156,6 +156,12 @@ isNotNull = unOp PQ.OpIsNotNull
 nothing :: Expr sc (Maybe a)
 nothing = Expr $ PQ.ConstExpr PQ.Null
 
+toEnum :: forall a sc. (Enum a, Show a) => a -> Expr sc a
+toEnum = Expr . PQ.ConstExpr . PQ.Other . quoteEnum
+  where quoteEnum :: a -> T.Text
+        quoteEnum s = let str = T.pack . show $ s
+                      in "\'" <> str <> "\'"
+
 toNullable :: Expr sc a -> Expr sc (Maybe a)
 toNullable = unsafeCoerceExpr
 
