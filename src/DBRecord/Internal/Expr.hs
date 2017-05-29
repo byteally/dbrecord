@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
-{-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications #-}
+{-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms #-}
 module DBRecord.Internal.Expr where
 
 import qualified DBRecord.Internal.PrimQuery as PQ
@@ -10,6 +10,8 @@ import qualified Data.Text as T
 import Data.Functor.Identity
 import Data.Typeable
 import GHC.Exts
+import GHC.TypeLits
+import GHC.OverloadedLabels
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Text.Read as R
@@ -18,9 +20,67 @@ import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Monoid ((<>))
 import Data.Binary
 import Data.Time
+import Data.Text (Text)
+import DBRecord.Internal.Common
+import DBRecord.Internal.Types
 
 newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
                                       deriving Show
+
+col :: forall (col :: Symbol) (a :: *) sc.
+  ( KnownSymbol col
+  , UnifyField sc (col ::: a) ('Text "Unable to find column " ':<>: 'ShowType col)
+  ) => Proxy col -> Expr sc a
+col _ = Expr (PQ.AttrExpr sym)
+  where sym = maybe (error "Panic: Empty col @col_") id (PQ.toSym [T.pack $ symbolVal (Proxy @col)]) -- (singPath (Proxy @(UnpackPath col))))
+
+instance
+  ( UnifyField sc (cn ::: a) ('Text "Unable to find column " ':<>: 'ShowType cn)
+  , KnownSymbol cn
+  ) => IsLabel cn (Expr sc a) where
+  fromLabel _ = col (Proxy @cn)
+
+--class SingPath (
+
+
+class ConstExpr t where
+  constExpr :: t -> Expr sc t
+
+instance ConstExpr Text where
+  constExpr = fromString . T.unpack
+
+instance ConstExpr t => ConstExpr (fn ::: t) where
+  constExpr (Field v) = coerce $ constExpr v
+  
+class HasInsertValues t where
+  insertValues :: t -> PQ.Assoc
+
+instance (KnownSymbol fn, ConstExpr t) => HasInsertValues (Identity (fn ::: t)) where
+  insertValues (Identity (Field v)) = [(T.pack $ symbolVal (Proxy @fn), getExpr $ constExpr v)]
+
+instance ( KnownSymbol fn1
+         , KnownSymbol fn2
+         , ConstExpr t1
+         , ConstExpr t2
+         ) => HasInsertValues (fn1 ::: t1, fn2 ::: t2) where
+  insertValues (Field v1, Field v2)
+    = [ (T.pack $ symbolVal (Proxy @fn1), getExpr $ constExpr v1)
+      , (T.pack $ symbolVal (Proxy @fn2), getExpr $ constExpr v2)
+      ]
+
+instance ( KnownSymbol fn1
+         , KnownSymbol fn2
+         , KnownSymbol fn3
+         , ConstExpr t1
+         , ConstExpr t2
+         , ConstExpr t3
+         ) => HasInsertValues (fn1 ::: t1, fn2 ::: t2, fn3 ::: t3) where
+  insertValues (Field v1, Field v2, Field v3)
+    = [ (T.pack $ symbolVal (Proxy @fn1), getExpr $ constExpr v1)
+      , (T.pack $ symbolVal (Proxy @fn2), getExpr $ constExpr v2)
+      , (T.pack $ symbolVal (Proxy @fn3), getExpr $ constExpr v3)
+      ]      
+  
 
 binOp :: PQ.BinOp -> Expr sc a -> Expr sc b -> Expr sc c
 binOp op (Expr lhs) (Expr rhs) = Expr (PQ.BinExpr op lhs rhs)
@@ -136,6 +196,9 @@ instance OrdExpr Int where
 instance OrdExpr Word where
   a .<= b = binOp PQ.OpLtEq a b
 
+instance OrdExpr Text where
+  a .<= b = binOp PQ.OpLtEq a b
+
 infixr 3 .&&
 (.&&) :: Expr sc Bool -> Expr sc Bool -> Expr sc Bool
 (.&&) a b = binOp PQ.OpAnd a b
@@ -203,6 +266,12 @@ true = Expr $ PQ.ConstExpr $ PQ.Bool True
 
 false :: Expr sc Bool
 false = Expr $ PQ.ConstExpr $ PQ.Bool False
+
+pattern TRUE :: Expr sc Bool
+pattern TRUE = Expr (PQ.ConstExpr (PQ.Bool True))
+
+pattern FALSE :: Expr sc Bool
+pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
 
 text :: T.Text -> Expr sc T.Text
 text = fromString . T.unpack

@@ -24,17 +24,19 @@ import qualified Data.Text as T
 import GHC.TypeLits
 import GHC.Generics
 import GHC.Exts
+import GHC.OverloadedLabels
 import Data.Kind
 import Data.Typeable
 import Data.Functor.Const
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
+import DBRecord.Internal.Expr
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
 
-col :: forall (a :: Symbol). Col a
-col = Col
+--col :: forall (a :: Symbol). Col a
+--col = Col
 
 class ( -- TypeCxts db (Types db)
       ) => Database (db :: *) where
@@ -45,6 +47,10 @@ class ( -- TypeCxts db (Types db)
   type Types db = '[]
   type TabIgnore db :: [Type]
   type TabIgnore db = '[]
+  type Baseline db :: *
+  type Baseline db = ()
+  type Version db :: *
+  type Version db = ()  
 
   type DB db :: DbK
   type DB db = TypeError ('Text "DB type is not configured in the Database instance for type " ':<>: 'ShowType db ':$$:
@@ -56,12 +62,12 @@ class ( Database db
       , AssertCxt (Elem (Tables db) tab) ('Text "Database " ':<>: 'ShowType db ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
       , ValidateTableProps db tab
       , SingI (PrimaryKey db tab)
-      , SingI (Unique db tab)
+      , SingI (GetAllUniqs (Unique db tab))
       , SingI (TagEachFks db (ForeignKey db tab))
       , SingI (Check db tab)
       , SingI ('DefSyms (HasDefault db tab))
       , All SingE (PrimaryKey db tab)
-      , All SingE (Unique db tab)
+      , All SingE (GetAllUniqs (Unique db tab))
       , All SingE (TagEachFks db (ForeignKey db tab))
       , All SingE (Check db tab)
       , SingE ('DefSyms (HasDefault db tab))
@@ -75,7 +81,7 @@ class ( Database db
   type ForeignKey db tab :: [ForeignRef Type Type]
   type ForeignKey db tab = '[]
 
-  type Unique db tab     :: [[Symbol]]
+  type Unique db tab     :: [UniqueCT]
   type Unique db tab = '[]
 
   type HasDefault db tab :: [Symbol]
@@ -221,8 +227,10 @@ tabName :: forall db t proxy.
 tabName _ _ = symbolVal (Proxy :: Proxy (TableName db t))
 
 instance SingE (ch :: CheckCT) where
-  type Demote ch = CheckExpr
-  fromSing (SCheck cols _cname) = T.pack $ concat $ fromSing cols
+  type Demote ch = (Text, CheckExpr)
+  fromSing (SCheck cols cname) = ( T.pack $ fromSing cname
+                                 , T.pack $ concat $ fromSing cols
+                                 )
 
 instance SingE (defs :: DefSyms) where
   type Demote defs = [DefExpr]
@@ -248,7 +256,7 @@ type family ValidateTableProps (db :: *) (tab :: *) :: Constraint where
   ValidateTableProps db tab =
     ( MissingField tab (ElemFields1 (OriginalTableFields tab) (PrimaryKey db tab))
     , MissingField tab (ElemFields1 (OriginalTableFields tab) (HasDefault db tab))
-    , MissingField tab (ElemFields2 (OriginalTableFields tab) (Unique db tab))
+    , MissingField tab (ElemUniqs (OriginalTableFields tab) (Unique db tab))
     , ValidateTabFk db tab (ForeignKey db tab)
     , ValidateTabCk tab (Check db tab)
     , ValidateTabIx tab
@@ -269,10 +277,49 @@ type family ValidateTabPk (tab :: *) (pks :: [Symbol]) :: Constraint where
   ValidateTabPk tab '[]       = ()
 
 type family ValidateTabFk db tab (fks :: [ForeignRef Type Type]) :: Constraint where
-  ValidateTabFk db tab ('Ref fn reft ': fks) = (MatchFkRefFld tab reft fn (FindField (OriginalTableFields tab) fn) (FindField (OriginalTableFields reft) (HeadPk reft (PrimaryKey db reft))),  ValidateTabFk db tab fks)
-  ValidateTabFk db tab ('RefBy fkeys reft rkeys ': fks) = ValidateTabFk db tab fks
+  ValidateTabFk db tab ('Ref fn reft ': fks)
+    = ( MatchFkFields db tab reft (FindFields (OriginalTableFields tab) '[fn]) (FindFields (OriginalTableFields reft) '[fn])
+--        MatchFkRefFld tab reft fn (FindField (OriginalTableFields tab) fn) (FindField (OriginalTableFields reft) (HeadPk reft (PrimaryKey db reft)))
+      , ValidateRefPk reft '[fn] (PrimaryKey db reft)
+      , ValidateTabFk db tab fks
+      )
+  ValidateTabFk db tab ('RefBy fkeys reft rkeys ': fks)
+    = ( MatchFkFields db tab reft (FindFields (OriginalTableFields tab) fkeys) (FindFields (OriginalTableFields reft) rkeys)
+      , ValidateRefPk reft rkeys (PrimaryKey db reft)
+      , ValidateTabFk db tab fks
+      )
   ValidateTabFk db tab '[]         = ()
 
+type family ValidateRefPk (reft :: *) (rkeys :: [Symbol]) (pkeys :: [Symbol]) :: Constraint where
+  ValidateRefPk reft keys keys = ()
+  ValidateRefPk reft rpkeys pkeys = TypeError ('Text "In foreign key declaration:" :$$: 'ShowType rpkeys :<>: 'Text " is not a primary key of table " :<>: 'ShowType reft)
+
+type family MatchFkFields db tab reft (fkeys :: [Either Symbol *]) (rkeys :: [Either Symbol *]) :: Constraint where
+  MatchFkFields db tab reft ('Right (fn1 ::: t) ': fkeys) (Right (fn2 ::: t) ': rkeys)
+    = MatchFkFields db tab reft fkeys rkeys
+  MatchFkFields db tab reft ('Right (fn1 ::: t1) ': fkeys) (Right (fn2 ::: t2) ': rkeys)
+    = ( TypeError ('Text "Type mismatch between foreign key and primary key"
+                  :$$: ('ShowType fn1) :<>: 'Text ": " :<>: ('ShowType t1)
+                  :$$: ('ShowType fn2) :<>: 'Text ": " :<>: ('ShowType t2)
+                  )
+      , MatchFkFields db tab reft fkeys rkeys
+      )
+  MatchFkFields db tab reft ('Left fn1 ': fkeys) ('Right _ ': rkeys)
+    = (TypeError ('Text "column " ':<>: ('ShowType fn1) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)), MatchFkFields db tab reft fkeys rkeys)
+  MatchFkFields db tab reft ('Right _ ': fkeys) ('Left fn2 ': rkeys)
+    = (TypeError ('Text "column " ':<>: ('ShowType fn2) ':<>: 'Text " does not exist in table " ':<>: ('ShowType reft)), MatchFkFields db tab reft fkeys rkeys)
+  MatchFkFields db tab reft ('Left fn1 ': fkeys) ('Left fn2 ': rkeys)
+    = ( TypeError ('Text "column " ':<>: ('ShowType fn1) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
+      , TypeError ('Text "column " ':<>: ('ShowType fn2) ':<>: 'Text " does not exist in table " ':<>: ('ShowType reft))
+      , MatchFkFields db tab reft fkeys rkeys
+      )
+  MatchFkFields db tab reft '[] (_ ': _)
+    = TypeError ('Text "Number of foreign key column is less than that of its referenced primary keys")
+  MatchFkFields db tab reft (_ ': _) '[]
+    = TypeError ('Text "Number of foreign key column is greater than that of its referenced primary keys")
+  MatchFkFields _ _ _ '[] '[] = ()
+  
+{-
 type family HeadPk (tab :: *) (pks :: [Symbol]) where
   HeadPk tab '[pk] = pk
   HeadPk tab '[]   = TypeError ('Text "Invalid foreign key! Referenced table does not have primary key: " ':<>: 'ShowType tab)
@@ -283,6 +330,7 @@ type family MatchFkRefFld tab reft (fn :: Symbol) (t1 :: Maybe *) (t2 :: Maybe *
   MatchFkRefFld tab reft fn ('Just t1) ('Just t2) = TypeError ('Text "Type mismatch between foreign key and primary key")
   MatchFkRefFld tab reft fn ('Just t) 'Nothing    = ()
   MatchFkRefFld tab reft fn 'Nothing t            = TypeError ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
+-}
 
 
 type family ValidateTabCk tab (chks :: [CheckCT]) :: Constraint where
@@ -308,13 +356,37 @@ type family ElemFields2' (may :: Maybe Symbol) (flds :: [*]) (fss :: [[Symbol]])
   ElemFields2' ('Just fn) flds fss = ('Just fn)
   ElemFields2' 'Nothing flds fss   = ElemFields2 flds fss
 
+type family ElemUniqs (flds :: [*]) (uniqs :: [UniqueCT]) :: Maybe Symbol where
+  ElemUniqs flds ('UniqueOn fs _ : uqs) = ElemUniqs' (ElemFields1 flds fs) flds uqs
+  ElemUniqs flds '[]                  = 'Nothing
+
+type family ElemUniqs' (may :: Maybe Symbol) (flds :: [*]) (fss :: [UniqueCT])  :: Maybe Symbol where
+  ElemUniqs' ('Just fn) flds uqs = 'Just fn
+  ElemUniqs' 'Nothing flds uqs    = ElemUniqs flds uqs
+
 type family MissingField (tab :: *) (fn :: Maybe Symbol) :: Constraint where
   MissingField tab ('Just fn) = TypeError ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
   MissingField tab 'Nothing   = ()
 
+type family GetAllUniqs (uqs :: [UniqueCT]) :: [[Symbol]] where
+   GetAllUniqs ('UniqueOn fs _ : uqs) = fs ': GetAllUniqs uqs
+   GetAllUniqs '[]                    = '[]
+
+type family GetUniqBy (un :: Symbol) (uqs :: [UniqueCT]) :: Maybe [Symbol] where
+  GetUniqBy un ('UniqueOn fs un : uqs)   = 'Just fs
+  GetUniqBy un1 ('UniqueOn fs un2 : uqs) = GetUniqBy un1 uqs
+  GetUniqBy _ '[]                        = 'Nothing
+
 data ForeignRef (db :: *) (refd :: *)
   = RefBy [Symbol] refd [Symbol]
   | Ref Symbol refd
+
+data UniqueCT = UniqueOn [Symbol] Symbol
+
+data Uq (un :: Symbol) = Uq
+
+instance un ~ uqn => IsLabel un (Uq uqn) where
+  fromLabel _ = Uq
 
 data CheckCT = CheckOn [Symbol] Symbol
 
@@ -351,19 +423,10 @@ type family LookupCheck (chks :: [CheckCT]) (cn :: Symbol) :: Maybe [Symbol] whe
 type family UnifyCheck (tab :: *) (cn :: Symbol) (flds :: [*]) (args :: Maybe [Symbol]) (val :: *) :: Constraint where
   UnifyCheck tab cn flds 'Nothing val = TypeError ('Text "check constraint " ':<>: 'ShowType cn ':<>: 'Text " does not exist on table " ':<>: 'ShowType tab)
   UnifyCheck tab cn flds ('Just args) val = UnifyOrErr (SeqEither (MkCheckFn tab args val flds)) val
-
-type family UnifyOrErr (res :: Either ErrorMessage [Type]) (v :: Type) :: Constraint where
-  UnifyOrErr ('Right lhs) rhs = (MkFun lhs) ~ rhs
-  UnifyOrErr ('Left err) _    = TypeError err
   
 type family MkCheckFn (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: [Either ErrorMessage *] where
-  MkCheckFn tab (fn ': fs) chkFun flds = Note (ColNotFoundMsg fn tab) (FindField flds fn) ': MkCheckFn tab fs chkFun flds
-  MkCheckFn tab '[] r flds = '[ 'Right Bool]
-
-type ColNotFoundMsg (col :: Symbol) (tab :: Type) = ('Text "column " ':<>: ('ShowType col) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))  
-
-type family PartialJust (may :: Maybe k) :: k where
-  PartialJust ('Just m) = m
+  MkCheckFn tab (fn ': fs) chkFun flds = Note (ColNotFoundMsg fn tab) (FMapMaybe (Expr flds) (FindField flds fn)) ': MkCheckFn tab fs chkFun flds
+  MkCheckFn tab '[] r flds = '[ 'Right (Expr flds Bool)]
 
 check :: forall (cn :: Symbol) (db :: *) (tab :: *) val args.
         ( args ~ LookupCheck (Check db tab) cn

@@ -5,6 +5,7 @@ module DBRecord.Internal.DBTypeValidation where
 import DBRecord.Internal.DBTypes
 import DBRecord.Internal.Schema
 import DBRecord.Internal.Common
+import qualified DBRecord.Internal.PrimQuery as PQ
 import Data.Text (Text)
 import qualified Data.Text as T
 import DBRecord.Internal.Types
@@ -14,6 +15,7 @@ import GHC.Exts
 import Data.Aeson
 import Data.UUID.Types
 import Data.Functor.Const
+import Data.Functor.Identity
 import Data.Time.LocalTime
 import Data.ByteString (ByteString)
 import Data.Time.Calendar (Day)
@@ -96,3 +98,12 @@ getTableHFields ::  forall db tab.
                    ) => Proxy db -> Proxy tab -> HList (Const Column) (OriginalTableFields tab)
 getTableHFields _ _ = singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
 
+
+getTableId :: forall db tab.
+               ( KnownSymbol (TableName db tab)
+               , KnownSymbol (Schema db)
+               ) => Proxy db -> Proxy tab -> PQ.TableId
+getTableId _ _ = tab
+  where tab = PQ.TableId { PQ.schema    = getConst (getSchemaName :: Const Text db)
+                         , PQ.tableName = getConst (getTableName  :: Const Text (db, tab))
+                         }

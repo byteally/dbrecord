@@ -40,7 +40,7 @@ data Config a = Config
   , beforeTransaction :: IO a
   , onRetry           :: forall e . Exception e => e -> a -> IO ()
   , afterTransaction  :: a -> IO ()
-  }
+  } 
 
 type Config_ = Config ()
 

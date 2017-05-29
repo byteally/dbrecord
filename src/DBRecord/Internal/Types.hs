@@ -1,13 +1,17 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric #-}
+{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses #-}
 module DBRecord.Internal.Types where
 
 import GHC.Generics
 import GHC.TypeLits
+import GHC.OverloadedLabels
 import Data.Aeson
 
 newtype (f :: Symbol) ::: t = Field t
   deriving (Show, Eq, Generic)
+
+instance (fn ~ fn1, s ~ t) => IsLabel fn (s -> (fn1 ::: t)) where
+  fromLabel _ = Field
 
 valOf :: (s ::: t) -> t
 valOf (Field v) = v

@@ -43,6 +43,16 @@ data PrimQuery = BaseTable TableId Clauses
                -- Values
                deriving (Show, Read, Generic)
 
+data InsertQuery = InsertQuery TableId [Attribute] (NEL.NonEmpty [PrimExpr])
+                 deriving (Show, Read, Generic)
+
+data UpdateQuery = UpdateQuery TableId [PrimExpr] Assoc
+                 deriving (Show, Read, Generic)
+
+data DeleteQuery = DeleteQuery TableId [PrimExpr]
+                 deriving (Show, Read, Generic)
+
+
 data Clauses = Clauses { projections :: [(Sym, PrimExpr)]
                        , criteria    :: [PrimExpr]
                        , windows     :: [WindowClause]
@@ -177,7 +187,49 @@ foldPrimQuery f = fix fold
           -- Label l pq                -> label     f l (self pq)
           -- RelExpr pe syms           -> relExpr   f pe syms
           
-        fix g = let x = g x in x
+fix :: (t -> t) -> t
+fix g = let x = g x in x
+
+newtype InsertQueryFold p = InsertQueryFold
+  { insertQ :: TableId -> [Attribute] -> (NEL.NonEmpty [PrimExpr]) -> p
+  }
+
+insertQueryFoldDefault :: InsertQueryFold InsertQuery
+insertQueryFoldDefault = InsertQueryFold { insertQ = InsertQuery}
+
+foldInsertQuery :: InsertQueryFold p -> InsertQuery -> p
+foldInsertQuery f = fix fold
+  where fold self (InsertQuery tid attr vals) = insertQ f tid attr vals
+
+newtype UpdateQueryFold p = UpdateQueryFold
+  { updateQ :: TableId -> [PrimExpr] -> Assoc -> p
+  }
+
+updateQueryFoldDefault :: UpdateQueryFold UpdateQuery
+updateQueryFoldDefault = UpdateQueryFold {updateQ = UpdateQuery}
+
+foldUpdateQuery :: UpdateQueryFold p -> UpdateQuery -> p
+foldUpdateQuery f = fix fold
+  where fold self (UpdateQuery ti cond assoc) = updateQ f ti cond assoc
+
+newtype DeleteQueryFold p = DeleteQueryFold
+ { deleteQ :: TableId -> [PrimExpr] -> p
+ }
+
+deleteQueryFoldDefault :: DeleteQueryFold DeleteQuery
+deleteQueryFoldDefault = DeleteQueryFold {deleteQ = DeleteQuery} 
+
+foldDeleteQuery :: DeleteQueryFold p -> DeleteQuery -> p
+foldDeleteQuery f = fix fold
+  where fold self (DeleteQuery ti cond) = deleteQ f ti cond
+
+isFieldExpr :: PrimExpr -> Bool
+isFieldExpr (AttrExpr {})          = True
+isFieldExpr (BaseTableAttrExpr {}) = True
+isFieldExpr (CompositeExpr {})     = True
+isFieldExpr _                      = False
+
+
 
 renderSym :: Sym -> Text
 renderSym (Sym pfx fld) = T.intercalate "." (pfx ++ [fld])

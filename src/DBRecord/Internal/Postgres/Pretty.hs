@@ -16,7 +16,7 @@ import Data.List (intersperse)
 import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   parens, comma, punctuate,
                                   hcat, vcat, brackets, doubleQuotes,
-                                  hsep, equals, char, empty)
+                                  hsep, equals, char, empty, render)
 
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
@@ -248,4 +248,22 @@ aliasSep :: Doc
 aliasSep = char '_'
 
 -- testPP doc = render doc
+
+renderQuery :: SqlSelect -> String
+renderQuery = render . ppSelect
+
+renderDelete :: SqlDelete -> String
+renderDelete = render . ppDelete
+
+renderInsert :: SqlInsert -> String
+renderInsert = render . ppInsert
+
+renderInsertRet :: Returning SqlInsert -> String
+renderInsertRet = render . ppInsertReturning
+
+renderUpdate :: SqlUpdate -> String
+renderUpdate = render . ppUpdate
+
+renderUpdateRet :: Returning SqlUpdate -> String
+renderUpdateRet = render . ppUpdateReturning
 

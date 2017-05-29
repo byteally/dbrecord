@@ -1,7 +1,7 @@
 module DBRecord.Schema
        ( DbK (..)
        , Col (..)
-       , col
+--       , col
        , Database (..)
        , Table (..)  
        , module DBRecord.Internal.DBTypeValidation
@@ -15,6 +15,8 @@ module DBRecord.Schema
        , TableFields
        , AliasedCol
        , CheckCT (..)
+       , UniqueCT (..)
+       , Uq (..)
        , IgnoredCol (..)
        , ForeignRef (..)  
        ) where

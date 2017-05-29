@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, KindSignatures, TypeOperators, DataKinds, PolyKinds, UndecidableInstances, MultiParamTypeClasses, UndecidableSuperClasses, FlexibleInstances, FunctionalDependencies, FlexibleContexts, ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies, KindSignatures, TypeOperators, DataKinds, PolyKinds, UndecidableInstances, MultiParamTypeClasses, UndecidableSuperClasses, FlexibleInstances, FunctionalDependencies, FlexibleContexts, ScopedTypeVariables, TypeFamilyDependencies, RankNTypes #-}
 module DBRecord.Internal.Common where
 
 import Data.Type.Equality
@@ -117,7 +117,11 @@ type family FindField (xs :: [*]) (fn :: Symbol) :: (Maybe *) where
 type family FindFieldOrErr (xs :: [*]) (fn :: Symbol) (msg :: ErrorMessage) :: * where
   FindFieldOrErr ((fn ::: t) ': xs) fn msg  = t
   FindFieldOrErr ((fn' ::: t) ': xs) fn msg = FindFieldOrErr xs fn msg
-  FindFieldOrErr '[] fn msg                 = TypeError msg  
+  FindFieldOrErr '[] fn msg                 = TypeError msg
+
+type family FindFields (xs :: [*]) (fns :: [Symbol]) :: [Either Symbol *] where
+  FindFields xs (fn ': fns) = Note fn (FMapMaybe ((:::) fn) (FindField xs fn)) ': FindFields xs fns
+  FindFields _ '[]          = '[]
 
 type family ElemField (xs :: [*]) (fn :: Symbol) :: Bool where
   ElemField ((fn ::: t) ': xs) fn  = 'True
@@ -137,7 +141,7 @@ type family Concat (xss :: [[k]]) :: [k] where
   Concat (xs ': xss) = xs   -- TODO:
   Concat '[]         = '[]
 
-type family Note (note :: k) (may :: Maybe *) :: Either k * where
+type family Note (note :: k) (may :: Maybe k1) :: Either k k1 where
   Note _ ('Just v)   = 'Right v
   Note note 'Nothing = 'Left note
 
@@ -154,6 +158,20 @@ type family MkFun (tys :: [*]) :: * where
   MkFun (t ': '[]) = t 
   MkFun (t ': ts)  = t -> MkFun ts
 
+type family UnifyOrErr (res :: Either ErrorMessage [*]) (v :: *) :: Constraint where
+  UnifyOrErr ('Right lhs) rhs = (MkFun lhs) ~ rhs
+  UnifyOrErr ('Left err) _    = TypeError err
+
+type ColNotFoundMsg (col :: Symbol) (tab :: *) = ('Text "column " ':<>: ('ShowType col) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))  
+
+type family PartialJust (may :: Maybe k) :: k where
+  PartialJust ('Just m) = m
+
+type family FMapMaybe (fn :: k -> *) (may :: Maybe k) where
+  FMapMaybe fn ('Just v) = 'Just (fn v)
+  FMapMaybe _ 'Nothing   = 'Nothing
+
+
 class (AllF f xs) => All (f :: k -> Constraint) (xs :: [k])
 instance (AllF f xs) => All f xs
 
@@ -167,6 +185,50 @@ instance (AllF (All f) xss) => All2 f xss
 type family If (c :: Bool) (t :: k) (f :: k) :: k where
   If 'True t f  = t
   If 'False t f = f
+
+class (t ~ HListToTuple (TupleToHList t)) => ToHList t where
+  toHList :: t -> (forall a. a -> f a) -> HList f (TupleToHList t)
+
+instance ToHList (Identity v) where
+  toHList (Identity v) lift = lift v :& Nil
+
+instance ToHList (x1, x2) where
+  toHList (x1, x2) lift = lift x1 :& lift x2 :& Nil
+
+instance ToHList (x1, x2, x3) where
+  toHList (x1, x2, x3) lift = lift x1 :& lift x2 :& lift x3 :& Nil  
+
+  
+type family HListToTuple (xs :: [*]) = (ret :: *) | ret -> xs where
+  HListToTuple '[x] = Identity x
+  HListToTuple '[x1, x2] = (x1, x2)
+  HListToTuple '[x1, x2, x3] = (x1, x2, x3)
+  HListToTuple '[x1, x2, x3, x4] = (x1, x2, x3, x4)
+  HListToTuple '[x1, x2, x3, x4, x5] = (x1, x2, x3, x4, x5)
+  HListToTuple '[x1, x2, x3, x4, x5, x6] = (x1, x2, x3, x4, x5, x6)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7] = (x1, x2, x3, x4, x5, x6, x7)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8] = (x1, x2, x3, x4, x5, x6, x7, x8)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9] = (x1, x2, x3, x4, x5, x6, x7, x8, x9)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12)
+
+
+type family TupleToHList (t :: *) = (res :: [*]) | res -> t where
+  TupleToHList (Identity x) = '[x]
+  TupleToHList (x1, x2) = '[x1, x2]
+  TupleToHList (x1, x2, x3) = '[x1, x2, x3]
+
+
+
+type family FilterNonDefaults (xs :: [*]) (defs :: [Symbol]) :: [*] where
+  FilterNonDefaults '[] _ = '[]
+  FilterNonDefaults ((x ::: t)': xs) defs = FilterNonDefaults' (Elem defs x) (x ::: t) xs defs
+ 
+type family FilterNonDefaults' (isDef :: Bool) (c :: *) (xs :: [*]) (defs :: [Symbol]) :: [*] where
+  FilterNonDefaults' 'True _ xs defs = FilterNonDefaults xs defs
+  FilterNonDefaults' 'False x xs defs = x ': FilterNonDefaults xs defs
+  
 
 class (Applicative f) => GTypeToRec f rep xs | rep -> xs where
   gTypeToRec :: rep a -> HList f xs

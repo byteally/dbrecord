@@ -1,3 +1,11 @@
 resolver: lts-7.8
 packages:
 - '.'
+extra-deps:
+- mysql-haskell-0.8.0.0
+- binary-ieee754-0.1.0.0
+- binary-parsers-0.2.3.0
+- wire-streams-0.1.1.0
+- word24-2.0.1
+- tcp-streams-0.6.0.0
+- mongoDB-2.2.0

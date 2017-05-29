@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE KindSignatures, DataKinds, FlexibleContexts, UndecidableInstances, OverloadedStrings #-}
+{-# LANGUAGE KindSignatures, DataKinds, FlexibleContexts, UndecidableInstances, OverloadedStrings, PatternSynonyms #-}
 module DBRecord.Internal.Order where
 
 import qualified DBRecord.Internal.PrimQuery as PQ
@@ -40,6 +40,10 @@ descNullsLast :: OrdExpr a => Expr sc a -> Order sc
 descNullsLast = order PQ.OrderOp { PQ.orderDirection = PQ.OpDesc
                                  , PQ.orderNulls = PQ.NullsLast
                                  }
+
+pattern AnyOrder :: Order sc
+pattern AnyOrder = Order []
+
 
 instance ToJSON (Order sc) where
   toEncoding e = pairs  ("trusted" .= getOrder e)

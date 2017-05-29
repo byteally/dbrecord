@@ -21,6 +21,16 @@ import qualified Data.Maybe as M
 sql :: PQ.PrimQuery -> SqlSelect
 sql = PQ.foldPrimQuery sqlQueryGenerator
 
+updateSql :: PQ.UpdateQuery -> SqlUpdate
+updateSql = PQ.foldUpdateQuery sqlUpdateGenerator
+
+deleteSql :: PQ.DeleteQuery -> SqlDelete
+deleteSql = PQ.foldDeleteQuery sqlDeleteGenerator
+
+insertSql :: PQ.InsertQuery -> SqlInsert
+insertSql = PQ.foldInsertQuery sqlInsertGenerator
+
+
 sqlQueryGenerator :: PQ.PrimQueryFold SqlSelect
 sqlQueryGenerator = PQ.PrimQueryFold
   { PQ.baseTable = baseTable
@@ -31,6 +41,22 @@ sqlQueryGenerator = PQ.PrimQueryFold
   -- , PQ.label     = label
   -- , PQ.relExpr   = relExpr
   }
+
+sqlUpdateGenerator :: PQ.UpdateQueryFold SqlUpdate
+sqlUpdateGenerator = PQ.UpdateQueryFold
+  {PQ.updateQ = \tabId -> sqlUpdate defaultSqlGenerator $ toSqlTable tabId
+  }
+
+sqlDeleteGenerator :: PQ.DeleteQueryFold SqlDelete
+sqlDeleteGenerator = PQ.DeleteQueryFold
+  { PQ.deleteQ = \tabId -> sqlDelete defaultSqlGenerator $ toSqlTable tabId
+  }
+
+sqlInsertGenerator :: PQ.InsertQueryFold SqlInsert
+sqlInsertGenerator = PQ.InsertQueryFold
+  { PQ.insertQ = \tabId -> sqlInsert defaultSqlGenerator $ toSqlTable tabId
+  }  
+
 
 newSelect :: SelectFrom
 newSelect = SelectFrom {
@@ -61,10 +87,11 @@ baseClauses cs =
               }
 
 baseTable :: PQ.TableId -> PQ.Clauses -> SqlSelect
-baseTable tabId cs = SqlSelect (sqlTab tabId) $ 
+baseTable tabId cs = SqlSelect (toSqlTable tabId) $ 
   (baseClauses cs) { PGT.alias  = (T.unpack <$> (PQ.alias cs)) }
 
-  where sqlTab (PQ.TableId s tn) = SqlTable (Just (T.unpack s)) (T.unpack tn)
+toSqlTable :: PQ.TableId -> SqlTable
+toSqlTable (PQ.TableId s tn) = SqlTable (Just (T.unpack s)) (T.unpack tn)
 
 product :: NEL.NonEmpty SqlSelect -> PQ.Clauses -> SqlSelect
 product tabs cs = SqlProduct (NEL.toList tabs) $            

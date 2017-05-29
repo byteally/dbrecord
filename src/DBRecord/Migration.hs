@@ -16,7 +16,9 @@
 module DBRecord.Migration
        ( mkMigration
        , renderMig
-       , diffMigration  
+       , diffMigration
+       , BaseTable (..)
+       , module DBRecord.Migration
        ) where
 
 import DBRecord.Internal.Migration
@@ -28,9 +30,97 @@ import DBRecord.Internal.DBTypes
 import qualified Data.Text as T
 import Data.Proxy
 import GHC.Exts
+import GHC.TypeLits
+import Data.Kind
 import Data.Functor.Const
 
+class BaseDatabase (base :: *) where
+  type BaseVersion base :: *
+  type BaseSchema base :: Symbol
+  type BaseSchema base = "public"
+  type BaseTables base :: [Symbol]
+  type BaseTypes base :: [Symbol]
+  type BaseTypes base = '[]
 
+instance BaseDatabase () where
+  type BaseVersion () = ()
+  type BaseTables () = '[]
+
+class BaseTable (base :: *) (tab :: Symbol) where
+  type BaseTableVersion base tab :: *
+  type BaseColumns base tab :: [*]
+  type BasePrimaryKey base tab :: [Symbol]
+  type BaseForeignKey base tab :: [BaseForeignRef]
+  type BaseForeignKey base tab = '[]
+  type BaseUnique base tab :: [UniqueCT]
+  type BaseUnique base tab = '[]
+  type BaseDefaultedCols base tab :: [Symbol]
+  type BaseDefaultedCols base tab = '[]
+  type BaseCheck base tab :: [CheckCT]
+  type BaseCheck base tab = '[]
+
+data MigratedEntityK
+  = AddedTable Type [Type]
+  | DropedTable Type
+  | AlteredTable Type
+  | RenamedTable  Type
+
+data BaseForeignRef
+  = BaseRefBy [Symbol] Symbol [Symbol]
+  | BaseRef Symbol Symbol  
+
+
+class DBMigration (base :: *) (v :: *) where
+  type RenameSchema base v :: Maybe Symbol
+  type RenameSchema base v = 'Nothing
+  
+  type CreatedTables base v :: [Symbol]
+  type CreatedTables base v = '[]
+  
+  type DropedTables base v :: [Symbol]
+  type DropedTables base v = '[]
+  
+  type RenamedTables base v :: [(Symbol, Symbol)]
+  type RenamedTables base v = '[]
+  
+  type AlteredTables base v :: [Symbol]
+  type AlteredTables base v = '[]
+
+  type CreatedTypes base v :: [Symbol]
+  type CreatedTypes base v = '[]
+  
+  type DropedTypes base v :: [Symbol]
+  type DropedTypes base v = '[]
+  
+  type RenamedTypes base v :: [(Symbol, Symbol)]
+  type RenamedTypes base v = '[]
+  
+  type AlteredTypes base v :: [Symbol]
+  type AlteredTypes base v = '[]
+
+class TableMigration (base :: *) (tab :: Symbol) (v :: *) where
+  type AddedColumn base tab v :: [*]
+  type DropedColumn base tab v :: [Symbol]
+  type RenamedColumn base tab v :: [(Symbol, Symbol)]
+  type AlteredColumn base tab v :: [*]
+  type AddedConstraint base tab v :: [*]
+  type DropedConstraint base tab v :: [Symbol]
+
+
+data DBDiff = DBDiff
+data TableDiff
+data TypeDiff
+data ColumnDiff
+data ConstraintDiff
+
+
+type family DiffDB (db :: *) (bl :: *) (currver :: *) where
+  DiffDB db bl currver = DiffDB' db bl currver (BaseVersion bl)
+
+type family DiffDB' (db :: *) (bl :: *) (currver :: *) (basever :: *) where
+  DiffDB' db bl currver curver = ()
+  
+  
 toTypeAttr :: HList (Const DConAttr) xs -> TypeAttr
 toTypeAttr hlist =
   let consAttrs = recordToList hlist
@@ -52,8 +142,8 @@ mkMigration :: forall db schema tables types.
   , SingI tables
   , SingI types
   ) => Proxy db -> [Migration]
-mkMigration pxyDB = mkMigrationTables pxyDB (sing :: Sing tables)
-  ++ mkMigrationTypes pxyDB (sing :: Sing types)
+mkMigration pxyDB = mkMigrationTypes pxyDB (sing :: Sing types)
+  ++ mkMigrationTables pxyDB (sing :: Sing tables)
 
 
 mkMigrationTables :: forall db tabs.
@@ -73,13 +163,22 @@ mkMigrationTable :: forall db tab pks fks chks uqs defs.
 mkMigrationTable _ _
   = let addPks = case fromSing (sing :: Sing pks) of
                       [] -> []
-                      xs  -> [AlterTable tabN $ AddConstraint "pk_" $ AddPrimaryKey $ fmap T.pack $ xs]
-        addUqs = let addUq fs = AlterTable tabN $ AddConstraint "uq_" $ AddUnique $ fmap T.pack fs
-                 in fmap addUq $ fromSing (sing :: Sing uqs)
-        addFks = let addFk (DemotedDBTagFk fcols reft rcols) = AlterTable tabN $ AddConstraint "fk_" $ AddForeignKey fcols reft rcols
+                      xs  ->
+                        let keyCols = fmap T.pack $ xs
+                        in [AlterTable tabN $ AddConstraint (genKeyName $ PkNameGen tabN keyCols) $ AddPrimaryKey keyCols]
+        addUqs = let addUq fs =
+                       let keyCols = fmap T.pack fs
+                       in AlterTable tabN $ AddConstraint (genKeyName $ UqNameGen tabN keyCols) $ AddUnique keyCols
+                 in fmap addUq $ fromSing (sing :: Sing (GetAllUniqs uqs))
+        addFks = let addFk (DemotedDBTagFk fcols reft rcols) = AlterTable tabN $ AddConstraint (genKeyName $ FkNameGen tabN fcols reft) $ AddForeignKey fcols reft rcols
                  in fmap addFk  $ fromSing (sing :: Sing (TagEachFks db fks))
-        addChks = let addChk chExpr = AlterTable tabN $ AddConstraint "ch_" $ AddCheck chExpr
+        addChks = let addChk (cname, chExpr) = AlterTable tabN $ AddConstraint (genKeyName $ CkNameGen tabN cname) $ AddCheck chExpr
                   in fmap addChk $ fromSing (sing :: Sing chks)
+        chkExpr = let singChks :: HList (Chk db tab) chks1 -> [()]
+                      singChks Nil = []
+                      singChks (c :& cs) = () : singChks cs
+                  in case (checks :: DBChecks db tab) of
+                       DBChecks chks -> singChks chks
         addDefs = let addDef dfExpr = AlterTable tabN $ AlterColumn "col" $ AddDefault dfExpr
                   in fmap addDef $ fromSing (sing :: Sing ('DefSyms defs))
         tabColHList = singCols (Proxy @db) (Proxy :: Proxy (OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
@@ -92,6 +191,23 @@ mkMigrationTable _ _
                , addChks
                , addDefs
                ]
+
+data KeyNameGen
+  = PkNameGen T.Text [T.Text]
+  | FkNameGen T.Text [T.Text] T.Text
+  | UqNameGen T.Text [T.Text]
+  | CkNameGen T.Text T.Text
+  deriving (Show, Eq)
+
+genKeyName :: KeyNameGen -> T.Text
+genKeyName (PkNameGen tab cols) = T.intercalate "_" ("pk":tab:cols)
+genKeyName (FkNameGen tab cols reft) = T.intercalate "_" (("fk":tab:cols) ++ [reft])
+genKeyName (UqNameGen tab cols) = T.intercalate "_" ("uq":tab:cols)
+genKeyName (CkNameGen tab cn) = T.intercalate "_" ["ck",tab,cn]
+
+
+
+  
 
 type family TyCxts (db :: *) (tys :: [*]) :: Constraint where
   TyCxts db (ty ': ts) = ( ShowDBType (DB db) (GetDBTypeRep (DB db) ty)
