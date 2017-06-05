@@ -24,8 +24,8 @@ mongoQueryGenerator = PQ.PrimQueryFold
 baseTable :: PQ.TableId -> PQ.Clauses -> MongoSelect
 baseTable tabId cs = (select (map toMongoExpr (PQ.criteria cs)) (toMongoTable tabId))
   { project = map toMongoBinding (PQ.projections cs)
-  , skip = maybe 0 fromIntegral $ PQ.offset cs
-  , limit = maybe 0 fromIntegral $ PQ.limit cs
+  -- , skip = maybe 0 fromIntegral $ PQ.offset cs
+  -- , limit = maybe 0 fromIntegral $ PQ.limit cs
   , sort = concatMap toMongoOrder (PQ.orderbys cs)
   }
 
