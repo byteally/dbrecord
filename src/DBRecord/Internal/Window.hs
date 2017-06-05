@@ -6,14 +6,15 @@ import DBRecord.Internal.Expr
 import DBRecord.Internal.Order
 import GHC.TypeLits
 import Data.Binary
-import Data.Semigroup
+import Data.Monoid
 
 newtype Window (w :: Symbol) (sc :: [*]) = Window { getPartitions :: PQ.WindowPart }
 
 newtype Partition (sc :: [*]) = Partition { getPartExprs :: [PQ.PrimExpr] }
 
-instance Semigroup (Partition sc) where
-  (Partition p1) <> (Partition p2) = Partition (p1 <> p2)
+instance Monoid (Partition sc) where
+  (Partition p1) `mappend` (Partition p2) = Partition (p1 <> p2)
+  mempty = Partition []
   
 partition :: Expr sc a -> Partition sc
 partition = Partition . (:[]) . getExpr

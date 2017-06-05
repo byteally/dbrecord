@@ -196,7 +196,10 @@ instance OrdExpr Int where
 instance OrdExpr Word where
   a .<= b = binOp PQ.OpLtEq a b
 
-instance OrdExpr Text where
+instance OrdExpr T.Text where
+  a .<= b = binOp PQ.OpLtEq a b
+
+instance (OrdExpr a) => OrdExpr (Maybe a) where
   a .<= b = binOp PQ.OpLtEq a b
 
 infixr 3 .&&
@@ -293,6 +296,12 @@ localTimeToUTC :: Expr sc T.Text
 localTimeToUTC tz lt = binOp PQ.OpAtTimeZone lt tz
 
 
+(%) :: Expr sc T.Text -> Expr sc T.Text -> Expr sc Bool
+l % r = binOp (PQ.OpOther "%") l r
+
+(%?) :: Expr sc (Maybe T.Text) -> Expr sc (Maybe T.Text) -> Expr sc Bool
+l %? r = binOp (PQ.OpOther "%") l r
+
 instance EqExpr T.Text where
   a .== b = binOp PQ.OpEq a b
 
@@ -305,7 +314,8 @@ instance EqExpr Word where
 instance (EqExpr a) => EqExpr (Maybe a) where
   a .== b = binOp PQ.OpEq a b
 
-deriving instance (EqExpr a) => EqExpr (Identity a)
+deriving instance (EqExpr a)  => EqExpr (Identity a)
+deriving instance (OrdExpr a) => OrdExpr (Identity a)
 
 
 data ScopeRep = FieldRepNode  TypeRep

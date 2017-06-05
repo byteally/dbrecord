@@ -71,8 +71,8 @@ data SelectFrom = SelectFrom
   , criteria  :: [SqlExpr]                -- ^ WHERE
   , groupby   :: Maybe (NEL.NonEmpty SqlExpr) -- ^ GROUP BY
   , orderby   :: [(SqlExpr,SqlOrder)]
-  , limit     :: Maybe Int
-  , offset    :: Maybe Int
+  , limit     :: Maybe SqlExpr
+  , offset    :: Maybe SqlExpr
   , having    :: [SqlExpr]
   , alias     :: Alias
   } deriving (Show, Read, Eq)

@@ -59,8 +59,8 @@ data Clauses = Clauses { projections :: [(Sym, PrimExpr)]
                        , groupbys    :: [PrimExpr]
                        , havings     :: [PrimExpr]
                        , orderbys    :: [OrderExpr]
-                       , limit       :: Maybe Int
-                       , offset      :: Maybe Int
+                       , limit       :: Maybe PrimExpr
+                       , offset      :: Maybe PrimExpr
                        , alias       :: Maybe Text  
                        } deriving (Show, Read, Generic)
 

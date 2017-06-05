@@ -15,8 +15,9 @@ import Data.Semigroup
 
 newtype Order (scopes :: [*]) = Order { getOrder :: [PQ.OrderExpr] }
 
-instance Semigroup (Order sc) where
-  (Order o1) <> (Order o2) = Order (o1 <> o2)
+instance Monoid (Order sc) where
+  (Order o1) `mappend` (Order o2) = Order (o1 <> o2)
+  mempty                          = Order []
 
 order :: OrdExpr a => PQ.OrderOp -> Expr sc a -> Order sc
 order op (Expr expr) = Order $ [PQ.OrderExpr op expr]

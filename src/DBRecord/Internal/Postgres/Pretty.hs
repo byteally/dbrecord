@@ -33,8 +33,8 @@ ppSelectWith from tabDoc =
       text "SELECT"
   <+> ppAttrs (attrs from)
   $$  text "FROM " <+> tabDoc
-  $$  ppWindows (windows from)
   $$  ppWhere (PGT.criteria from)
+  $$  ppWindows (windows from)  
   $$  ppGroupBy (groupby from)
   $$  ppOrderBy (orderby from)
   $$  ppLimit (limit from)
@@ -103,11 +103,11 @@ ppValuesRow = parens . commaH ppSqlExpr
 ppWindows :: [WindowExpr] -> Doc
 ppWindows [] = empty
 ppWindows ws = hsep (map ppWindow ws)
-  where ppWindow (WindowExpr wn part) =
+  where ppWindow (WindowExpr wn parts) =
               text "WINDOW"
           <+> text wn
           <+> text "AS"
-          <+> parens (ppPartition part)
+          <+> parens (ppPartition parts)
 
 ppPartition :: WindowPart -> Doc
 ppPartition (WindowPart [] [])
@@ -148,13 +148,13 @@ ppNullOrd sqlOrd = text $ case sqlNullOrd sqlOrd of
   SqlNullsFirst -> "NULLS FIRST"
   SqlNullsLast  -> "NULLS LAST"
 
-ppLimit :: Maybe Int -> Doc
+ppLimit :: Maybe SqlExpr -> Doc
 ppLimit Nothing    = empty
-ppLimit (Just lmt) = text ("LIMIT " ++ show lmt)
+ppLimit (Just lmt) = text "LIMIT " <> ppSqlExpr lmt
 
-ppOffset :: Maybe Int -> Doc
+ppOffset :: Maybe SqlExpr -> Doc
 ppOffset Nothing    = empty
-ppOffset (Just off) = text ("OFFSET " ++ show off)
+ppOffset (Just off) = text "OFFSET " <> ppSqlExpr off
 
 ppColumn :: SqlColumn -> Doc
 ppColumn (SqlColumn s) =

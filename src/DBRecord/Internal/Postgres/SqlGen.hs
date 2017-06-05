@@ -81,8 +81,8 @@ baseClauses cs =
                              [] -> Nothing
                              xs -> Just (NEL.fromList (map toSqlExpr xs))
               , having   = map toSqlExpr (PQ.havings cs)
-              , limit    = PQ.limit cs
-              , offset   = PQ.offset cs
+              , limit    = toSqlExpr <$> (PQ.limit cs)
+              , offset   = toSqlExpr <$> (PQ.offset cs)
               , orderby  = map toSqlOrder (PQ.orderbys cs)
               }
 
