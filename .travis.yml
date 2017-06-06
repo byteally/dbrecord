@@ -24,9 +24,9 @@ matrix:
   #    compiler: ": #GHC 8.0.1"
   #    addons: {apt: {packages: [cabal-install-1.24,ghc-8.0.1], sources: [hvr-ghc]}}
 
-    - env: BUILD=stack GHCVER=8.0.1 STACK_YAML=stack.yaml
-      compiler: ": #stack 8.0.1"
-      addons: {apt: {packages: [ghc-8.0.1], sources: [hvr-ghc]}}
+    - env: BUILD=stack GHCVER=8.0.2 STACK_YAML=stack.yaml
+      compiler: ": #stack 8.0.2"
+      addons: {apt: {packages: [ghc-8.0.2], sources: [hvr-ghc]}}
 
 # Note: the distinction between `before_install` and `install` is not important.
 # - in before_install we install build tools
