@@ -323,8 +323,8 @@ getAll filt ord page = do
         , groupbys = []
         , havings = []
         , orderbys = ordE
-        , limit = lmt
-        , offset = off
+        -- , limit = lmt
+        -- , offset = off
         , alias = Nothing
         }
   driver <- ask
