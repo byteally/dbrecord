@@ -30,6 +30,9 @@ library
                        DBRecord.Internal.Postgres.Pretty
                        DBRecord.Internal.Postgres.Types
                        DBRecord.Internal.Postgres.SqlGen
+                       DBRecord.Internal.Postgres.TextSearch
+                       DBRecord.Internal.Postgres.TextSearch.Query
+                       DBRecord.Internal.Postgres.TextSearch.Vector
                        DBRecord.Internal.Expr
                        DBRecord.Internal.Order
                        DBRecord.Internal.Predicate

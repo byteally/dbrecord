@@ -295,12 +295,15 @@ localTimeToUTC :: Expr sc T.Text
                -> Expr sc UTCTime
 localTimeToUTC tz lt = binOp PQ.OpAtTimeZone lt tz
 
-
 (%) :: Expr sc T.Text -> Expr sc T.Text -> Expr sc Bool
 l % r = binOp (PQ.OpOther "%") l r
 
 (%?) :: Expr sc (Maybe T.Text) -> Expr sc (Maybe T.Text) -> Expr sc Bool
 l %? r = binOp (PQ.OpOther "%") l r
+
+coalesce :: Expr sc a -> Expr sc (Maybe a) -> Expr sc a
+coalesce (Expr d) (Expr opt) =
+  Expr (PQ.FunExpr "COALESCE" [opt, d])
 
 instance EqExpr T.Text where
   a .== b = binOp PQ.OpEq a b
