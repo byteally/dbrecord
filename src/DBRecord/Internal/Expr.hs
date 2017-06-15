@@ -34,6 +34,10 @@ col :: forall (col :: Symbol) (a :: *) sc.
 col _ = Expr (PQ.AttrExpr sym)
   where sym = maybe (error "Panic: Empty col @col_") id (PQ.toSym [T.pack $ symbolVal (Proxy @col)]) -- (singPath (Proxy @(UnpackPath col))))
 
+unsafeCol :: [T.Text] -> Expr sc a
+unsafeCol = Expr . PQ.AttrExpr . sym
+  where sym = maybe (error "Panic: Empty col @col_") id . PQ.toSym
+
 instance
   ( UnifyField sc (cn ::: a) ('Text "Unable to find column " ':<>: 'ShowType cn)
   , KnownSymbol cn
