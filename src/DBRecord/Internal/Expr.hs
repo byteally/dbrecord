@@ -177,6 +177,9 @@ class EqExpr a where
 infix 4 .==
 infix 4 ./=
 
+instance EqExpr UTCTime where
+  a .== b = binOp PQ.OpEq a b
+
 class (EqExpr a) => OrdExpr a where
   (.>) :: Expr sc a -> Expr sc a -> Expr sc Bool
   (.<)  :: Expr sc a -> Expr sc a -> Expr sc Bool
@@ -204,6 +207,9 @@ instance OrdExpr T.Text where
   a .<= b = binOp PQ.OpLtEq a b
 
 instance (OrdExpr a) => OrdExpr (Maybe a) where
+  a .<= b = binOp PQ.OpLtEq a b
+
+instance OrdExpr UTCTime where
   a .<= b = binOp PQ.OpLtEq a b
 
 infixr 3 .&&
@@ -282,6 +288,11 @@ pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
 
 text :: T.Text -> Expr sc T.Text
 text = fromString . T.unpack
+
+utcTime :: UTCTime -> Expr sc UTCTime
+utcTime = Expr . PQ.ConstExpr . PQ.Other . T.pack . format
+  where format = formatTime defaultTimeLocale "'%FT%TZ'"
+
 
 dbDefault :: Expr sc a
 dbDefault = Expr $ PQ.DefaultInsertExpr
