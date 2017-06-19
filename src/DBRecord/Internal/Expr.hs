@@ -250,7 +250,7 @@ fromNullable = flip matchNullable id
 maybeToNullable :: Maybe (Expr sc a) -> Expr sc (Maybe a)
 maybeToNullable = maybe nothing toNullable
 
-case_ :: [(Expr sc Bool, Expr sc r)] -> Expr sc a -> Expr sc r
+case_ :: [(Expr sc Bool, Expr sc r)] -> Expr sc r -> Expr sc r
 case_ alts (Expr def) = Expr $ PQ.CaseExpr (fmap (\(Expr f,Expr s) -> (f,s)) alts) def
 
 ifThenElse :: Expr sc Bool -> Expr sc a -> Expr sc a -> Expr sc a
@@ -293,6 +293,12 @@ utcTime :: UTCTime -> Expr sc UTCTime
 utcTime = Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%FT%TZ'"
 
+utcTimeNow :: Expr sc UTCTime
+utcTimeNow = 
+  let now = PQ.FunExpr "now" []
+      utcTime = PQ.BinExpr PQ.OpAtTimeZone now utcText
+      utcText = PQ.ConstExpr (PQ.String "utc")
+  in  Expr utcTime
 
 dbDefault :: Expr sc a
 dbDefault = Expr $ PQ.DefaultInsertExpr
