@@ -42,7 +42,8 @@ type family InvalidPGType (db :: *) a :: Constraint where
   InvalidPGType _ Day           = ()
   InvalidPGType _ UUID          = ()
   InvalidPGType db (Maybe a)     = InvalidPGType db a
-  InvalidPGType db (Vector a)    = InvalidPGType db a
+  -- InvalidPGType db (Vector a)    = InvalidPGType db a
+  InvalidPGType db [a]           = InvalidPGType db a
   InvalidPGType db (Json a)      = InvalidPGType db a
   InvalidPGType db (JsonStr a)   = InvalidPGType db a
   InvalidPGType db (CustomType a) = ()

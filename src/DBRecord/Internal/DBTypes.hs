@@ -127,7 +127,8 @@ type family GetPGTypeRep (t :: *) = (r :: DBTypeK) | r -> t where
   GetPGTypeRep (JsonStr a)        = 'DBCustomType (JsonStr a) 'DBJson 'False
   GetPGTypeRep UUID               = 'DBUuid
   GetPGTypeRep (Maybe t)          = 'DBNullable (GetPGTypeRep t)
-  GetPGTypeRep (Vector t)         = 'DBArray (GetPGTypeRep t)
+  -- GetPGTypeRep (Vector t)         = 'DBArray (GetPGTypeRep t)
+  GetPGTypeRep [t]                = 'DBArray (GetPGTypeRep t)
   GetPGTypeRep (CustomType a)     = 'DBCustomType (CustomType a) (CustomDBTypeRep 'Postgres a) 'False
   GetPGTypeRep a                  = 'DBCustomType a ('DBTypeName (GetTypeName a)) (IsNewType (Rep a))
 

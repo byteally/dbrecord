@@ -573,3 +573,10 @@ renderErrs errs =
 instance Binary (Expr sc a) where
   put = put . getExpr
   get = Expr <$> get
+
+runIdentity :: Expr sc (Identity a) -> Expr sc a
+runIdentity = unsafeCoerceExpr
+
+toIdentity :: Expr sc a -> Expr sc (Identity a)
+toIdentity = unsafeCoerceExpr
+

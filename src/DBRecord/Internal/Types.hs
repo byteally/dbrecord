@@ -16,8 +16,9 @@ instance (fn ~ fn1, s ~ t) => IsLabel fn (s -> (fn1 ::: t)) where
 valOf :: (s ::: t) -> t
 valOf (Field v) = v
 
-newtype JsonStr a = JsonStr a
-newtype Json a = Json a
+newtype JsonStr a = JsonStr { getJsonStr :: a }
+newtype Json a = Json { getJson :: a }
+               deriving (Show, Generic)
 
 json :: (ToJSON a) => a -> Json a
 json = Json
