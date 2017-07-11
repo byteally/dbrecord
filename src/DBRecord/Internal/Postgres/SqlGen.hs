@@ -191,7 +191,8 @@ defaultSqlExpr gen expr = case expr of
         e' = sqlExpr gen e
     in case t of
       UnOpFun     -> FunSqlExpr op' [e']
-      UnOpPrefix  -> PrefixSqlExpr op' (ParensSqlExpr e')
+      UnOpPrefix  -> PrefixSqlExpr op' e'      
+      UnOpPrefixParen  -> PrefixSqlExpr op' (ParensSqlExpr e')
       UnOpPostfix -> PostfixSqlExpr op' e'
 
   PQ.AggrExpr op e ord   ->
@@ -243,10 +244,10 @@ showBinOp  PQ.OpBitXor     = "^"
 showBinOp  PQ.OpAsg        = "="
 showBinOp  PQ.OpAtTimeZone = "AT TIME ZONE"
 
-data UnOpType = UnOpFun | UnOpPrefix | UnOpPostfix
+data UnOpType = UnOpFun | UnOpPrefix | UnOpPrefixParen | UnOpPostfix
 
 sqlUnOp :: PQ.UnOp -> (String,UnOpType)
-sqlUnOp  PQ.OpNot         = ("NOT", UnOpPrefix)
+sqlUnOp  PQ.OpNot         = ("NOT", UnOpPrefixParen)
 sqlUnOp  PQ.OpIsNull      = ("IS NULL", UnOpPostfix)
 sqlUnOp  PQ.OpIsNotNull   = ("IS NOT NULL", UnOpPostfix)
 sqlUnOp  PQ.OpLength      = ("LENGTH", UnOpFun)

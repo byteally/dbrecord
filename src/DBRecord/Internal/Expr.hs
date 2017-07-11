@@ -322,7 +322,10 @@ days i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
 addInterval :: Expr sc Interval -> Expr sc Interval -> Expr sc Interval
 addInterval e1 e2 = binOp PQ.OpPlus e1 e2
 
-addToDate :: Expr sc UTCTime -> Expr sc Interval -> Expr sc UTCTime
+timestamp :: Expr sc UTCTime -> Expr sc Timestamp
+timestamp utc = unOp (PQ.UnOpOtherPrefix "timestamp") utc
+
+addToDate :: Expr sc Timestamp -> Expr sc Interval -> Expr sc UTCTime
 addToDate e1 e2 = binOp PQ.OpPlus e1 e2
 
 dbDefault :: Expr sc a
