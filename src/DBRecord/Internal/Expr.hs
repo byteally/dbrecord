@@ -312,11 +312,11 @@ dayTruncTZ (Expr utc) = Expr (PQ.FunExpr "date_trunc" [PQ.ConstExpr (PQ.String "
 data Interval
 
 hours :: Int -> Expr sc Interval
-hours i = unOp (PQ.UnOpOther "interval") (literalExpr (PQ.Other txt))
+hours i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " hours\'"
 
 days :: Int -> Expr sc Interval
-days i = unOp (PQ.UnOpOther "interval") (literalExpr (PQ.Other txt))
+days i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " days\'"
 
 addInterval :: Expr sc Interval -> Expr sc Interval -> Expr sc Interval

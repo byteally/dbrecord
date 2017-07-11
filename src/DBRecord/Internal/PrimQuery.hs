@@ -107,7 +107,8 @@ data UnOp = OpNot
           | OpNegate
           | OpLower
           | OpUpper
-          | UnOpOther String
+          | UnOpOtherPrefix String
+          | UnOpOtherFun String
           deriving (Show, Read, Generic)
 
 data AggrOp = AggrCount | AggrSum | AggrAvg | AggrMin | AggrMax

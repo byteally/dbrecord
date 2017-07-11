@@ -254,7 +254,8 @@ sqlUnOp  PQ.OpAbs         = ("@", UnOpFun)
 sqlUnOp  PQ.OpNegate      = ("-", UnOpFun)
 sqlUnOp  PQ.OpLower       = ("LOWER", UnOpFun)
 sqlUnOp  PQ.OpUpper       = ("UPPER", UnOpFun)
-sqlUnOp  (PQ.UnOpOther s) = (s, UnOpFun)
+sqlUnOp  (PQ.UnOpOtherFun s) = (s, UnOpFun)
+sqlUnOp  (PQ.UnOpOtherPrefix s) = (s, UnOpPrefix)
 
 showAggrOp :: PQ.AggrOp -> String
 showAggrOp PQ.AggrCount          = "COUNT"
