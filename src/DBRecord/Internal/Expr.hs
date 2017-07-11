@@ -325,6 +325,8 @@ addInterval e1 e2 = binOp PQ.OpPlus e1 e2
 timestamp :: Expr sc UTCTime -> Expr sc Timestamp
 timestamp utc = unOp (PQ.UnOpOtherPrefix "timestamp") utc
 
+data Timestamp
+
 addToDate :: Expr sc Timestamp -> Expr sc Interval -> Expr sc UTCTime
 addToDate e1 e2 = binOp PQ.OpPlus e1 e2
 
