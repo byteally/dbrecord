@@ -300,6 +300,31 @@ utcTimeNow =
       utcText = PQ.ConstExpr (PQ.String "utc")
   in  Expr utcTime
 
+ist :: Expr sc TimeZone
+ist = Expr (PQ.ConstExpr (PQ.String "ist"))
+
+atTimeZone :: Expr sc TimeZone -> Expr sc UTCTime -> Expr sc LocalTime
+atTimeZone (Expr tz) (Expr utc) = Expr (PQ.FunExpr "timezone" [tz, utc])
+
+dayTruncTZ :: Expr sc LocalTime -> Expr sc LocalTime
+dayTruncTZ (Expr utc) = Expr (PQ.FunExpr "date_trunc" [PQ.ConstExpr (PQ.String "day"), utc])
+
+data Interval
+
+hours :: Int -> Expr sc Interval
+hours i = unOp (PQ.UnOpOther "interval") (literalExpr (PQ.Other txt))
+  where txt = T.pack $ "\'" ++ show i ++ " hours\'"
+
+days :: Int -> Expr sc Interval
+days i = unOp (PQ.UnOpOther "interval") (literalExpr (PQ.Other txt))
+  where txt = T.pack $ "\'" ++ show i ++ " days\'"
+
+addInterval :: Expr sc Interval -> Expr sc Interval -> Expr sc Interval
+addInterval e1 e2 = binOp PQ.OpPlus e1 e2
+
+addToDate :: Expr sc UTCTime -> Expr sc Interval -> Expr sc UTCTime
+addToDate e1 e2 = binOp PQ.OpPlus e1 e2
+
 dbDefault :: Expr sc a
 dbDefault = Expr $ PQ.DefaultInsertExpr
 
