@@ -44,8 +44,8 @@ type family InvalidPGType (db :: *) a :: Constraint where
   InvalidPGType db (Maybe a)     = InvalidPGType db a
   -- InvalidPGType db (Vector a)    = InvalidPGType db a
   InvalidPGType db [a]           = InvalidPGType db a
-  InvalidPGType db (Json a)      = InvalidPGType db a
-  InvalidPGType db (JsonStr a)   = InvalidPGType db a
+  InvalidPGType db (Json a)      = ()
+  InvalidPGType db (JsonStr a)   = ()
   InvalidPGType db (CustomType a) = ()
   InvalidPGType db a              = ValidateCustTy db (IsNewTy (Rep a)) a
 

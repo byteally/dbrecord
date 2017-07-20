@@ -15,6 +15,7 @@
 {-# LANGUAGE FlexibleInstances       #-}
 {-# LANGUAGE DeriveGeneric           #-}
 {-# LANGUAGE OverloadedStrings       #-}
+{-# LANGUAGE CPP                     #-}
 
 module DBRecord.Internal.Schema where
 
@@ -386,7 +387,11 @@ data UniqueCT = UniqueOn [Symbol] Symbol
 data Uq (un :: Symbol) = Uq
 
 instance un ~ uqn => IsLabel un (Uq uqn) where
+#if __GLASGOW_HASKELL__ > 800
+  fromLabel = Uq
+#else
   fromLabel _ = Uq
+#endif
 
 data CheckCT = CheckOn [Symbol] Symbol
 

@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
-{-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms #-}
+{-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP #-}
 module DBRecord.Internal.Expr where
 
 import qualified DBRecord.Internal.PrimQuery as PQ
@@ -16,6 +16,12 @@ import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Text.Read as R
 import Data.Aeson
+import qualified Data.Aeson as A
+import qualified Data.Text.Encoding as STE
+import qualified Data.Text.Lazy.Encoding as LTE
+import qualified Data.ByteString.Lazy as LB
+import qualified Data.ByteString as SB
+import qualified Data.Text.Lazy as LT
 import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Monoid ((<>))
 import Data.Binary
@@ -23,6 +29,7 @@ import Data.Time
 import Data.Text (Text)
 import DBRecord.Internal.Common
 import DBRecord.Internal.Types
+import DBRecord.Internal.Postgres.SqlGen (quote)
 
 newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
                                       deriving Show
@@ -42,10 +49,11 @@ instance
   ( UnifyField sc (cn ::: a) ('Text "Unable to find column " ':<>: 'ShowType cn)
   , KnownSymbol cn
   ) => IsLabel cn (Expr sc a) where
+#if __GLASGOW_HASKELL__ > 800
+  fromLabel = col (Proxy @cn)
+#else  
   fromLabel _ = col (Proxy @cn)
-
---class SingPath (
-
+#endif
 
 class ConstExpr t where
   constExpr :: t -> Expr sc t
@@ -97,6 +105,12 @@ unsafeCast castTo (Expr expr) = Expr $ PQ.CastExpr castTo expr
 
 unsafeCoerceExpr :: Expr sc a -> Expr sc b
 unsafeCoerceExpr (Expr e) = Expr e
+
+strictDecodeUtf8 :: SB.ByteString -> String
+strictDecodeUtf8 = T.unpack . STE.decodeUtf8
+
+lazyDecodeUtf8 :: LB.ByteString -> String
+lazyDecodeUtf8 = LT.unpack . LTE.decodeUtf8
 
 class (Num a) => NumExpr a where
   exprFromInteger :: Integer -> Expr sc a
@@ -318,6 +332,15 @@ hours i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
 days :: Int -> Expr sc Interval
 days i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " days\'"
+
+strToJson :: String -> Expr sc (Json a)
+strToJson = unsafeCast "jsonb" . text . T.pack
+
+lazyJson :: LB.ByteString -> Expr sc (Json a)
+lazyJson = strToJson . lazyDecodeUtf8
+
+toJson :: (ToJSON a) => a -> Expr sc (Json a)
+toJson = lazyJson . A.encode
 
 addInterval :: Expr sc Interval -> Expr sc Interval -> Expr sc Interval
 addInterval e1 e2 = binOp PQ.OpPlus e1 e2

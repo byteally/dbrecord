@@ -1,24 +1,32 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving #-}
 module DBRecord.Internal.Types where
 
 import GHC.Generics
 import GHC.TypeLits
 import GHC.OverloadedLabels
 import Data.Aeson
+import Database.PostgreSQL.Simple.FromField
+import Database.PostgreSQL.Simple.ToField
+import Data.Typeable
+
 
 newtype (f :: Symbol) ::: t = Field t
   deriving (Show, Eq, Generic)
 
 instance (fn ~ fn1, s ~ t) => IsLabel fn (s -> (fn1 ::: t)) where
+#if __GLASGOW_HASKELL__ > 800
+  fromLabel = Field
+#else
   fromLabel _ = Field
+#endif
 
 valOf :: (s ::: t) -> t
 valOf (Field v) = v
 
 newtype JsonStr a = JsonStr { getJsonStr :: a }
 newtype Json a = Json { getJson :: a }
-               deriving (Show, Generic)
+               deriving (Show, Generic, FromJSON, ToJSON)
 
 json :: (ToJSON a) => a -> Json a
 json = Json
@@ -39,3 +47,11 @@ data DbK = Postgres
          | SQLite
          | Cassandra
          | Presto
+
+instance (FromJSON a, Typeable a) => FromField (Json a) where
+  fromField f dat = Json <$> fromJSONField f dat
+
+{-
+instance (ToJSON a, Typeable a) => ToField (Json a) where
+  toField = toJSONField . getJson
+-}
