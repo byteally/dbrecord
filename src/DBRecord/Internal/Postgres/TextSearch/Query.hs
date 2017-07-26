@@ -79,3 +79,7 @@ data Query
 query :: QueryText -> Expr sc Query
 query (QueryText t) = Expr (PQ.FunExpr "to_tsquery" [pqText t])
   where pqText = PQ.ConstExpr . PQ.String
+
+plainQuery :: Text -> Expr sc Query
+plainQuery t = Expr (PQ.FunExpr "plainto_tsquery" [pqText t])
+  where pqText = PQ.ConstExpr . PQ.String
