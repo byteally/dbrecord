@@ -56,7 +56,7 @@ install:
 script:
  - set -e; case "$BUILD" in
      stack)
-       stack --no-terminal test --haddock --no-haddock-deps --ghc-options="-Wall";;
+       stack --no-terminal build --haddock --no-haddock-deps --ghc-options="-Wall";;
      cabal)
        cabal configure --enable-tests --enable-benchmarks -v2 --ghc-options="-O0 -Wall";
        cabal build;
