@@ -30,6 +30,7 @@ import Data.Text (Text)
 import DBRecord.Internal.Common
 import DBRecord.Internal.Types
 import DBRecord.Internal.Postgres.SqlGen (quote)
+import Data.Coerce (coerce)
 
 newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
                                       deriving Show
@@ -293,6 +294,9 @@ true = Expr $ PQ.ConstExpr $ PQ.Bool True
 
 false :: Expr sc Bool
 false = Expr $ PQ.ConstExpr $ PQ.Bool False
+
+array :: [Expr sc a] -> Expr sc [a]
+array = Expr . PQ.ArrayExpr . coerce
 
 pattern TRUE :: Expr sc Bool
 pattern TRUE = Expr (PQ.ConstExpr (PQ.Bool True))
