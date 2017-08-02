@@ -31,6 +31,7 @@ import DBRecord.Internal.Common
 import DBRecord.Internal.Types
 import DBRecord.Internal.Postgres.SqlGen (quote)
 import Data.Coerce (coerce)
+import DBRecord.Internal.DBTypes
 
 newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
                                       deriving Show
@@ -103,6 +104,12 @@ unOp op (Expr expr) = Expr (PQ.UnExpr op expr)
 
 unsafeCast :: T.Text -> Expr sc a -> Expr sc b
 unsafeCast castTo (Expr expr) = Expr $ PQ.CastExpr castTo expr
+
+annotateType :: forall a sc.
+               (ShowDBType 'Postgres (GetPGTypeRep a)
+               ) => Expr sc a -> Expr sc a
+annotateType = unsafeCast tyRep
+  where tyRep = showDBType (Proxy :: Proxy 'Postgres) (Proxy :: Proxy (GetPGTypeRep a))
 
 unsafeCoerceExpr :: Expr sc a -> Expr sc b
 unsafeCoerceExpr (Expr e) = Expr e
@@ -295,8 +302,8 @@ true = Expr $ PQ.ConstExpr $ PQ.Bool True
 false :: Expr sc Bool
 false = Expr $ PQ.ConstExpr $ PQ.Bool False
 
-array :: [Expr sc a] -> Expr sc [a]
-array = Expr . PQ.ArrayExpr . coerce
+array :: (ShowDBType 'Postgres (GetPGTypeRep a)) => [Expr sc a] -> Expr sc [a]
+array = annotateType . Expr . PQ.ArrayExpr . coerce
 
 pattern TRUE :: Expr sc Bool
 pattern TRUE = Expr (PQ.ConstExpr (PQ.Bool True))
