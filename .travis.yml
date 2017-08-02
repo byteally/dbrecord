@@ -45,7 +45,7 @@ install:
  - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
  - case "$BUILD" in
      stack)
-       stack --system-ghc --no-terminal test --only-dependencies;;
+       stack --system-ghc --no-terminal build --only-dependencies;;
      cabal)
        cabal --version;
        travis_retry cabal update;
@@ -56,11 +56,11 @@ install:
 script:
  - set -e; case "$BUILD" in
      stack)
-       stack --no-terminal test --haddock --no-haddock-deps --ghc-options="-Wall";;
+       stack --no-terminal build --haddock --no-haddock-deps --ghc-options="-Wall";;
      cabal)
        cabal configure --enable-tests --enable-benchmarks -v2 --ghc-options="-O0 -Wall";
        cabal build;
-       cabal test;
+       # cabal test;
        cabal check;
        cabal sdist;
        cabal copy;
