@@ -32,6 +32,8 @@ import DBRecord.Internal.Types
 import DBRecord.Internal.Postgres.SqlGen (quote)
 import Data.Coerce (coerce)
 import DBRecord.Internal.DBTypes
+import Data.Time.Calendar (Day)
+
 
 newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
                                       deriving Show
@@ -314,7 +316,7 @@ pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
 text :: T.Text -> Expr sc T.Text
 text = fromString . T.unpack
 
-date :: Date -> Expr sc Date
+date :: Day -> Expr sc Day
 date = Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%F'"
 
