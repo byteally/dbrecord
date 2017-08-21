@@ -314,6 +314,10 @@ pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
 text :: T.Text -> Expr sc T.Text
 text = fromString . T.unpack
 
+date :: Date -> Expr sc Date
+date = Expr . PQ.ConstExpr . PQ.Other . T.pack . format
+  where format = formatTime defaultTimeLocale "'%F'"
+
 utcTime :: UTCTime -> Expr sc UTCTime
 utcTime = Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%FT%TZ'"
