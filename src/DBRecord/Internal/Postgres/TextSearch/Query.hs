@@ -8,6 +8,7 @@ module DBRecord.Internal.Postgres.TextSearch.Query
        , (.||)
        , not
        , query
+       , plainQuery
        , Lexeme
        , QueryText
        , Query
@@ -38,9 +39,9 @@ glexeme weights isPfx lex = Lexeme $
   case isPfx of
     True  -> lex <> ":*" <> pprWeights weights
     False -> lex <> ":"  <> pprWeights weights
-  
+
 prefix :: T.Text -> Lexeme
-prefix = glexeme [] True  
+prefix = glexeme [] True
 
 const  :: T.Text -> Lexeme
 const = glexeme [] False
