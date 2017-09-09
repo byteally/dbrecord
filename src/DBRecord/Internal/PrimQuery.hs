@@ -245,12 +245,14 @@ modifyClause f pq = case pq of
   BaseTable t cs       -> BaseTable t (f cs)
   Product qs cs        -> Product qs (f cs)
   Join j cond q1 q2 cs -> Join j cond q1 q2 (f cs)
+  Binary bt q1 q2 cs -> Binary bt q1 q2 (f cs)
 
 getClause :: PrimQuery -> Clauses
 getClause pq = case pq of
   BaseTable _ cs       -> cs
   Product _ cs         -> cs
   Join _ _ _ _  cs     -> cs
+  Binary _ _ _  cs     -> cs
 
 toSym :: [T.Text] -> Maybe Sym
 toSym flds = case flds of
