@@ -60,7 +60,7 @@ type Alias = Maybe String
 data SqlSelect = SqlProduct [SqlSelect] SelectFrom -- ^ product
                | SqlSelect SqlTable SelectFrom     -- ^ base case
                | SqlJoin Join SelectFrom           -- ^ join
-               | SqlBin Binary Alias               -- ^ binary
+               | SqlBin Binary SelectFrom          -- ^ binary
                | SqlValues SqlValues Alias         -- ^ values
                  deriving (Show, Read,Eq)
 

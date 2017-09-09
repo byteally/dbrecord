@@ -33,6 +33,9 @@ type Name       = Text
 
 data JoinType = LeftJoin | RightJoin | FullJoin | InnerJoin deriving (Show, Read, Generic)
 
+data BinType = Union | Intersection | Except | UnionAll | IntersectionAll | ExceptAll
+             deriving (Show, Read, Generic)
+
 data Sym = Sym { symPrefix :: [Text]
                , symField  :: Text
                } deriving (Show, Read, Generic)
@@ -40,6 +43,7 @@ data Sym = Sym { symPrefix :: [Text]
 data PrimQuery = BaseTable TableId Clauses
                | Product (NEL.NonEmpty PrimQuery) Clauses
                | Join JoinType PrimExpr PrimQuery PrimQuery Clauses
+               | Binary BinType PrimQuery PrimQuery Clauses
                -- Values
                deriving (Show, Read, Generic)
 
@@ -159,8 +163,9 @@ data PrimQueryFold p = PrimQueryFold
   { baseTable :: TableId -> Clauses -> p
   , product   :: NEL.NonEmpty p -> Clauses -> p
   , join      :: JoinType -> PrimExpr -> p -> p -> Clauses -> p
+  , binary    :: BinType  -> p -> p -> Clauses -> p
+  
   -- , values    :: [Sym] -> (NEL.NonEmpty [PrimExpr]) -> p
-  -- , binary    :: BinOp -> [(Symbol, (PrimExpr, PrimExpr))] -> (p, p) -> p
   -- , label     :: String -> p -> p
   -- , relExpr   :: PrimExpr -> [(Sym, PrimExpr)] -> p
     -- ^ A relation-valued expression
@@ -172,7 +177,7 @@ primQueryFoldDefault = PrimQueryFold
   , product   = Product
   , join      = Join
   -- , values    = Values
-  -- , binary    = Binary
+  , binary    = Binary
   -- , label     = Label
   -- , relExpr   = RelExpr
   }
@@ -183,8 +188,8 @@ foldPrimQuery f = fix fold
           BaseTable ti cs          -> baseTable f ti cs
           Product qs cs            -> product   f (fmap self qs) cs
           Join j cond q1 q2 cs     -> join      f j cond (self q1) (self q2) cs
+          Binary b q1 q2 cs        -> binary  f b (self q1) (self q2) cs
           -- Values ss pes             -> values    f ss pes
-          -- Binary binop pes (q1, q2) -> binary    f binop pes (self q1, self q2)
           -- Label l pq                -> label     f l (self pq)
           -- RelExpr pe syms           -> relExpr   f pe syms
           

@@ -36,8 +36,8 @@ sqlQueryGenerator = PQ.PrimQueryFold
   { PQ.baseTable = baseTable
   , PQ.product   = product
   , PQ.join      = join
+  , PQ.binary    = binary
   -- , PQ.values    = values
-  -- , PQ.binary    = binary
   -- , PQ.label     = label
   -- , PQ.relExpr   = relExpr
   }
@@ -106,6 +106,18 @@ join jt e q1 q2 cs = SqlJoin (Join (joinType' jt) (q1, q2) (toSqlExpr e))
         joinType' PQ.RightJoin = RightJoin
         joinType' PQ.FullJoin  = FullJoin
         joinType' PQ.InnerJoin = InnerJoin
+
+binary :: PQ.BinType -> SqlSelect -> SqlSelect -> PQ.Clauses -> SqlSelect
+binary bt q1 q2 cs = SqlBin (Binary (selectBinOp' bt) q1 q2)
+                                     ((baseClauses cs) { PGT.alias  = (T.unpack <$> (PQ.alias cs)) })
+                     
+  where selectBinOp' :: PQ.BinType -> SelectBinOp
+        selectBinOp' PQ.Union           = Union
+        selectBinOp' PQ.Intersection    = Intersect
+        selectBinOp' PQ.Except          = Except
+        selectBinOp' PQ.UnionAll        = UnionAll
+        selectBinOp' PQ.IntersectionAll = IntersectAll
+        selectBinOp' PQ.ExceptAll       = ExceptAll
 
 sqlOrder :: SqlGenerator -> PQ.OrderExpr -> (SqlExpr,SqlOrder)
 sqlOrder gen (PQ.OrderExpr o e) =

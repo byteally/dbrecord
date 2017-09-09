@@ -22,9 +22,10 @@ ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
   SqlProduct sqSels selectFrom -> ppSelectWith selectFrom (ppProduct sqSels) 
   SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTable tab)
-  SqlJoin joinSt selectFrom      -> ppSelectWith selectFrom (ppJoin joinSt)
+  SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (ppJoin joinSt)
+  SqlBin binSt selectFrom      -> ppSelectWith selectFrom (ppSelectBinary binSt)  
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
-  SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
+  -- SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
 
 ppSelectWith :: SelectFrom -> Doc -> Doc
 ppSelectWith from tabDoc =
