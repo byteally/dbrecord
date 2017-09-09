@@ -308,7 +308,7 @@ array :: (ShowDBType 'Postgres (GetPGTypeRep a)) => [Expr sc a] -> Expr sc [a]
 array = annotateType . Expr . PQ.ArrayExpr . coerce
 
 any :: Expr sc [a] -> Expr sc a
-any (Expr e) = Expr (PQ.FunExpr "ANY" [e])
+any (Expr e) = Expr (PQ.UnExpr (PQ.UnOpOtherFun "ANY") e)
 
 pattern TRUE :: Expr sc Bool
 pattern TRUE = Expr (PQ.ConstExpr (PQ.Bool True))
