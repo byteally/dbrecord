@@ -307,8 +307,11 @@ false = Expr $ PQ.ConstExpr $ PQ.Bool False
 array :: (ShowDBType 'Postgres (GetPGTypeRep a)) => [Expr sc a] -> Expr sc [a]
 array = annotateType . Expr . PQ.ArrayExpr . coerce
 
-any :: Expr sc [a] -> Expr sc a
-any (Expr e) = Expr (PQ.UnExpr (PQ.UnOpOtherFun "ANY") e)
+isContainedBy :: Expr sc [a] -> Expr sc [a] -> Expr sc Bool
+isContainedBy a b = binOp (PQ.OpOther "<@") a b
+
+-- any :: Expr sc [a] -> Expr sc a
+-- any (Expr e) = Expr (PQ.UnExpr (PQ.UnOpOtherFun "ANY") e)
 
 pattern TRUE :: Expr sc Bool
 pattern TRUE = Expr (PQ.ConstExpr (PQ.Bool True))
@@ -398,6 +401,9 @@ l %? r = binOp (PQ.OpOther "%") l r
 coalesce :: Expr sc a -> Expr sc (Maybe a) -> Expr sc a
 coalesce (Expr d) (Expr opt) =
   Expr (PQ.FunExpr "COALESCE" [opt, d])
+
+instance EqExpr Bool where
+  a .== b = binOp PQ.OpEq a b
 
 instance EqExpr T.Text where
   a .== b = binOp PQ.OpEq a b
