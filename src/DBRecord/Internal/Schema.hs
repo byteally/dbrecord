@@ -32,6 +32,7 @@ import Data.Functor.Const
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
 import DBRecord.Internal.Expr
+import DBRecord.Internal.DBTypes
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
@@ -62,15 +63,17 @@ class ( -- TypeCxts db (Types db)
 class ( Database db
       , AssertCxt (Elem (Tables db) tab) ('Text "Database " ':<>: 'ShowType db ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
       , ValidateTableProps db tab
-      , SingI (PrimaryKey db tab)
-      , SingI (GetAllUniqs (Unique db tab))
-      , SingI (TagEachFks db (ForeignKey db tab))
+      , SingI (MapAliasedCol (PrimaryKey db tab) (ColumnNames db tab))
+      , SingI (GetAllUniqs (Unique db tab) (ColumnNames db tab))
+      , SingI (TagEachFks db tab (ForeignKey db tab))
       , SingI (Check db tab)
       , SingI ('DefSyms (HasDefault db tab))
-      , All SingE (PrimaryKey db tab)
-      , All SingE (GetAllUniqs (Unique db tab))
-      , All SingE (TagEachFks db (ForeignKey db tab))
+      , SingI (GetNonNulls (DB db) (OriginalTableFields tab) (ColumnNames db tab))
+      , All SingE (GetAllUniqs (Unique db tab) (ColumnNames db tab))
+      , All SingE (TagEachFks db tab (ForeignKey db tab))
       , All SingE (Check db tab)
+      , AllF SingE (MapAliasedCol (PrimaryKey db tab) (ColumnNames db tab))
+      , AllF SingE (GetNonNulls (DB db) (OriginalTableFields tab) (ColumnNames db tab))
       , SingE ('DefSyms (HasDefault db tab))
       , SingCols db (OriginalTableFields tab) (ColumnNames db tab)
       , KnownSymbol (TableName db tab)
@@ -114,17 +117,17 @@ class ( Generic ty
 data UDTypeMappings = Composite [(Symbol, Symbol)]
                     | Flat [(Symbol, Symbol)]
 
-type ColName = Text
+type ColName  = Text
 type ColType  = Text
-data Column = Column !ColName !ColType
+data Column   = Column !ColName !ColType
   deriving (Show)
 
 data DBTag (db :: *) (tab :: *) =
-  DBTagFk db (ForeignRef db tab)
+  DBTagFk db tab (ForeignRef db tab)
 
-type family TagEachFks (db :: *) (ents :: [ForeignRef Type Type]) :: [DBTag Type Type] where
-  TagEachFks db '[]       = '[]
-  TagEachFks db (e ': es) = 'DBTagFk db e ': TagEachFks db es
+type family TagEachFks (db :: *) (tab :: *) (ents :: [ForeignRef Type Type]) :: [DBTag Type Type] where
+  TagEachFks db tab '[]       = '[]
+  TagEachFks db tab (e ': es) = 'DBTagFk db tab e ': TagEachFks db tab es
 
 data family Sing (a :: k)
 
@@ -143,11 +146,11 @@ data instance Sing (xs :: [k]) where
   SCons :: Sing x -> Sing xs -> Sing (x ': xs)
 
 data instance Sing (dbTag :: DBTag db tab) where
-  SDBTagRefBy :: ( All SingE fcols
-                 , All SingE rcols
+  SDBTagRefBy :: ( AllF SingE (MapAliasedCol fcols (ColumnNames db tab))
+                 , AllF SingE (MapAliasedCol rcols (ColumnNames db reft))
                  , KnownSymbol (TableName db reft)
-                 ) => Sing db -> Sing fcols -> Sing reft -> Sing rcols -> Sing ('DBTagFk db ('RefBy fcols reft rcols))
-  SDBTagRef :: KnownSymbol (TableName db reft) => Sing db -> Sing col -> Sing reft -> Sing ('DBTagFk db ('Ref col reft))
+                 ) => Sing db -> Sing (MapAliasedCol fcols (ColumnNames db tab)) -> Sing reft -> Sing (MapAliasedCol rcols (ColumnNames db reft)) -> Sing ('DBTagFk db tab ('RefBy fcols reft rcols))
+  SDBTagRef :: KnownSymbol (TableName db reft) => Sing db -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing reft -> Sing ('DBTagFk db tab ('Ref col reft))
 
 data instance Sing (ch :: CheckCT) where
   SCheck :: ( All SingE cols
@@ -179,20 +182,21 @@ instance (Typeable t) => SingI (t :: *) where
   sing = STypeRep
 
 instance ( SingI db
-         , SingI fcols
          , SingI reft
-         , SingI rcols
-         , All SingE fcols
-         , All SingE rcols
+         , AllF SingE (MapAliasedCol fcols (ColumnNames db tab))
+         , AllF SingE (MapAliasedCol rcols (ColumnNames db reft))         
          , KnownSymbol (TableName db reft)
-         ) => SingI ('DBTagFk (db :: *) ('RefBy fcols (reft :: *) rcols)) where
+         , SingI (MapAliasedCol fcols (ColumnNames db tab))
+         , SingI (MapAliasedCol rcols (ColumnNames db reft))
+         ) => SingI ('DBTagFk (db :: *) (tab :: *) ('RefBy fcols (reft :: *) rcols)) where
   sing = SDBTagRefBy sing sing sing sing
 
+-- NOTE: Validate that the aliases match in this form 
 instance ( SingI db
-         , SingI col
+         , SingI (AliasedCol col (ColumnNames db tab))
          , SingI reft
          , KnownSymbol (TableName db reft)
-         ) => SingI ('DBTagFk (db :: *) ('Ref col (reft :: *))) where
+         ) => SingI ('DBTagFk (db :: *) (tab :: *) ('Ref col (reft :: *))) where
   sing = SDBTagRef sing sing sing  
 
 
@@ -369,9 +373,17 @@ type family MissingField (tab :: *) (fn :: Maybe Symbol) :: Constraint where
   MissingField tab ('Just fn) = TypeError ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
   MissingField tab 'Nothing   = ()
 
-type family GetAllUniqs (uqs :: [UniqueCT]) :: [[Symbol]] where
-   GetAllUniqs ('UniqueOn fs _ : uqs) = fs ': GetAllUniqs uqs
-   GetAllUniqs '[]                    = '[]
+type family GetAllUniqs (uqs :: [UniqueCT]) (colMap :: [(Symbol, Symbol)]) :: [[Symbol]] where
+   GetAllUniqs ('UniqueOn fs _ : uqs) colMap = (MapAliasedCol fs colMap) ': GetAllUniqs uqs colMap
+   GetAllUniqs '[]                        _  = '[]
+
+type family GetNonNulls (db :: DbK) (ts :: [*]) (colMap :: [(Symbol, Symbol)]) :: [Symbol] where
+   GetNonNulls db ((fld ::: t) ': ts) colMap = GetNonNulls' db (AliasedCol fld colMap) (GetDBTypeRep db t) ts colMap
+   GetNonNulls _ '[] _                       = '[]
+
+type family GetNonNulls' (db :: DbK) (fld :: Symbol) (rep :: DBTypeK) (ts :: [*]) (flds :: [(Symbol, Symbol)]) :: [Symbol] where
+  GetNonNulls' db fld ('DBNullable _) ts colMap = GetNonNulls db ts colMap
+  GetNonNulls' db fld  _  ts colMap             = fld ': GetNonNulls db ts colMap
 
 type family GetUniqBy (un :: Symbol) (uqs :: [UniqueCT]) :: Maybe [Symbol] where
   GetUniqBy un ('UniqueOn fs un : uqs)   = 'Just fs
@@ -463,6 +475,10 @@ type family TableFields (db :: *) (t :: *) :: [*] where
 type family TableFields' (flds :: [*]) (colMap :: [(Symbol, Symbol)]) :: [*] where
   TableFields' ((fn ::: ft) ': flds) colMap = (AliasedCol fn colMap ::: ft) ': (TableFields' flds colMap)
   TableFields' '[] colMap = '[]
+
+type family MapAliasedCol (fns :: [Symbol]) (colMap :: [(Symbol, Symbol)]) :: [Symbol] where
+  MapAliasedCol (fn ': fns) colMap = AliasedCol fn colMap ': MapAliasedCol fns colMap
+  MapAliasedCol '[]         _      = '[]
 
 type family AliasedCol (fn :: Symbol) (colMap :: [(Symbol, Symbol)]) :: Symbol where
   AliasedCol fn ('(fn, alias) ': colMap) = alias

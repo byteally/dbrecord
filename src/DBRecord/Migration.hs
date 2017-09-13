@@ -21,8 +21,12 @@ module DBRecord.Migration
        , module DBRecord.Migration
        ) where
 
-import DBRecord.Internal.Migration
-import DBRecord.Internal.Schema
+
+import qualified DBRecord.Internal.Migration as M
+import qualified DBRecord.Internal.Schema    as S
+
+import DBRecord.Internal.Migration   hiding (Column)
+import DBRecord.Internal.Schema      hiding (Column)
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
 import DBRecord.Internal.DBTypes
@@ -33,6 +37,7 @@ import GHC.Exts
 import GHC.TypeLits
 import Data.Kind
 import Data.Functor.Const
+import Data.Coerce (coerce)
 
 class BaseDatabase (base :: *) where
   type BaseVersion base :: *
@@ -127,10 +132,13 @@ toTypeAttr hlist =
       isUnary (DConAttr (_cn, [])) = True
       isUnary _                    = False
   in case consAttrs of
-    [DConAttr (_cn, cols)]   -> ProdAttr cols
+    [DConAttr (_cn, cols)]   -> ProdAttr (map toMColumn cols)
     [] -> error "@toTypeAttr: DB Type cannot be of Void type"
-    cons | all isUnary cons -> EnumAttr $ fmap (\(DConAttr cattr) -> fst cattr) cons
-         | otherwise        -> SumAttr $ fmap (\(DConAttr cattr) -> cattr) cons
+    cons | all isUnary cons -> EnumAttr $ fmap (\(DConAttr cattr) -> coerce (fst cattr)) cons
+         | otherwise        -> SumAttr $ fmap (\(DConAttr (cn, cns)) -> (coerce cn, map toMColumn cns)) cons
+
+toMColumn :: S.Column -> M.Column
+toMColumn (S.Column n t) = M.Column (ColName n) (ColType (coerce t))
 
 mkMigration :: forall db schema tables types.
   ( Database db
@@ -145,51 +153,56 @@ mkMigration :: forall db schema tables types.
 mkMigration pxyDB = mkMigrationTypes pxyDB (sing :: Sing types)
   ++ mkMigrationTables pxyDB (sing :: Sing tables)
 
-
 mkMigrationTables :: forall db tabs.
                     ( All (Table db) tabs
                     ) => Proxy (db :: *) -> Sing (tabs :: [*]) -> [Migration]
 mkMigrationTables _ SNil             = []
 mkMigrationTables pxyDB (SCons tab tabs) = mkMigrationTable pxyDB tab ++ mkMigrationTables pxyDB tabs
 
-mkMigrationTable :: forall db tab pks fks chks uqs defs.
+mkMigrationTable :: forall db tab pks fks chks uqs defs nonNulls colMap.
                    ( Table db tab
                    , pks ~ PrimaryKey db tab
                    , fks ~ ForeignKey db tab
                    , chks ~ Check db tab
                    , uqs ~ Unique db tab
                    , defs ~ HasDefault db tab
+                   , colMap ~ (ColumnNames db tab)
+                   , nonNulls ~ GetNonNulls (DB db) (OriginalTableFields tab) colMap
                    ) => Proxy (db :: *) -> Sing (tab :: *) -> [Migration]
 mkMigrationTable _ _
-  = let addPks = case fromSing (sing :: Sing pks) of
+  = let addPks = case fromSing (sing :: Sing (MapAliasedCol pks colMap)) of
                       [] -> []
                       xs  ->
                         let keyCols = fmap T.pack $ xs
-                        in [AlterTable tabN $ AddConstraint (genKeyName $ PkNameGen tabN keyCols) $ AddPrimaryKey keyCols]
+                        in [AlterTable (coerce tabN) $ AddConstraint (coerce (genKeyName $ PkNameGen tabN keyCols)) $ AddPrimaryKey (coerce keyCols)]
         addUqs = let addUq fs =
                        let keyCols = fmap T.pack fs
-                       in AlterTable tabN $ AddConstraint (genKeyName $ UqNameGen tabN keyCols) $ AddUnique keyCols
-                 in fmap addUq $ fromSing (sing :: Sing (GetAllUniqs uqs))
-        addFks = let addFk (DemotedDBTagFk fcols reft rcols) = AlterTable tabN $ AddConstraint (genKeyName $ FkNameGen tabN fcols reft) $ AddForeignKey fcols reft rcols
-                 in fmap addFk  $ fromSing (sing :: Sing (TagEachFks db fks))
-        addChks = let addChk (cname, chExpr) = AlterTable tabN $ AddConstraint (genKeyName $ CkNameGen tabN cname) $ AddCheck chExpr
+                       in AlterTable (coerce tabN) $ AddConstraint (coerce (genKeyName $ UqNameGen tabN keyCols)) $ AddUnique (coerce keyCols)
+                 in fmap addUq $ fromSing (sing :: Sing (GetAllUniqs uqs colMap))
+        addFks = let addFk (DemotedDBTagFk fcols reft rcols) = AlterTable (coerce tabN) $ AddConstraint (coerce (genKeyName $ FkNameGen tabN fcols reft)) $ AddForeignKey (coerce fcols) (coerce reft) (coerce rcols)
+                 in fmap addFk  $ fromSing (sing :: Sing (TagEachFks db tab fks))
+        addChks = let addChk (cname, chExpr) = AlterTable (coerce tabN) $ AddConstraint (coerce (genKeyName $ CkNameGen tabN cname))
+                                                $ AddCheck (coerce chExpr)
                   in fmap addChk $ fromSing (sing :: Sing chks)
         chkExpr = let singChks :: HList (Chk db tab) chks1 -> [()]
                       singChks Nil = []
                       singChks (c :& cs) = () : singChks cs
                   in case (checks :: DBChecks db tab) of
                        DBChecks chks -> singChks chks
-        addDefs = let addDef dfExpr = AlterTable tabN $ AlterColumn "col" $ AddDefault dfExpr
+        addNotNullChks = let addNonNullCtx col = AlterTable (coerce tabN) $ AlterColumn (coerce (T.pack col)) SetNotNull
+                         in fmap addNonNullCtx $ fromSing (sing :: Sing nonNulls)                                           
+        addDefs = let addDef dfExpr = AlterTable (coerce tabN) $ AlterColumn (coerce ("col" :: T.Text)) $ AddDefault (coerce dfExpr)
                   in fmap addDef $ fromSing (sing :: Sing ('DefSyms defs))
         tabColHList = singCols (Proxy @db) (Proxy :: Proxy (OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
-        createTab = [CreateTable tabN $ recordToList tabColHList]
+        createTab = [CreateTable (coerce tabN) (map toMColumn $ recordToList tabColHList)]
         tabN = T.pack $ fromSing (sing :: Sing (TableName db tab))
     in  concat [ createTab
                , addPks  
                , addUqs
                , addFks
                , addChks
-               , addDefs
+               -- , addDefs
+               , addNotNullChks
                ]
 
 data KeyNameGen
@@ -231,18 +244,19 @@ mkMigrationType _ _
   = let tyName = showDBType (Proxy @(DB db)) (Proxy @(GetDBTypeRep (DB db) ty))
         tyAttrHList = singAttrs (Proxy @db) (Proxy :: Proxy (GetTypeFields ty))
         migTypes = case toTypeAttr tyAttrHList of
-          EnumAttr cnames  -> [CreateEnum tyName cnames]
-          ProdAttr cols    -> [CreateType tyName cols]
+          EnumAttr cnames  -> [CreateEnum (coerce tyName) (coerce cnames)]
+          ProdAttr cols    -> [CreateType (coerce tyName) (coerce cols)]
           SumAttr conAttrs ->
             let tyTag = (if T.last tyName == '"' then T.init tyName else tyName) `T.append` "_tags\""
-                createSumTags cons = CreateEnum tyTag $ fmap fst cons
+                createSumTags cons = CreateEnum (coerce tyTag) $ (coerce $ fmap fst cons)
                 sumTagTys = createSumTags conAttrs
-                conTyName cn = "\"" `T.append` cn `T.append` "_con\""
+                conTyName cn = TypeName ("\"" `T.append` cn `T.append` "_con\"")
                 createConTy (cn, flds) = CreateType (conTyName cn) flds
-                sumTy = CreateType tyName ( Column "tag" tyTag
-                                          : fmap (\(cn,_) -> Column cn $ conTyName cn) conAttrs
+                sumTy = CreateType (TypeName tyName)
+                                   ( M.Column (coerce ("tag" :: T.Text)) (coerce tyTag)
+                                          : fmap (\(ColName cn,_) -> M.Column (coerce cn) (coerce $ conTyName cn)) conAttrs
                                           )
-            in (sumTagTys : fmap createConTy conAttrs) ++ [sumTy]
+            in (sumTagTys : fmap createConTy (coerce conAttrs)) ++ [sumTy]
     in concat [ migTypes
               ]
 

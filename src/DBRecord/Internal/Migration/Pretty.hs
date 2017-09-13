@@ -2,7 +2,6 @@
 module DBRecord.Internal.Migration.Pretty where
 
 import DBRecord.Internal.Migration.Types
-import DBRecord.Internal.Schema (Column (..))
 
 import Data.Text (Text, unpack, pack)
 import qualified Text.PrettyPrint.HughesPJ as Pretty
@@ -34,47 +33,71 @@ quotes = Pretty.quotes . text_ . escQuote
 doubleQuotes :: Text -> Doc
 doubleQuotes = Pretty.doubleQuotes . text_ . escDoubleQuote
 
+ppColumnName :: ColName -> Doc
+ppColumnName (ColName colN) = doubleQuotes colN
+
+ppTableName :: TabName -> Doc
+ppTableName (TabName tabN) = doubleQuotes tabN
+
+ppTypeName :: TypeName -> Doc
+ppTypeName (TypeName typeN) = text_ typeN
+
+ppColumnType :: ColType -> Doc
+ppColumnType (ColType tn) = ppTypeName tn
+
+ppCheckExpr :: CheckExpr -> Doc
+ppCheckExpr (CheckExpr e) = parens (text_ e)
+
+ppDefaultExpr :: DefExpr -> Doc
+ppDefaultExpr (DefExpr e) = text_ e
+
+ppEnumVal :: EnumVal -> Doc
+ppEnumVal (EnumVal e) = quotes e
+
+ppColumn :: Column -> Doc
+ppColumn (Column name ty) =
+      ppColumnName name
+  <+> ppColumnType ty
+
+ppConstraintName :: ConstraintName -> Doc
+ppConstraintName (ConstraintName c) = doubleQuotes c
+
 ppMigration :: Migration -> Doc
 ppMigration (CreateTable tab cols) =
       text "CREATE TABLE"
-  <+> doubleQuotes tab
+  <+> ppTableName tab
   <+> parens (hsep (punctuate comma (map ppColumn cols)))
   <+> semi
 ppMigration (CreateType ty cols) =
       text "CREATE TYPE"
-  <+> text_ ty
+  <+> ppTypeName ty
   <+> text "AS"
   <+> parens (hsep (punctuate comma (map ppColumn cols)))
   <+> semi
 ppMigration (CreateEnum ty cols) =
       text "CREATE TYPE"
-  <+> text_ ty
+  <+> ppTypeName ty
   <+> text "AS ENUM"
-  <+> parens (hsep (punctuate comma (map quotes cols)))
+  <+> parens (hsep (punctuate comma (map ppEnumVal cols)))
   <+> semi
 ppMigration (DropTable tab) =
       text "DROP TABLE"
-  <+> doubleQuotes tab
+  <+> ppTableName tab
   <+> semi
 ppMigration (DropType ty) =
       text "DROP TYPE"
-  <+> text_ ty
+  <+> ppTypeName ty
   <+> semi
 ppMigration (AlterTable tab alter) =
       text "ALTER TABLE"
-  <+> doubleQuotes tab
+  <+> ppTableName tab
   <+> ppAlterTable alter
   <+> semi
 ppMigration (AlterType typ alter) =
       text "ALTER TYPE"
-  <+> doubleQuotes typ
+  <+> ppTypeName typ
   <+> ppAlterType alter
   <+> semi  
-
-ppColumn :: Column -> Doc
-ppColumn (Column name ty) =
-      doubleQuotes name
-  <+> text_ ty 
 
 ppAlterTable :: AlterTable -> Doc
 ppAlterTable (AddColumn coln) =
@@ -82,60 +105,60 @@ ppAlterTable (AddColumn coln) =
   <+> ppColumn coln
 ppAlterTable (DropColumn coln) =
       text "DROP COLUMN"
-  <+> text_ coln
+  <+> ppColumnName coln
 ppAlterTable (RenameColumn oldn newn) =
       text "RENAME COLUMN"
-  <+> text_ oldn
+  <+> ppColumnName oldn
   <+> text "TO"
-  <+> text_ newn
+  <+> ppColumnName newn
 ppAlterTable (AlterColumn coln alter) =
       text "ALTER COLUMN"
-  <+> text_ coln
+  <+> ppColumnName coln
   <+> ppAlterColumn alter
 ppAlterTable (RenameTable newn) =
       text "RENAME TO"
-  <+> text_ newn 
+  <+> ppTableName newn
 ppAlterTable (AddConstraint cname con) =
       text "ADD CONSTRAINT"
-  <+> text_ cname
+  <+> ppConstraintName cname
   <+> ppAddConstraint con
 ppAlterTable (DropConstraint cname) =
       text "DROP CONSTRAINT"
-  <+> text_ cname
+  <+> ppConstraintName cname
 
 ppAddConstraint :: AddConstraint -> Doc
 ppAddConstraint (AddPrimaryKey cols) =
       text "PRIMARY KEY"
-  <+> parens (hsep (punctuate comma (map text_ cols)))
+  <+> parens (hsep (punctuate comma (map ppColumnName cols)))
 ppAddConstraint (AddUnique cols) =
       text "UNIQUE"
-  <+> parens (hsep (punctuate comma (map text_ cols)))
+  <+> parens (hsep (punctuate comma (map ppColumnName cols)))
 ppAddConstraint (AddCheck chkExpr) =
       text "CHECK"
-  <+> parens (text_ chkExpr)
+  <+> ppCheckExpr chkExpr
 ppAddConstraint (AddForeignKey fcols rtab rcols) =
       text "FOREIGN KEY"
-  <+> parens (hsep (punctuate comma (map text_ fcols)))
+  <+> parens (hsep (punctuate comma (map ppColumnName fcols)))
   <+> text "REFERENCES"
-  <+> doubleQuotes rtab
-  <+> parens (hsep (punctuate comma (map text_ rcols)))
+  <+> ppTableName rtab
+  <+> parens (hsep (punctuate comma (map ppColumnName rcols)))
 
 ppAlterColumn :: AlterColumn -> Doc
 ppAlterColumn SetNotNull  = text "SET NOT NULL"
 ppAlterColumn DropNotNull = text "DROP NOT NULL"
 ppAlterColumn (ChangeType ctype) =
       text "TYPE"
-  <+> text_ ctype
+  <+> ppColumnType ctype
 ppAlterColumn (AddDefault defV) =
       text "SET DEFAULT"
-  <+> text_ defV
+  <+> ppDefaultExpr defV
 ppAlterColumn DropDefault =
      text "DROP DEFAULT"
 
 ppAlterType :: AlterType -> Doc
 ppAlterType (RenameType typ) =
       text "RENAME TO"
-  <+> doubleQuotes typ
+  <+> ppTypeName typ
   <+> semi
 ppAlterType (AddAttribute col) =
       text "ADD ATTRIBUTE"
@@ -143,23 +166,23 @@ ppAlterType (AddAttribute col) =
   <+> semi
 ppAlterType (DropAttribute col) =
       text "DROP ATTRIBUTE"
-  <+> doubleQuotes col
+  <+> ppColumnName col
   <+> semi
 ppAlterType (AlterAttribute col altAttr) =
       text "ALTER ATTRIBUTE"
-  <+> doubleQuotes col
+  <+> ppColumnName col
   <+> ppAlterAttr altAttr
   <+> semi
 ppAlterType (AddAfterEnumVal newEnum prevEnum) =
       text "ADD VALUE"
-  <+> text_ newEnum
+  <+> ppEnumVal newEnum
   <+> text "AFTER"
-  <+> text_ prevEnum
+  <+> ppEnumVal prevEnum
 
 ppAlterAttr :: AlterAttribute -> Doc
 ppAlterAttr (ChangeAttrType ty) =
      text "SET DATA TYPE"
-  <+> text_ ty   
+  <+> ppColumnType ty  
 
 renderMig :: Migration -> String
 renderMig = render . ppMigration

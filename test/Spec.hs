@@ -83,6 +83,7 @@ instance Table TestDB User where
   type ForeignKey TestDB User   = '[ 'RefBy '["id"] User '["id"]
 --                                   , 'Ref "id" User
                                    ]
+  type ColumnNames TestDB User  = '[ '("id", "ID") ]
   type PrimaryKey TestDB User   = '["id"]
   type Unique TestDB User       = '[ 'UniqueOn '["name"] "uq_user_name"
                                    ]
@@ -190,11 +191,16 @@ instance ConstExpr UserRole where
                 in literalExpr $ Other roleStr
 main :: IO ()
 main = do
+  let mig = mkMigration (Proxy :: Proxy TestDB)
+      migStmtQ = unlines (fmap renderMig mig)
+  putStrLn migStmtQ
+{-  
   someFunc
   conn <- connect $ defaultConnectInfo { connectHost = "172.17.0.2"
                                        , connectPassword = "mysecretpassword"
                                        }
---  runPGMigration (Proxy :: Proxy TestDB) conn
+  runPGMigration (Proxy :: Proxy TestDB) conn
+-}
   pure ()
 
 

@@ -109,6 +109,11 @@ type family Elem (xs :: [k]) (v :: k) :: Bool where
   Elem (x ': xs) y = Elem xs y
   Elem '[]       x = 'False
 
+type family FindAlias (xs :: [(Symbol, Symbol)]) (fn :: Symbol) :: (Maybe Symbol) where
+  FindAlias ('(fn, alFn) ': fns) fn  = 'Just alFn
+  FindAlias (_ ': fns) fn            = FindAlias fns fn
+  FindAlias '[] fn                   = 'Nothing
+
 type family FindField (xs :: [*]) (fn :: Symbol) :: (Maybe *) where
   FindField ((fn ::: t) ': xs) fn  = 'Just t
   FindField ((fn' ::: t) ': xs) fn = FindField xs fn

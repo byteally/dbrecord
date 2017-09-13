@@ -1,59 +1,71 @@
 module DBRecord.Internal.Migration.Types where
 
-import DBRecord.Internal.Schema
 import qualified Data.Text as T
 
-type TabName  = T.Text
-type TypeName = T.Text
-
-type ConstraintName = T.Text
-type PrimaryKeys    = [T.Text]
+newtype TabName  = TabName T.Text
+                 deriving Show
+newtype TypeName = TypeName T.Text
+                 deriving Show
+newtype ColName = ColName T.Text
+                deriving Show
+newtype ColType = ColType TypeName
+                deriving Show
+data Column = Column ColName ColType
+            deriving Show
+newtype CheckExpr = CheckExpr T.Text
+                  deriving Show
+newtype DefExpr = DefExpr T.Text
+                deriving Show
+newtype EnumVal = EnumVal T.Text
+                deriving Show
+newtype ConstraintName = ConstraintName T.Text
+                deriving Show
 
 data Migration
-  = CreateTable !TabName [Column]
-  | CreateType !TypeName [Column]
-  | CreateEnum !TypeName [T.Text]
-  | DropTable !TabName
-  | DropType !TypeName
-  | AlterTable !TabName AlterTable
-  | AlterType !TypeName AlterType
+  = CreateTable TabName [Column]
+  | CreateType TypeName [Column]
+  | CreateEnum TypeName [EnumVal]
+  | DropTable TabName
+  | DropType TypeName
+  | AlterTable TabName AlterTable
+  | AlterType TypeName AlterType
   deriving (Show)
 
 data AlterTable
   = AddColumn Column
-  | DropColumn !ColName
-  | RenameColumn !ColName !ColName
-  | AlterColumn !ColName AlterColumn
-  | RenameTable !TabName
-  | AddConstraint !ConstraintName AddConstraint
-  | DropConstraint !ConstraintName
+  | DropColumn ColName
+  | RenameColumn ColName ColName
+  | AlterColumn ColName AlterColumn
+  | RenameTable TabName
+  | AddConstraint ConstraintName AddConstraint
+  | DropConstraint ConstraintName
   deriving (Show)
 
 data AddConstraint
   = AddPrimaryKey [ColName]
   | AddUnique [ColName]
   | AddCheck CheckExpr
-  | AddForeignKey [ColName] !TabName [ColName]
+  | AddForeignKey [ColName] TabName [ColName]
   deriving (Show)
 
 data AlterColumn
   = SetNotNull
   | DropNotNull
-  | ChangeType !ColType
+  | ChangeType ColType
   | AddDefault DefExpr
   | DropDefault
   deriving (Show)
 
 data AlterType
-  = RenameType !TypeName
+  = RenameType TypeName
   | AddAttribute Column
-  | DropAttribute !ColName
-  | AlterAttribute !ColName AlterAttribute
-  | AddAfterEnumVal !T.Text !T.Text
+  | DropAttribute ColName
+  | AlterAttribute ColName AlterAttribute
+  | AddAfterEnumVal EnumVal EnumVal
   deriving (Show)
 
 data AlterAttribute
-  = ChangeAttrType !ColType
+  = ChangeAttrType ColType
   deriving (Show)
 
 data TypeAttr
