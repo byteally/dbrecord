@@ -89,14 +89,14 @@ instance Table TestDB User where
                                    ]
   type TableName TestDB User    = "usr"
   defaults = dbDefaults
-    (  def @"role" @User (DBRecord.Query.toEnum Admin)
-    :& def @"id"   @User 1
+    (  #role (DBRecord.Query.toEnum Admin)
+    :& #id   1
     :& end
     )
 
   checks = dbChecks
-    (  check @"notnull" (\n -> n .== text "foo")
-    :& check @"emailValidity" (\em -> em .== em)
+    (  #notnull       (\n -> n .== "foo")
+    :& #emailValidity (\em -> em .== em)
     :& end
     )
 

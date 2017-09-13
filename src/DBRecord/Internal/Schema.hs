@@ -427,6 +427,16 @@ data Def (tab :: *) (fn :: Symbol) = forall v.Def (Expr '[] v)
 def :: forall (fn :: Symbol) (tab :: *) v.(ValidateDBFld tab fn v) => Expr '[] v -> Def tab fn
 def = Def
 
+instance ( ValidateDBFld tab un a
+         , un ~ fn
+         , v ~ Expr '[] a
+         ) => IsLabel un (v -> Def tab fn) where
+#if __GLASGOW_HASKELL__ > 800
+  fromLabel v = def @un @tab v
+#else
+  fromLabel _ v = def @un @tab v
+#endif
+
 data DBDefaults (db :: *) tab = forall xs.(AllF (DefExpr db tab) xs) => DBDefaults (HList (Def tab) xs)
 
 end :: HList f '[]
@@ -452,6 +462,18 @@ type family UnifyCheck (tab :: *) (cn :: Symbol) (flds :: [*]) (args :: Maybe [S
 type family MkCheckFn (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: [Either ErrorMessage *] where
   MkCheckFn tab (fn ': fs) chkFun flds = Note (ColNotFoundMsg fn tab) (FMapMaybe (Expr flds) (FindField flds fn)) ': MkCheckFn tab fs chkFun flds
   MkCheckFn tab '[] r flds = '[ 'Right (Expr flds Bool)]
+
+instance ( un ~ cn
+         , args ~ LookupCheck (Check db tab) cn
+         , UnifyCheck tab cn (OriginalTableFields tab) args val
+         , CheckCtx db tab (PartialJust args) cn val
+         , res ~ ('CheckOn (PartialJust args) cn)
+         ) => IsLabel un (val -> Chk db tab res) where
+#if __GLASGOW_HASKELL__ > 800
+  fromLabel = check
+#else
+  fromLabel _ = check
+#endif
 
 check :: forall (cn :: Symbol) (db :: *) (tab :: *) val args.
         ( args ~ LookupCheck (Check db tab) cn
