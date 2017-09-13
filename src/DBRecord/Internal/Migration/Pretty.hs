@@ -2,7 +2,7 @@
 module DBRecord.Internal.Migration.Pretty where
 
 import DBRecord.Internal.Migration.Types
-
+import DBRecord.Internal.Postgres (ppPGExpr)
 import Data.Text (Text, unpack, pack)
 import qualified Text.PrettyPrint.HughesPJ as Pretty
 import Text.PrettyPrint.HughesPJ (Doc, (<+>), text, 
@@ -46,10 +46,10 @@ ppColumnType :: ColType -> Doc
 ppColumnType (ColType tn) = ppTypeName tn
 
 ppCheckExpr :: CheckExpr -> Doc
-ppCheckExpr (CheckExpr e) = parens (text_ e)
+ppCheckExpr (CheckExpr e) = parens (ppPGExpr e)
 
 ppDefaultExpr :: DefExpr -> Doc
-ppDefaultExpr (DefExpr e) = text_ e
+ppDefaultExpr (DefExpr e) = parens (ppPGExpr e)
 
 ppEnumVal :: EnumVal -> Doc
 ppEnumVal (EnumVal e) = quotes e

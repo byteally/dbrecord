@@ -267,4 +267,3 @@ renderUpdate = render . ppUpdate
 
 renderUpdateRet :: Returning SqlUpdate -> String
 renderUpdateRet = render . ppUpdateReturning
-

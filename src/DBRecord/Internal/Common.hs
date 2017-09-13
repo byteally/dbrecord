@@ -194,6 +194,9 @@ type family If (c :: Bool) (t :: k) (f :: k) :: k where
 class (t ~ HListToTuple (TupleToHList t)) => ToHList t where
   toHList :: t -> (forall a. a -> f a) -> HList f (TupleToHList t)
 
+instance ToHList () where
+  toHList () lift = Nil
+
 instance ToHList (Identity v) where
   toHList (Identity v) lift = lift v :& Nil
 
@@ -205,6 +208,7 @@ instance ToHList (x1, x2, x3) where
 
   
 type family HListToTuple (xs :: [*]) = (ret :: *) | ret -> xs where
+  HListToTuple '[]  = ()
   HListToTuple '[x] = Identity x
   HListToTuple '[x1, x2] = (x1, x2)
   HListToTuple '[x1, x2, x3] = (x1, x2, x3)
@@ -220,6 +224,7 @@ type family HListToTuple (xs :: [*]) = (ret :: *) | ret -> xs where
 
 
 type family TupleToHList (t :: *) = (res :: [*]) | res -> t where
+  TupleToHList ()           = '[]
   TupleToHList (Identity x) = '[x]
   TupleToHList (x1, x2) = '[x1, x2]
   TupleToHList (x1, x2, x3) = '[x1, x2, x3]
@@ -306,3 +311,49 @@ instance Extract Identity where
 
 class Extract w where
   extract :: w a -> a
+
+type family ApplyF (f :: k -> *) (xs :: [k]) where
+  ApplyF f (x ': xs) = f x ': ApplyF f xs
+  ApplyF f '[]       = '[]
+
+type family ExtractF (f :: k -> *) (xs :: [*]) :: [k] where
+  ExtractF f (f x ': xs) = x ': ExtractF f xs
+  ExtractF f '[]         = '[]
+
+{-
+
+type family GenTabFields (db :: *) (rep :: * -> *) :: [*] where
+  GenTabFields db (D1 i f)  = GenTabFields f
+  GenTabFields db (f :+: g) = TypeError ('Text "Table cannot be a sum type")
+  GenTabFields db (C1 ('MetaCons cn _ 'False) _) = TypeError ('Text "The constructor " ':<>: 'ShowType cn ':<>: 'Text " does not have named fields")
+  GenTabFields db (C1 i c) = GenTabFields c
+  GenTabFields db (f :*: g) = GenTabFields f :++ GenTabFields g
+  GenTabFields db (S1 ('MetaSel ('Just sn) _ _ _) (K1 i f)) = '[sn ::: GetDBTypeRep db (Rep f)]
+
+type family GetTypeName (t :: *) :: Symbol where
+  GetTypeName t              = GenTyCon (Rep t)
+
+data TypeKind = EnumT
+              | NewtypeT
+              | ProductT
+              | SumT
+              deriving Show
+
+type family GetTypeKind (rep :: * -> *) :: TypeKind where
+  GetTypeKind (D1 ('MetaData _ _ _ isNew) _) = 'NewtypeT
+  GetTypeKind (D1 _ (C1 _ (_ :*: _)))        = 'ProductT  
+  GetTypeKind (D1 _ (C1 _ (S1 _ _)))        = 'ProductT
+  GetTypeKind (D1 _ cs)                      = IsEnumOrSum cs
+
+type family IsEnumOrSum (rep :: * -> *) :: TypeKind where
+  IsEnumOrSum (C1 _ U1 :+: c) = IsEnumOrSum c
+  IsEnumOrSum (C1 _ _  :+: c) = 'SumT
+  IsEnumOrSum (C1 _ U1)       = 'NewtypeT
+
+
+newtype Defs tab a = Defs [a]
+
+[] :: Defs tab (Def tab)
+[#foo 1, #bar 2]
+
+-}

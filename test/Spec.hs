@@ -23,7 +23,7 @@ import DBRecord.Transaction hiding (runTrasaction)
 data TestDB
 
 data UserRole = Admin | Guest | Nor'mal
-  deriving (Show, Generic)
+  deriving (Show, Generic, Enum)
 
 data Sum1 = Con1 {a :: Int, b :: Bool} | Con2 {a :: Int}
   deriving (Show, Generic)
@@ -89,13 +89,13 @@ instance Table TestDB User where
                                    ]
   type TableName TestDB User    = "usr"
   defaults = dbDefaults
-    (  def @"role" Admin
-    :& def @"id"   1
+    (  def @"role" @User (DBRecord.Query.toEnum Admin)
+    :& def @"id"   @User 1
     :& end
     )
 
   checks = dbChecks
-    (  check @"notnull" (\n -> n .== n)
+    (  check @"notnull" (\n -> n .== text "foo")
     :& check @"emailValidity" (\em -> em .== em)
     :& end
     )

@@ -16,6 +16,9 @@
 {-# LANGUAGE DeriveGeneric           #-}
 {-# LANGUAGE OverloadedStrings       #-}
 {-# LANGUAGE CPP                     #-}
+{-# LANGUAGE RankNTypes              #-}
+{-# LANGUAGE ConstraintKinds         #-}
+
 
 module DBRecord.Internal.Schema where
 
@@ -32,7 +35,9 @@ import Data.Functor.Const
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
 import DBRecord.Internal.Expr
+import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.DBTypes
+import Data.Functor.Identity
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
@@ -66,15 +71,15 @@ class ( Database db
       , SingI (MapAliasedCol (PrimaryKey db tab) (ColumnNames db tab))
       , SingI (GetAllUniqs (Unique db tab) (ColumnNames db tab))
       , SingI (TagEachFks db tab (ForeignKey db tab))
-      , SingI (Check db tab)
-      , SingI ('DefSyms (HasDefault db tab))
+      -- , SingI (Check db tab)
+      -- , SingI ('DefSyms (HasDefault db tab))
       , SingI (GetNonNulls (DB db) (OriginalTableFields tab) (ColumnNames db tab))
       , All SingE (GetAllUniqs (Unique db tab) (ColumnNames db tab))
       , All SingE (TagEachFks db tab (ForeignKey db tab))
-      , All SingE (Check db tab)
+      -- , All SingE (Check db tab)
       , AllF SingE (MapAliasedCol (PrimaryKey db tab) (ColumnNames db tab))
       , AllF SingE (GetNonNulls (DB db) (OriginalTableFields tab) (ColumnNames db tab))
-      , SingE ('DefSyms (HasDefault db tab))
+      -- , SingE ('DefSyms (HasDefault db tab))
       , SingCols db (OriginalTableFields tab) (ColumnNames db tab)
       , KnownSymbol (TableName db tab)
       , Generic tab
@@ -231,6 +236,7 @@ tabName :: forall db t proxy.
   KnownSymbol (TableName db t) => proxy db -> proxy t -> String
 tabName _ _ = symbolVal (Proxy :: Proxy (TableName db t))
 
+{-
 instance SingE (ch :: CheckCT) where
   type Demote ch = (Text, CheckExpr)
   fromSing (SCheck cols cname) = ( T.pack $ fromSing cname
@@ -240,6 +246,7 @@ instance SingE (ch :: CheckCT) where
 instance SingE (defs :: DefSyms) where
   type Demote defs = [DefExpr]
   fromSing (SDef cols) = fmap T.pack $ fromSing cols
+-}
 
 data DemotedDBTag = DemotedDBTagFk ![Text] !Text ![Text]
   
@@ -415,22 +422,23 @@ data IgnoredCol
   | IgnoreExcept [Symbol]
   | IgnoreNone
 
-data Def (tab :: *) (fn :: Symbol) = forall v.Def v
+data Def (tab :: *) (fn :: Symbol) = forall v.Def (Expr '[] v)
 
-def :: forall (fn :: Symbol) (tab :: *) v.(ValidateDBFld tab fn v) => v -> Def tab fn
+def :: forall (fn :: Symbol) (tab :: *) v.(ValidateDBFld tab fn v) => Expr '[] v -> Def tab fn
 def = Def
 
-data DBDefaults (db :: *) tab = forall xs.DBDefaults (HList (Def tab) xs)
+data DBDefaults (db :: *) tab = forall xs.(AllF (DefExpr db tab) xs) => DBDefaults (HList (Def tab) xs)
 
 end :: HList f '[]
 end = Nil
 
-dbDefaults :: forall tab db xs.HList (Def tab) xs -> DBDefaults db tab
+-- HList (Def tab) xs
+dbDefaults :: forall tab db xs ys t. (AllF (DefExpr db tab) xs) => HList (Def tab) xs -> DBDefaults db tab
 dbDefaults = DBDefaults
 
-data Chk (db :: *) (tab :: *) (chk :: CheckCT) = forall val.Chk val
+data Chk (db :: *) (tab :: *) (chk :: CheckCT) = forall val.(CheckCtx' db tab chk val) => Chk val
 
-data DBChecks (db :: *) tab = forall chks.DBChecks (HList (Chk db tab) chks)
+data DBChecks (db :: *) tab = forall chks. (AllF (ChkCtx db tab) chks) => DBChecks (HList (Chk db tab) chks)
 
 type family LookupCheck (chks :: [CheckCT]) (cn :: Symbol) :: Maybe [Symbol] where
   LookupCheck ('CheckOn args cn ': chks) cn  = 'Just args
@@ -448,10 +456,11 @@ type family MkCheckFn (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: 
 check :: forall (cn :: Symbol) (db :: *) (tab :: *) val args.
         ( args ~ LookupCheck (Check db tab) cn
         , UnifyCheck tab cn (OriginalTableFields tab) args val
+        , CheckCtx db tab (PartialJust args) cn val
         ) => val -> Chk db tab ('CheckOn (PartialJust args) cn)
 check = Chk
 
-dbChecks :: forall tab (db :: *) chks.HList (Chk db tab) chks -> DBChecks db tab
+dbChecks :: forall tab (db :: *) chks. (AllF (ChkCtx db tab) chks) => HList (Chk db tab) chks -> DBChecks db tab
 dbChecks = DBChecks
 
 type family ValidateDBFld tab (fn :: Symbol) t :: Constraint where
@@ -518,8 +527,8 @@ type family DBConstraintFmt db (tab :: *) (ct :: k) :: [Symbol] where
   DBConstraintFmt db tab ('Ix col)           = '["ix", col]
 -}
 
-type CheckExpr = Text
-type DefExpr = Text
+-- type CheckExpr = Text
+-- type DefExpr = Text
 
 recordToList :: HList (Const a) rs -> [a]
 recordToList Nil = []
@@ -544,3 +553,54 @@ instance ( SingAttrs db cons
 
 instance SingAttrs db '[] where
   singAttrs _ _ = Nil
+
+
+----
+{-
+happly :: forall ctx f a xs.(AllF ctx xs) => (forall x. (ctx (f x)) => f x -> a) -> HList f xs -> [a]
+happly f (v :& vs) = f v : happly f vs
+happly f Nil       = []
+-}
+
+happlyChkCtx :: (AllF (ChkCtx db tab) chks) => HList (Chk db tab) chks -> [(T.Text, PQ.PrimExpr)]
+happlyChkCtx (v :& vs) = chkCtx v : happlyChkCtx vs
+happlyChkCtx  Nil      = []
+
+happlyDefExprs :: (AllF (DefExpr db tab) xs) => Proxy db -> HList (Def tab) xs -> [(T.Text, PQ.PrimExpr)]
+happlyDefExprs p (v :& vs) = defExpr p v : happlyDefExprs p vs
+happlyDefExprs _  Nil      = []
+
+type family CheckCtx' db tab (chk :: CheckCT) val :: Constraint where
+  CheckCtx' db tab (CheckOn chkOns chkName) val =
+    CheckCtx db tab chkOns chkName val
+
+class ChkCtx db tab (chk :: CheckCT) where
+  chkCtx :: Chk db tab chk -> (T.Text, PQ.PrimExpr)
+
+instance ChkCtx db tab (CheckOn chkOns chkName) where
+  chkCtx (Chk val) = checkCtx (Proxy @db) (Proxy @tab) (Proxy @chkOns) (Proxy @chkName) val
+
+class CheckCtx db tab (chkOns :: [Symbol]) (chkName :: Symbol) val where
+  checkCtx :: Proxy db -> Proxy tab -> Proxy chkOns -> Proxy chkName -> val -> (T.Text, PQ.PrimExpr)
+
+instance ( CheckCtx db tab chkOns chkName b
+         , colMap ~ (ColumnNames db tab)
+         , aCol ~ AliasedCol chkOn colMap
+         , KnownSymbol aCol
+         ) => CheckCtx db tab (chkOn ': chkOns) chkName (Expr sc a -> b) where
+  checkCtx pDb pTab _ pChkN v =
+    let col  = unsafeCol [colN]
+        colN = T.pack (symbolVal (Proxy @aCol))
+    in  checkCtx pDb pTab (Proxy @chkOns) pChkN (v col)
+
+instance (KnownSymbol chkName) => CheckCtx db tab '[] chkName (Expr sc a) where
+  checkCtx _ _ _ _ e = (T.pack $ symbolVal (Proxy @chkName), getExpr e)
+
+class DefExpr (db :: *) (tab :: *) (fld :: Symbol) where
+  defExpr :: Proxy db -> Def tab fld -> (T.Text, PQ.PrimExpr)
+
+instance ( colMap ~ ColumnNames db tab
+         , aCol ~ AliasedCol fld colMap
+         , KnownSymbol aCol
+         ) => DefExpr (db :: *) (tab :: *) (fld :: Symbol) where
+  defExpr _ (Def (Expr e)) = (T.pack $ symbolVal (Proxy @aCol), e)

@@ -1,6 +1,7 @@
 module DBRecord.Internal.Migration.Types where
 
 import qualified Data.Text as T
+import qualified DBRecord.Internal.PrimQuery as PQ
 
 newtype TabName  = TabName T.Text
                  deriving Show
@@ -12,9 +13,9 @@ newtype ColType = ColType TypeName
                 deriving Show
 data Column = Column ColName ColType
             deriving Show
-newtype CheckExpr = CheckExpr T.Text
+newtype CheckExpr = CheckExpr PQ.PrimExpr
                   deriving Show
-newtype DefExpr = DefExpr T.Text
+newtype DefExpr = DefExpr PQ.PrimExpr
                 deriving Show
 newtype EnumVal = EnumVal T.Text
                 deriving Show

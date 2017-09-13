@@ -30,6 +30,8 @@ import DBRecord.Internal.Schema      hiding (Column)
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
 import DBRecord.Internal.DBTypes
+import DBRecord.Internal.Expr
+import qualified DBRecord.Internal.PrimQuery as PQ
 
 import qualified Data.Text as T
 import Data.Proxy
@@ -182,17 +184,19 @@ mkMigrationTable _ _
         addFks = let addFk (DemotedDBTagFk fcols reft rcols) = AlterTable (coerce tabN) $ AddConstraint (coerce (genKeyName $ FkNameGen tabN fcols reft)) $ AddForeignKey (coerce fcols) (coerce reft) (coerce rcols)
                  in fmap addFk  $ fromSing (sing :: Sing (TagEachFks db tab fks))
         addChks = let addChk (cname, chExpr) = AlterTable (coerce tabN) $ AddConstraint (coerce (genKeyName $ CkNameGen tabN cname))
-                                                $ AddCheck (coerce chExpr)
-                  in fmap addChk $ fromSing (sing :: Sing chks)
-        chkExpr = let singChks :: HList (Chk db tab) chks1 -> [()]
-                      singChks Nil = []
-                      singChks (c :& cs) = () : singChks cs
-                  in case (checks :: DBChecks db tab) of
-                       DBChecks chks -> singChks chks
+                                                $ AddCheck (CheckExpr chExpr)
+                  in fmap addChk $ case (checks :: DBChecks db tab) of
+                                     DBChecks hl -> happlyChkCtx hl
+        -- chkExpr = let singChks :: HList (Chk db tab) chks1 -> [()]
+        --               singChks Nil = []
+        --               singChks (c :& cs) = () : singChks cs
+        --           in case (checks :: DBChecks db tab) of
+        --                DBChecks chks -> singChks chks
         addNotNullChks = let addNonNullCtx col = AlterTable (coerce tabN) $ AlterColumn (coerce (T.pack col)) SetNotNull
                          in fmap addNonNullCtx $ fromSing (sing :: Sing nonNulls)                                           
-        addDefs = let addDef dfExpr = AlterTable (coerce tabN) $ AlterColumn (coerce ("col" :: T.Text)) $ AddDefault (coerce dfExpr)
-                  in fmap addDef $ fromSing (sing :: Sing ('DefSyms defs))
+        addDefs = let addDef (cname, dfExpr) = AlterTable (coerce tabN) $ AlterColumn (ColName cname) $ AddDefault (DefExpr dfExpr)
+                  in fmap addDef $ case (defaults :: DBDefaults db tab) of
+                                     DBDefaults hl -> (happlyDefExprs (Proxy @db) hl)
         tabColHList = singCols (Proxy @db) (Proxy :: Proxy (OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
         createTab = [CreateTable (coerce tabN) (map toMColumn $ recordToList tabColHList)]
         tabN = T.pack $ fromSing (sing :: Sing (TableName db tab))
@@ -201,7 +205,7 @@ mkMigrationTable _ _
                , addUqs
                , addFks
                , addChks
-               -- , addDefs
+               , addDefs
                , addNotNullChks
                ]
 
