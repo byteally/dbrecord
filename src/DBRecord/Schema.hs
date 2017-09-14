@@ -20,6 +20,8 @@ module DBRecord.Schema
        , IgnoredCol (..)
        , ForeignRef (..)
        , HList (..)
+       , Serial
+       , Owned
        ) where
 
 import DBRecord.Internal.Types
