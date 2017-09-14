@@ -7,7 +7,8 @@ import Data.Text (Text, unpack, pack)
 import qualified Text.PrettyPrint.HughesPJ as Pretty
 import Text.PrettyPrint.HughesPJ (Doc, (<+>), text, 
                                   parens, comma, punctuate,
-                                  hsep, semi, render)
+                                  hsep, semi, render, char,
+                                  (<>))
 
 escQuote :: Text -> Text
 escQuote = escapeBy (Just '\'')
@@ -54,6 +55,9 @@ ppDefaultExpr (DefExpr e) = parens (ppPGExpr e)
 ppEnumVal :: EnumVal -> Doc
 ppEnumVal (EnumVal e) = quotes e
 
+ppSeqName :: SeqName -> Doc
+ppSeqName (SeqName seqN) = doubleQuotes seqN
+
 ppColumn :: Column -> Doc
 ppColumn (Column name ty) =
       ppColumnName name
@@ -74,6 +78,10 @@ ppMigration (CreateType ty cols) =
   <+> text "AS"
   <+> parens (hsep (punctuate comma (map ppColumn cols)))
   <+> semi
+ppMigration (CreateSeq seqN) =
+      text "CREATE SEQUENCE"
+  <+> ppSeqName seqN
+  <+> semi  
 ppMigration (CreateEnum ty cols) =
       text "CREATE TYPE"
   <+> ppTypeName ty
@@ -98,7 +106,19 @@ ppMigration (AlterType typ alter) =
   <+> ppTypeName typ
   <+> ppAlterType alter
   <+> semi  
+ppMigration (AlterSeq seqN alter) =
+      text "ALTER SEQUENCE"
+  <+> ppSeqName seqN
+  <+> ppAlterSeqType alter
+  <+> semi  
 
+ppAlterSeqType :: AlterSeq -> Doc
+ppAlterSeqType (AddOwner tabn coln) =
+      text "OWNED BY"
+  <+> ppTableName tabn
+  <>  char '.'
+  <>  ppColumnName coln
+  
 ppAlterTable :: AlterTable -> Doc
 ppAlterTable (AddColumn coln) =
       text "ADD COLUMN"

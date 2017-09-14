@@ -21,7 +21,7 @@ import DBRecord.Internal.Expr hiding ((.&&), (.||))
 import qualified DBRecord.Internal.PrimQuery as PQ
 import Data.Monoid ((<>))
 
-newtype Lexeme = Lexeme { getLexeme :: T.Text }
+newtype Lexeme = Lexeme T.Text
 
 data Weight = A | B | C | D
 
@@ -46,7 +46,7 @@ prefix = glexeme [] True
 const  :: T.Text -> Lexeme
 const = glexeme [] False
 
-newtype QueryText = QueryText { getQueryText :: T.Text }
+newtype QueryText = QueryText T.Text
 
 queryText :: Lexeme -> QueryText
 queryText (Lexeme lex) = QueryText lex

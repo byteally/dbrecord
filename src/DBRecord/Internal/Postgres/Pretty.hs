@@ -16,7 +16,8 @@ import Data.List (intersperse)
 import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   parens, comma, punctuate,
                                   hcat, vcat, brackets, doubleQuotes,
-                                  hsep, equals, char, empty, render)
+                                   hsep, equals, char, empty, render,
+                                  quotes)
 
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
@@ -157,6 +158,9 @@ ppOffset :: Maybe SqlExpr -> Doc
 ppOffset Nothing    = empty
 ppOffset (Just off) = text "OFFSET " <> ppSqlExpr off
 
+ppOid :: SqlOidName -> Doc
+ppOid (SqlOidName n) = quotes (doubleQuotes (text (T.unpack n)))
+
 ppColumn :: SqlColumn -> Doc
 ppColumn (SqlColumn s) =
   case map T.unpack s of
@@ -175,6 +179,7 @@ ppSqlExpr :: SqlExpr -> Doc
 ppSqlExpr expr =
   case expr of
     ColumnSqlExpr c     -> ppColumn c
+    OidSqlExpr s        -> ppOid s
     CompositeSqlExpr s x -> parens (ppSqlExpr s) <> text "." <> text x
     ParensSqlExpr e -> parens (ppSqlExpr e)
     BinSqlExpr op e1 e2 -> ppSqlExpr e1 <+> text op <+> ppSqlExpr e2

@@ -44,17 +44,15 @@ import DBRecord.Internal.Expr
 import DBRecord.Internal.Predicate
 import DBRecord.Internal.Common
 import DBRecord.Internal.Schema
-import DBRecord.Internal.PrimQuery
+import DBRecord.Internal.PrimQuery  hiding (insertQ, updateQ, deleteQ)
 import DBRecord.Internal.Types
 import DBRecord.Internal.DBTypeValidation
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
-import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.List.NonEmpty as NE
 import Data.Proxy
 import Data.Int
-import Data.Typeable
 import GHC.Exts
 import GHC.TypeLits
 import Data.Functor.Const
@@ -107,7 +105,7 @@ pattern EmptyUpdate <- (HM.null . getUpdateMap -> True) where
         , sc ~ (OriginalTableFields tab)
         , KnownSymbol fn
         ) => Col fn -> Expr sc val -> Updated tab sc -> Updated tab sc
-(.~) col expr (Updated updates) = Updated $ HM.insert (T.pack $ symbolVal col) (getExpr expr) updates
+(.~) colVal expr (Updated updates) = Updated $ HM.insert (T.pack $ symbolVal colVal) (getExpr expr) updates
 
 infixr 4 .~
 
@@ -141,10 +139,10 @@ class HasQuery (driver :: * -> *) where
 class HasInsert (driver :: * -> *) where
   dbInsert :: {-(ToDBRow driver a) =>-} driver cfg -> InsertQuery -> Either a [a] -> IO Int64
 
-class HasInsertReturning (driver :: * -> *) where
-  dbInsertReturning :: ( ToDBRow driver a
-                       , FromDBRow driver r
-                       ) => driver cfg -> InsertQuery -> Either a [a] -> IO (Either r [r])
+-- class HasInsertReturning (driver :: * -> *) where
+--   dbInsertReturning :: ( ToDBRow driver a
+--                        , FromDBRow driver r
+--                        ) => driver cfg -> InsertQuery -> Either a [a] -> IO (Either r [r])
 
 
 class Session (driver :: * -> *) where
@@ -183,7 +181,7 @@ instance HasQuery PGS where
     query_ conn (fromString sqlQ)
 
 instance HasInsert PGS where
-  dbInsert (PGS conn) insQ vals = do
+  dbInsert (PGS conn) insQ _ = do
     let insSQL = PG.renderInsert $ PG.insertSql insQ
     putStrLn insSQL
     execute_ conn (fromString insSQL)
@@ -226,11 +224,11 @@ get :: forall tab db predicate driver cfg.
   , ApplyExpr db tab (PrimaryKey db tab) predicate (Expr (OriginalTableFields tab) Bool)
   , UnifyPkPredicate db tab predicate
   ) => predicate -> DBM db (Maybe tab)
-get predicate = do
+get prede = do
   let tabId = (getTableId (Proxy @db) (Proxy @tab))
       tabFlds = (flip fmap) (getConst (getTableFields @db @tab)) $ \(Column cn _) ->
         (Sym [] cn, BaseTableAttrExpr cn)
-      filtE = getExpr ((applyExpr (Proxy @db) (Proxy @tab) (Proxy @(PrimaryKey db tab)) predicate) :: Expr (OriginalTableFields tab) Bool)
+      filtE = getExpr ((applyExpr (Proxy @db) (Proxy @tab) (Proxy @(PrimaryKey db tab)) prede) :: Expr (OriginalTableFields tab) Bool)
       primQ = BaseTable tabId $ Clauses
         { projections = tabFlds
         , criteria = [filtE]
@@ -247,7 +245,7 @@ get predicate = do
   pure $ case res of
     []  -> Nothing
     [r] -> Just r
-    rs  -> error "get: query with primarykey return more than 1 rows"
+    _   -> error "get: query with primarykey return more than 1 rows"
 
 
 getBy :: forall tab (uniq :: Symbol) db predicate driver cfg uqKeysM uqKeys.
@@ -263,11 +261,11 @@ getBy :: forall tab (uniq :: Symbol) db predicate driver cfg uqKeysM uqKeys.
   , UnifyUqPredicate db tab predicate (Note ('Text "Unable to find unique " ':<>: 'ShowType uniq ':<>: 'Text " in the table " ':<>: 'ShowType tab ':<>: 'Text " of database " ':<>: 'ShowType db) uqKeysM)
   , ApplyExpr db tab uqKeys predicate (Expr (OriginalTableFields tab) Bool)
   ) => Uq uniq -> predicate -> DBM db (Maybe tab)
-getBy _ predicate = do
+getBy _ prede = do
   let tabId = (getTableId (Proxy @db) (Proxy @tab))
       tabFlds = (flip fmap) (getConst (getTableFields @db @tab)) $ \(Column cn _) ->
         (Sym [] cn, BaseTableAttrExpr cn)
-      filtE = getExpr ((applyExpr (Proxy @db) (Proxy @tab) (Proxy @uqKeys) predicate) :: Expr (OriginalTableFields tab) Bool)
+      filtE = getExpr ((applyExpr (Proxy @db) (Proxy @tab) (Proxy @uqKeys) prede) :: Expr (OriginalTableFields tab) Bool)
       primQ = BaseTable tabId $ Clauses
         { projections = tabFlds
         , criteria = [filtE]
@@ -284,7 +282,7 @@ getBy _ predicate = do
   pure $ case res of
     []  -> Nothing
     [r] -> Just r
-    rs  -> error "get: query with primarykey return more than 1 rows"
+    _  -> error "get: query with primarykey return more than 1 rows"
 
     
 getAll :: forall tab db driver cfg.
@@ -305,16 +303,15 @@ getAll filt ord page = do
         (Sym [] cn, BaseTableAttrExpr cn)
       filtE = case filt of
         TRUE -> []
-        f    -> [getExpr filt]
+        _    -> [getExpr filt]
       ordE = case ord of
         AnyOrder -> []
-        o        -> getOrder ord
+        _        -> getOrder ord        
       (off, lmt) = case page of
         Nothing -> (Nothing, Nothing)
         (Just (Offset n)) -> (Just n, Nothing)
         (Just (Limit n)) -> (Nothing, Just n)
         (Just (OffsetLimit o l)) -> (Just o, Just l)
-        
         
       primQ = BaseTable tabId $ Clauses
         { projections = tabFlds
@@ -323,8 +320,8 @@ getAll filt ord page = do
         , groupbys = []
         , havings = []
         , orderbys = ordE
-        -- , limit = lmt
-        -- , offset = off
+        , limit = (ConstExpr . Integer . fromIntegral) <$> lmt
+        , offset = (ConstExpr . Integer . fromIntegral) <$> off
         , alias = Nothing
         }
   driver <- ask
@@ -343,7 +340,7 @@ count filt = do
   let tabId = (getTableId (Proxy @db) (Proxy @tab))
       filtE = case filt of
         TRUE -> []
-        f    -> [getExpr filt]
+        _    -> [getExpr filt]
       primQ = BaseTable tabId $ Clauses
         { projections = []
         , criteria = filtE
@@ -358,7 +355,8 @@ count filt = do
   driver <- ask
   res <- liftIO $ dbQuery driver primQ
   case res of
-    [Only count] -> pure $ ColVal count
+    [Only ct] -> pure $ ColVal ct
+    _         -> error "Panic: Expecting only a singleton @count"
 
 update :: forall tab db keys driver cfg.
   ( Table db tab
@@ -386,8 +384,8 @@ update_ :: forall tab db.
   ) => Expr (OriginalTableFields tab) Bool
   -> (Updated tab (OriginalTableFields tab) -> Updated tab (OriginalTableFields tab))
   -> DBM db ()
-update_ filt updateFn = do
-  let updateQ = UpdateQuery (getTableId (Proxy @db) (Proxy @tab)) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate)
+update_ _filt _updateFn = do
+  -- let updateQ = UpdateQuery (getTableId (Proxy @db) (Proxy @tab)) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate)
   pure ()
 
 delete :: forall tab db driver cfg.
@@ -405,7 +403,7 @@ delete filt = do
 
 
   
-data Override tab (sc :: [*]) = Override (Updated tab sc)
+-- data Override tab (sc :: [*]) = Override (Updated tab sc)
 
 
 toDBValues :: (All ConstExpr xs) => HList Identity xs
@@ -438,10 +436,10 @@ insert _ row = do
     (cnames, cexpr) = toDBValues values tabFlds ([], [])
     insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList [cexpr])
   driver <- ask
-  liftIO $ dbInsert driver insertQ (Left undefined)
+  _ <- liftIO $ dbInsert driver insertQ (Left undefined)
   pure undefined
 
-insertMany :: forall tab db row keys defs reqCols driver cfg.
+insertMany :: forall tab db row defs reqCols driver cfg.
   ( Table db tab
   , MonadIO (DBM db)
   , KnownSymbol (Schema db)
@@ -463,7 +461,7 @@ insertMany _ rows@(r:_) = do
     cnames = fst $ toDBValues (toHList r (\v -> Identity v)) tabFlds ([], [])
     insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList cexprs)
   driver <- ask
-  liftIO $ dbInsert driver insertQ (Left undefined)
+  _ <- liftIO $ dbInsert driver insertQ (Left undefined)
   pure ()
 insertMany _ [] = pure ()
 
@@ -472,10 +470,10 @@ insertRetAll :: forall tab db.
   , Monad (DBM db)
   , KnownSymbol (Schema db)
   ) => tab -> DBM db tab
-insertRetAll row = pure undefined  
+insertRetAll _row = pure undefined  
 
 
-insert_ :: forall tab db row keys defs reqCols driver cfg.
+insert_ :: forall tab db row defs reqCols driver cfg.
   ( Table db tab
   , MonadIO (DBM db)
   , KnownSymbol (Schema db)
@@ -496,10 +494,10 @@ insert_ _ row = do
     (cnames, cexpr) = toDBValues values tabFlds ([], [])
     insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList [cexpr])
   driver <- ask
-  liftIO $ dbInsert driver insertQ (Left undefined)
+  _ <- liftIO $ dbInsert driver insertQ (Left undefined)
   pure ()
 
-insertMany_ :: forall tab db row keys defs reqCols driver cfg.
+insertMany_ :: forall tab db row defs reqCols driver cfg.
   ( Table db tab
   , MonadIO (DBM db)
   , KnownSymbol (Schema db)
@@ -521,6 +519,6 @@ insertMany_ _ rows@(r:_) = do
     cnames = fst $ toDBValues (toHList r (\v -> Identity v)) tabFlds ([], [])
     insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList cexprs)
   driver <- ask
-  liftIO $ dbInsert driver insertQ (Left undefined)
+  _ <- liftIO $ dbInsert driver insertQ (Left undefined)
   pure ()
 insertMany_ _ [] = pure ()  

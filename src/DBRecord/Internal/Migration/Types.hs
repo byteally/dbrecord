@@ -21,15 +21,20 @@ newtype EnumVal = EnumVal T.Text
                 deriving Show
 newtype ConstraintName = ConstraintName T.Text
                 deriving Show
+newtype SeqName = SeqName T.Text
+                deriving Show
+
 
 data Migration
   = CreateTable TabName [Column]
   | CreateType TypeName [Column]
+  | CreateSeq  SeqName
   | CreateEnum TypeName [EnumVal]
   | DropTable TabName
   | DropType TypeName
   | AlterTable TabName AlterTable
   | AlterType TypeName AlterType
+  | AlterSeq  SeqName  AlterSeq
   deriving (Show)
 
 data AlterTable
@@ -40,6 +45,10 @@ data AlterTable
   | RenameTable TabName
   | AddConstraint ConstraintName AddConstraint
   | DropConstraint ConstraintName
+  deriving (Show)
+
+data AlterSeq
+  = AddOwner TabName ColName
   deriving (Show)
 
 data AddConstraint

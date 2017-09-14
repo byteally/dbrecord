@@ -76,21 +76,22 @@ instance Table TestDB Profile where
   type Unique TestDB Profile       = '[ 'UniqueOn '["first_name"] "uq_first_name"]
 
 instance Table TestDB User where
-  type HasDefault TestDB User   = '["name"]
-  type Check TestDB User        = '[ 'CheckOn '["name"] "notnull"
-                                   , 'CheckOn '["email"] "emailValidity"
-                                   ]
-  type ForeignKey TestDB User   = '[ 'RefBy '["id"] User '["id"]
---                                   , 'Ref "id" User
-                                   ]
-  type ColumnNames TestDB User  = '[ '("id", "ID") ]
-  type PrimaryKey TestDB User   = '["id"]
-  type Unique TestDB User       = '[ 'UniqueOn '["name"] "uq_user_name"
-                                   ]
-  type TableName TestDB User    = "usr"
+  type HasDefault TestDB User    = '["name"]
+  type Check TestDB User         = '[ 'CheckOn '["name"] "notnull"
+                                    , 'CheckOn '["email"] "emailValidity"
+                                    ]
+  type ForeignKey TestDB User    = '[ 'RefBy '["id"] User '["id"]
+--                                    , 'Ref "id" User
+                                    ]
+  type ColumnNames TestDB User   = '[ '("id", "ID") ]
+  type PrimaryKey TestDB User    = '["id"]
+  type Unique TestDB User        = '[ 'UniqueOn '["name"] "uq_user_name"
+                                    ]
+  type TableName TestDB User     = "usr"
+  type TableSequence TestDB User = '[Serial "id", Owned "id" "sq"]
   defaults = dbDefaults
     (  #role (DBRecord.Query.toEnum Admin)
-    :& #id   1
+    -- :& #id   serial
     :& end
     )
 

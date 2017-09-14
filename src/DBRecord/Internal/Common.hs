@@ -195,7 +195,7 @@ class (t ~ HListToTuple (TupleToHList t)) => ToHList t where
   toHList :: t -> (forall a. a -> f a) -> HList f (TupleToHList t)
 
 instance ToHList () where
-  toHList () lift = Nil
+  toHList () _ = Nil
 
 instance ToHList (Identity v) where
   toHList (Identity v) lift = lift v :& Nil

@@ -18,7 +18,8 @@ module DBRecord.Schema
        , UniqueCT (..)
        , Uq (..)
        , IgnoredCol (..)
-       , ForeignRef (..)  
+       , ForeignRef (..)
+       , HList (..)
        ) where
 
 import DBRecord.Internal.Types

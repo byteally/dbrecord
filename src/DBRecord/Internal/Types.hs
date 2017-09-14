@@ -7,7 +7,6 @@ import GHC.TypeLits
 import GHC.OverloadedLabels
 import Data.Aeson
 import Database.PostgreSQL.Simple.FromField
-import Database.PostgreSQL.Simple.ToField
 import Data.Typeable
 
 

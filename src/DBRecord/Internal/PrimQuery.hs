@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveGeneric, FlexibleInstances #-}
 -- |
 -- Copyright   :  Daan Leijen (c) 1999, daan@cs.uu.nl
@@ -139,6 +140,7 @@ data OrderOp = OrderOp
   } deriving (Show, Read, Generic)
 
 data PrimExpr = AttrExpr Sym -- Eg?
+              | OidExpr  Attribute
               | BaseTableAttrExpr Attribute
               | CompositeExpr     PrimExpr Attribute -- ^ Composite Type Query
               | BinExpr   BinOp PrimExpr PrimExpr
@@ -205,7 +207,7 @@ insertQueryFoldDefault = InsertQueryFold { insertQ = InsertQuery}
 
 foldInsertQuery :: InsertQueryFold p -> InsertQuery -> p
 foldInsertQuery f = fix fold
-  where fold self (InsertQuery tid attr vals) = insertQ f tid attr vals
+  where fold _self (InsertQuery tid attr vals) = insertQ f tid attr vals
 
 newtype UpdateQueryFold p = UpdateQueryFold
   { updateQ :: TableId -> [PrimExpr] -> Assoc -> p
@@ -216,7 +218,7 @@ updateQueryFoldDefault = UpdateQueryFold {updateQ = UpdateQuery}
 
 foldUpdateQuery :: UpdateQueryFold p -> UpdateQuery -> p
 foldUpdateQuery f = fix fold
-  where fold self (UpdateQuery ti cond assoc) = updateQ f ti cond assoc
+  where fold _self (UpdateQuery ti cond assoc) = updateQ f ti cond assoc
 
 newtype DeleteQueryFold p = DeleteQueryFold
  { deleteQ :: TableId -> [PrimExpr] -> p
@@ -227,7 +229,7 @@ deleteQueryFoldDefault = DeleteQueryFold {deleteQ = DeleteQuery}
 
 foldDeleteQuery :: DeleteQueryFold p -> DeleteQuery -> p
 foldDeleteQuery f = fix fold
-  where fold self (DeleteQuery ti cond) = deleteQ f ti cond
+  where fold _self (DeleteQuery ti cond) = deleteQ f ti cond
 
 isFieldExpr :: PrimExpr -> Bool
 isFieldExpr (AttrExpr {})          = True

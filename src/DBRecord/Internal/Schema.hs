@@ -37,7 +37,6 @@ import DBRecord.Internal.Common
 import DBRecord.Internal.Expr
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.DBTypes
-import Data.Functor.Identity
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
@@ -71,9 +70,11 @@ class ( Database db
       , SingI (MapAliasedCol (PrimaryKey db tab) (ColumnNames db tab))
       , SingI (GetAllUniqs (Unique db tab) (ColumnNames db tab))
       , SingI (TagEachFks db tab (ForeignKey db tab))
+      , SingI (TagEachSeqs db tab (TableSequence db tab))
       -- , SingI (Check db tab)
       -- , SingI ('DefSyms (HasDefault db tab))
       , SingI (GetNonNulls (DB db) (OriginalTableFields tab) (ColumnNames db tab))
+      , AllF SingE (TagEachSeqs db tab (TableSequence db tab))      
       , All SingE (GetAllUniqs (Unique db tab) (ColumnNames db tab))
       , All SingE (TagEachFks db tab (ForeignKey db tab))
       -- , All SingE (Check db tab)
@@ -105,6 +106,10 @@ class ( Database db
   type TableName db tab :: Symbol
   type TableName db tab = DefaultTableName tab
 
+  -- NOTE: Validations not in place
+  type TableSequence db tab :: [Sequence Type Type]
+  type TableSequence db tab = '[]
+
   type ColumnNames db tab :: [(Symbol, Symbol)]
   type ColumnNames db tab = '[]
 
@@ -113,6 +118,16 @@ class ( Database db
 
   checks :: DBChecks db tab
   checks = DBChecks Nil
+
+data Sequence db tab = PGSerial Symbol   -- ^ Column
+                     | PGOwned  Symbol   -- ^ Column
+                                Symbol   -- ^ Sequence Name
+
+type family Serial (cname :: Symbol) where
+  Serial cname = PGSerial cname
+
+type family Owned (cname :: Symbol) (seqname :: Symbol) where
+  Owned cname seqname = PGOwned cname seqname
 
 class ( Generic ty
       ) => UDType (db :: *) (ty :: *) where
@@ -127,12 +142,16 @@ type ColType  = Text
 data Column   = Column !ColName !ColType
   deriving (Show)
 
-data DBTag (db :: *) (tab :: *) =
-  DBTagFk db tab (ForeignRef db tab)
+data DBTag (db :: *) (tab :: *) = DBTagFk db tab (ForeignRef db tab)
+                                | DBTagSeq db tab (Sequence db tab)
 
 type family TagEachFks (db :: *) (tab :: *) (ents :: [ForeignRef Type Type]) :: [DBTag Type Type] where
   TagEachFks db tab '[]       = '[]
   TagEachFks db tab (e ': es) = 'DBTagFk db tab e ': TagEachFks db tab es
+
+type family TagEachSeqs (db :: *) (tab :: *) (ents :: [Sequence Type Type]) :: [DBTag Type Type] where
+  TagEachSeqs db tab '[]       = '[]
+  TagEachSeqs db tab (e ': es) = 'DBTagSeq db tab e ': TagEachSeqs db tab es
 
 data family Sing (a :: k)
 
@@ -156,6 +175,8 @@ data instance Sing (dbTag :: DBTag db tab) where
                  , KnownSymbol (TableName db reft)
                  ) => Sing db -> Sing (MapAliasedCol fcols (ColumnNames db tab)) -> Sing reft -> Sing (MapAliasedCol rcols (ColumnNames db reft)) -> Sing ('DBTagFk db tab ('RefBy fcols reft rcols))
   SDBTagRef :: KnownSymbol (TableName db reft) => Sing db -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing reft -> Sing ('DBTagFk db tab ('Ref col reft))
+  SDBSeqPGSerial :: (KnownSymbol (TableName db tab)) => Sing db -> Sing (TableName db tab) -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing ('DBTagSeq db tab ('PGSerial col))
+  SDBSeqPGOwned :: (KnownSymbol (TableName db tab), KnownSymbol seqn) => Sing db -> Sing (TableName db tab) -> Sing seqn -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing ('DBTagSeq db tab ('PGOwned col seqn))  
 
 data instance Sing (ch :: CheckCT) where
   SCheck :: ( All SingE cols
@@ -204,6 +225,18 @@ instance ( SingI db
          ) => SingI ('DBTagFk (db :: *) (tab :: *) ('Ref col (reft :: *))) where
   sing = SDBTagRef sing sing sing  
 
+instance ( SingI db
+         , KnownSymbol (AliasedCol col (ColumnNames db tab))
+         , KnownSymbol (TableName db tab)
+         ) => SingI ('DBTagSeq (db :: *) (tab :: *) ('PGSerial col)) where
+  sing = SDBSeqPGSerial sing sing sing
+
+instance ( SingI db
+         , KnownSymbol (TableName db tab)
+         , KnownSymbol (AliasedCol col (ColumnNames db tab))
+         , KnownSymbol seqn
+         ) => SingI ('DBTagSeq (db :: *) (tab :: *) ('PGOwned col seqn)) where
+  sing = SDBSeqPGOwned sing sing sing sing
 
 instance ( SingI cols
          , KnownSymbol cname
@@ -248,11 +281,11 @@ instance SingE (defs :: DefSyms) where
   fromSing (SDef cols) = fmap T.pack $ fromSing cols
 -}
 
-data DemotedDBTag = DemotedDBTagFk ![Text] !Text ![Text]
+data DemotedDBTag = DemotedDBTagFk   ![Text] !Text ![Text]
+                  | DemotedDBTagSeq  !Text   !Text (Maybe Text)
   
-
-instance SingE (dbtag :: DBTag Type Type) where
-  type Demote dbtag = DemotedDBTag
+instance SingE (dbTag :: DBTag Type Type) where
+  type Demote dbTag = DemotedDBTag
   fromSing (SDBTagRefBy db fcols reft rcols) =
     DemotedDBTagFk (fmap T.pack $ fromSing fcols)
     (T.pack $ tabName db reft)
@@ -260,6 +293,12 @@ instance SingE (dbtag :: DBTag Type Type) where
   fromSing (SDBTagRef db coln reft) =
     DemotedDBTagFk [T.pack $ fromSing coln]
     (T.pack $ tabName db reft) [T.pack $ fromSing coln]
+  fromSing (SDBSeqPGSerial db tab col) =
+    DemotedDBTagSeq (T.pack $ fromSing tab) (T.pack $ fromSing col)
+                    Nothing
+  fromSing (SDBSeqPGOwned db tab seqn col) =
+    DemotedDBTagSeq (T.pack $ fromSing tab) (T.pack $ fromSing col)
+                    (Just (T.pack $ fromSing seqn))
 
 newtype I a = I a
   deriving (Show, Eq)
@@ -304,15 +343,15 @@ type family ValidateTabFk db tab (fks :: [ForeignRef Type Type]) :: Constraint w
 
 type family ValidateRefPk (reft :: *) (rkeys :: [Symbol]) (pkeys :: [Symbol]) :: Constraint where
   ValidateRefPk reft keys keys = ()
-  ValidateRefPk reft rpkeys pkeys = TypeError ('Text "In foreign key declaration:" :$$: 'ShowType rpkeys :<>: 'Text " is not a primary key of table " :<>: 'ShowType reft)
+  ValidateRefPk reft rpkeys pkeys = TypeError ('Text "In foreign key declaration:" ':$$: 'ShowType rpkeys ':<>: 'Text " is not a primary key of table " ':<>: 'ShowType reft)
 
 type family MatchFkFields db tab reft (fkeys :: [Either Symbol *]) (rkeys :: [Either Symbol *]) :: Constraint where
-  MatchFkFields db tab reft ('Right (fn1 ::: t) ': fkeys) (Right (fn2 ::: t) ': rkeys)
+  MatchFkFields db tab reft ('Right (fn1 ::: t) ': fkeys) ('Right (fn2 ::: t) ': rkeys)
     = MatchFkFields db tab reft fkeys rkeys
-  MatchFkFields db tab reft ('Right (fn1 ::: t1) ': fkeys) (Right (fn2 ::: t2) ': rkeys)
+  MatchFkFields db tab reft ('Right (fn1 ::: t1) ': fkeys) ('Right (fn2 ::: t2) ': rkeys)
     = ( TypeError ('Text "Type mismatch between foreign key and primary key"
-                  :$$: ('ShowType fn1) :<>: 'Text ": " :<>: ('ShowType t1)
-                  :$$: ('ShowType fn2) :<>: 'Text ": " :<>: ('ShowType t2)
+                  ':$$: ('ShowType fn1) ':<>: 'Text ": " ':<>: ('ShowType t1)
+                  ':$$: ('ShowType fn2) ':<>: 'Text ": " ':<>: ('ShowType t2)
                   )
       , MatchFkFields db tab reft fkeys rkeys
       )
@@ -443,7 +482,7 @@ end :: HList f '[]
 end = Nil
 
 -- HList (Def tab) xs
-dbDefaults :: forall tab db xs ys t. (AllF (DefExpr db tab) xs) => HList (Def tab) xs -> DBDefaults db tab
+dbDefaults :: forall tab db xs. (AllF (DefExpr db tab) xs) => HList (Def tab) xs -> DBDefaults db tab
 dbDefaults = DBDefaults
 
 data Chk (db :: *) (tab :: *) (chk :: CheckCT) = forall val.(CheckCtx' db tab chk val) => Chk val
@@ -593,13 +632,13 @@ happlyDefExprs p (v :& vs) = defExpr p v : happlyDefExprs p vs
 happlyDefExprs _  Nil      = []
 
 type family CheckCtx' db tab (chk :: CheckCT) val :: Constraint where
-  CheckCtx' db tab (CheckOn chkOns chkName) val =
+  CheckCtx' db tab ('CheckOn chkOns chkName) val =
     CheckCtx db tab chkOns chkName val
 
 class ChkCtx db tab (chk :: CheckCT) where
   chkCtx :: Chk db tab chk -> (T.Text, PQ.PrimExpr)
 
-instance ChkCtx db tab (CheckOn chkOns chkName) where
+instance ChkCtx db tab ('CheckOn chkOns chkName) where
   chkCtx (Chk val) = checkCtx (Proxy @db) (Proxy @tab) (Proxy @chkOns) (Proxy @chkName) val
 
 class CheckCtx db tab (chkOns :: [Symbol]) (chkName :: Symbol) val where
@@ -611,9 +650,9 @@ instance ( CheckCtx db tab chkOns chkName b
          , KnownSymbol aCol
          ) => CheckCtx db tab (chkOn ': chkOns) chkName (Expr sc a -> b) where
   checkCtx pDb pTab _ pChkN v =
-    let col  = unsafeCol [colN]
+    let colE  = unsafeCol [colN]
         colN = T.pack (symbolVal (Proxy @aCol))
-    in  checkCtx pDb pTab (Proxy @chkOns) pChkN (v col)
+    in  checkCtx pDb pTab (Proxy @chkOns) pChkN (v colE)
 
 instance (KnownSymbol chkName) => CheckCtx db tab '[] chkName (Expr sc a) where
   checkCtx _ _ _ _ e = (T.pack $ symbolVal (Proxy @chkName), getExpr e)

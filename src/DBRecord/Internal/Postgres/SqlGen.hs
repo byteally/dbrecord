@@ -180,6 +180,7 @@ defaultSqlExpr :: SqlGenerator -> PQ.PrimExpr -> SqlExpr
 defaultSqlExpr gen expr = case expr of
   PQ.AttrExpr t          -> ColumnSqlExpr (sqlColumn t)
   PQ.BaseTableAttrExpr a -> ColumnSqlExpr (SqlColumn [a])
+  PQ.OidExpr a           -> OidSqlExpr    (SqlOidName a)
   PQ.CompositeExpr e x   -> CompositeSqlExpr (defaultSqlExpr gen e) (T.unpack x)
   PQ.BinExpr op e1 e2    ->
     let leftE = sqlExpr gen e1

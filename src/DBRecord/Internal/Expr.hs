@@ -9,7 +9,6 @@ import Data.String
 import qualified Data.Text as T
 import Data.Functor.Identity
 import Data.Typeable
-import GHC.Exts
 import GHC.TypeLits
 import GHC.OverloadedLabels
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -29,11 +28,9 @@ import Data.Time
 import Data.Text (Text)
 import DBRecord.Internal.Common
 import DBRecord.Internal.Types
-import DBRecord.Internal.Postgres.SqlGen (quote)
 import Data.Coerce (coerce)
 import DBRecord.Internal.DBTypes
 import Data.Time.Calendar (Day)
-
 
 newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
                                       deriving Show
@@ -121,7 +118,7 @@ strictDecodeUtf8 = T.unpack . STE.decodeUtf8
 
 lazyDecodeUtf8 :: LB.ByteString -> String
 lazyDecodeUtf8 = LT.unpack . LTE.decodeUtf8
-
+  
 class (Num a) => NumExpr a where
   exprFromInteger :: Integer -> Expr sc a
 
@@ -333,9 +330,9 @@ utcTime = Expr . PQ.ConstExpr . PQ.Other . T.pack . format
 utcTimeNow :: Expr sc UTCTime
 utcTimeNow = 
   let now = PQ.FunExpr "now" []
-      utcTime = PQ.BinExpr PQ.OpAtTimeZone now utcText
+      utcT = PQ.BinExpr PQ.OpAtTimeZone now utcText
       utcText = PQ.ConstExpr (PQ.String "utc")
-  in  Expr utcTime
+  in  Expr utcT
 
 ist :: Expr sc TimeZone
 ist = Expr (PQ.ConstExpr (PQ.String "ist"))
@@ -344,7 +341,7 @@ atTimeZone :: Expr sc TimeZone -> Expr sc UTCTime -> Expr sc LocalTime
 atTimeZone (Expr tz) (Expr utc) = Expr (PQ.FunExpr "timezone" [tz, utc])
 
 dayTruncTZ :: Expr sc LocalTime -> Expr sc LocalTime
-dayTruncTZ (Expr utc) = Expr (PQ.FunExpr "date_trunc" [PQ.ConstExpr (PQ.String "day"), utc])
+dayTruncTZ (Expr utct) = Expr (PQ.FunExpr "date_trunc" [PQ.ConstExpr (PQ.String "day"), utct])
 
 data Interval
 
@@ -369,7 +366,7 @@ addInterval :: Expr sc Interval -> Expr sc Interval -> Expr sc Interval
 addInterval e1 e2 = binOp PQ.OpPlus e1 e2
 
 timestamp :: Expr sc UTCTime -> Expr sc Timestamp
-timestamp utc = unOp (PQ.UnOpOtherPrefix "timestamp") utc
+timestamp utct = unOp (PQ.UnOpOtherPrefix "timestamp") utct
 
 data Timestamp
 
@@ -478,9 +475,9 @@ exprParseErr :: Validation a
 exprParseErr = Left [ParseErr]
 
 formatCol :: T.Text -> Maybe [T.Text]
-formatCol col
-  | isCol col   = Just (splitCol col)
-  | otherwise   = Nothing
+formatCol col'
+  | isCol col'   = Just (splitCol col')
+  | otherwise    = Nothing
 
   where isCol t = case T.null t of
           True  -> False

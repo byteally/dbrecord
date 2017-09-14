@@ -27,6 +27,9 @@ newtype SqlColumn = SqlColumn [Text]
                   deriving (Show, Read, Eq)
 type SqlName = Text
 
+newtype SqlOidName = SqlOidName Text
+                   deriving (Read, Show, Eq)
+
 data SqlType = SqlType Text
              | SqlType1 Text Int
              | SqlType2 Text Int Int
@@ -109,6 +112,7 @@ data Returning a = Returning a (NEL.NonEmpty SqlExpr)
                  deriving (Show, Read, Eq) 
 
 data SqlExpr = ColumnSqlExpr  SqlColumn
+             | OidSqlExpr     SqlOidName
              | BinSqlExpr     String SqlExpr SqlExpr
              | PrefixSqlExpr  String SqlExpr
              | PostfixSqlExpr String SqlExpr

@@ -15,14 +15,13 @@ import GHC.Exts
 import Data.Aeson
 import Data.UUID.Types
 import Data.Functor.Const
-import Data.Functor.Identity
 import Data.Time.LocalTime
 import Data.ByteString (ByteString)
 import Data.Time.Calendar (Day)
 import Data.Time.Clock (UTCTime)
 import Data.CaseInsensitive  (CI)
 import Data.Int
-import Data.Vector (Vector)
+-- import Data.Vector (Vector)
 import GHC.Generics
 
 type family InvalidPGType (db :: *) a :: Constraint where

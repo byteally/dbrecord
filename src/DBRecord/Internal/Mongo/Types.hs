@@ -2,6 +2,7 @@ module DBRecord.Internal.Mongo.Types
   (
   ) where
 
+{-
 import Database.MongoDB.Query
 
 data MongoTable = MongoTable
@@ -14,3 +15,4 @@ data MongoOrder = MongoOrder
   { -- mongoOrdDirection :: MongoOrdDirection
 --  , mongoNullOrd :: MongoNullOrd
   } deriving (Show, Read, Eq)
+-}
