@@ -7,7 +7,7 @@ import Data.Functor.Identity
 import DBRecord.Internal.Types
 import GHC.Generics
 import GHC.TypeLits
-import Data.UUID.Types
+import Data.UUID (UUID)
 import Data.Time.LocalTime
 import Data.ByteString (ByteString)
 import Data.Time.Calendar (Day)

@@ -2,7 +2,7 @@
 module DBRecord.Internal.DBTypes where
 
 import Data.Aeson
-import Data.UUID.Types
+import Data.UUID (UUID)
 import Data.Time.LocalTime
 import Data.ByteString (ByteString)
 import Data.Time.Calendar (Day)
@@ -38,6 +38,7 @@ data DBTypeK
   | DBByteArr
   | DBJson
   | DBJsonB
+  | DBInterval
   | DBArray DBTypeK
   | DBNullable DBTypeK
   | DBCustomType Type DBTypeK Bool
@@ -73,6 +74,12 @@ instance ShowDBType 'Postgres 'DBByteArr where
 instance ShowDBType 'Postgres 'DBTimestamptz where
   showDBType _ _ = "TIMESTAMPTZ"
 
+instance ShowDBType 'Postgres 'DBInterval where
+  showDBType _ _ = "INTERVAL"
+
+instance ShowDBType 'Postgres 'DBCiText where
+  showDBType _ _ = "CITEXT"
+
 instance ShowDBType 'Postgres 'DBTimestamp where
   showDBType _ _ = "TIMESTAMP"
 
@@ -87,6 +94,9 @@ instance ShowDBType 'Postgres 'DBUuid where
 
 instance ShowDBType 'Postgres 'DBJsonB where
   showDBType _ _ = "JSONB"
+
+instance ShowDBType 'Postgres 'DBJson where
+  showDBType _ _ = "JSON"
 
 instance ShowDBType 'Postgres dbTy => ShowDBType 'Postgres ('DBNullable dbTy) where
   showDBType db _ = showDBType db (Proxy :: Proxy dbTy)
@@ -123,6 +133,7 @@ type family GetPGTypeRep (t :: *) = (r :: DBTypeK) | r -> t where
   GetPGTypeRep LocalTime          = 'DBTimestamp
   GetPGTypeRep TimeOfDay          = 'DBTime
   GetPGTypeRep Value              = 'DBJsonB
+  GetPGTypeRep Interval           = 'DBInterval
   GetPGTypeRep (Json a)           = 'DBCustomType (Json a) 'DBJsonB 'False
   GetPGTypeRep (JsonStr a)        = 'DBCustomType (JsonStr a) 'DBJson 'False
   GetPGTypeRep UUID               = 'DBUuid

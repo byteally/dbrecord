@@ -8,6 +8,7 @@ import GHC.OverloadedLabels
 import Data.Aeson
 import Database.PostgreSQL.Simple.FromField
 import Data.Typeable
+import qualified Data.Text as T
 
 
 newtype (f :: Symbol) ::: t = Field t
@@ -49,6 +50,9 @@ data DbK = Postgres
 
 instance (FromJSON a, Typeable a) => FromField (Json a) where
   fromField f dat = Json <$> fromJSONField f dat
+
+newtype Interval = Interval T.Text
+                 deriving (Show, Generic, FromJSON, ToJSON, FromField)
 
 {-
 instance (ToJSON a, Typeable a) => ToField (Json a) where

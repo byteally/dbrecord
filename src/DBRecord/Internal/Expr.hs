@@ -31,6 +31,10 @@ import DBRecord.Internal.Types
 import Data.Coerce (coerce)
 import DBRecord.Internal.DBTypes
 import Data.Time.Calendar (Day)
+import Data.UUID (UUID)
+import qualified Data.UUID as UUID
+import Data.CaseInsensitive (CI, foldedCase, mk)
+
 
 newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
                                       deriving Show
@@ -181,7 +185,10 @@ instance FractionalExpr Double where
   exprFromRational = literalExpr . PQ.Double . fromRational
   
 instance IsString (Expr sc T.Text) where
-  fromString = literalExpr . PQ.String . T.pack
+  fromString = text . T.pack
+
+instance IsString (Expr sc (CI T.Text)) where
+  fromString = citext . mk . T.pack
 
 instance (IsString (Expr sc a)
          ) => IsString (Expr sc (Identity a)) where
@@ -225,6 +232,9 @@ instance OrdExpr Word where
   a .<= b = binOp PQ.OpLtEq a b
 
 instance OrdExpr T.Text where
+  a .<= b = binOp PQ.OpLtEq a b
+
+instance OrdExpr (CI T.Text) where
   a .<= b = binOp PQ.OpLtEq a b
 
 instance (OrdExpr a) => OrdExpr (Maybe a) where
@@ -319,13 +329,24 @@ pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
 text :: T.Text -> Expr sc T.Text
 text = fromString . T.unpack
 
+citext :: CI T.Text -> Expr sc (CI T.Text)
+citext = annotateType . Expr . PQ.ConstExpr . PQ.Other . foldedCase
+
 date :: Day -> Expr sc Day
-date = Expr . PQ.ConstExpr . PQ.Other . T.pack . format
+date = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%F'"
 
 utcTime :: UTCTime -> Expr sc UTCTime
-utcTime = Expr . PQ.ConstExpr . PQ.Other . T.pack . format
+utcTime = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%FT%TZ'"
+
+localTime :: LocalTime -> Expr sc LocalTime
+localTime = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
+  where format = formatTime defaultTimeLocale "'%FT%T%Q'"
+
+timeOfDay :: TimeOfDay -> Expr sc TimeOfDay
+timeOfDay = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
+  where format = formatTime defaultTimeLocale "'%T%Q'"
 
 utcTimeNow :: Expr sc UTCTime
 utcTimeNow = 
@@ -343,8 +364,8 @@ atTimeZone (Expr tz) (Expr utc) = Expr (PQ.FunExpr "timezone" [tz, utc])
 dayTruncTZ :: Expr sc LocalTime -> Expr sc LocalTime
 dayTruncTZ (Expr utct) = Expr (PQ.FunExpr "date_trunc" [PQ.ConstExpr (PQ.String "day"), utct])
 
-data Interval
-
+-- TODO: Provide a mapping to DiffTime
+-- https://github.com/lpsmith/postgresql-simple/pull/115#issuecomment-48754627
 hours :: Int -> Expr sc Interval
 hours i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " hours\'"
@@ -353,8 +374,19 @@ days :: Int -> Expr sc Interval
 days i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " days\'"
 
+minutes :: Int -> Expr sc Interval
+minutes i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
+  where txt = T.pack $ "\'" ++ show i ++ " minutes\'"
+
+seconds :: Int -> Expr sc Interval
+seconds i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
+  where txt = T.pack $ "\'" ++ show i ++ " seconds\'"
+
 strToJson :: String -> Expr sc (Json a)
-strToJson = unsafeCast "jsonb" . text . T.pack
+strToJson = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack
+
+strToJsonStr :: String -> Expr sc (JsonStr a)
+strToJsonStr = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack
 
 lazyJson :: LB.ByteString -> Expr sc (Json a)
 lazyJson = strToJson . lazyDecodeUtf8
@@ -362,15 +394,16 @@ lazyJson = strToJson . lazyDecodeUtf8
 toJson :: (ToJSON a) => a -> Expr sc (Json a)
 toJson = lazyJson . A.encode
 
+toJsonStr :: (ToJSON a) => a -> Expr sc (JsonStr a)
+toJsonStr = strToJsonStr . lazyDecodeUtf8 . A.encode
+
 addInterval :: Expr sc Interval -> Expr sc Interval -> Expr sc Interval
 addInterval e1 e2 = binOp PQ.OpPlus e1 e2
 
-timestamp :: Expr sc UTCTime -> Expr sc Timestamp
-timestamp utct = unOp (PQ.UnOpOtherPrefix "timestamp") utct
+uuid :: UUID -> Expr sc UUID
+uuid = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . UUID.toString
 
-data Timestamp
-
-addToDate :: Expr sc Timestamp -> Expr sc Interval -> Expr sc UTCTime
+addToDate :: Expr sc UTCTime -> Expr sc Interval -> Expr sc UTCTime
 addToDate e1 e2 = binOp PQ.OpPlus e1 e2
 
 dbDefault :: Expr sc a
@@ -403,6 +436,9 @@ instance EqExpr Bool where
   a .== b = binOp PQ.OpEq a b
 
 instance EqExpr T.Text where
+  a .== b = binOp PQ.OpEq a b
+
+instance EqExpr (CI T.Text) where
   a .== b = binOp PQ.OpEq a b
 
 instance EqExpr Int where

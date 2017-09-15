@@ -13,7 +13,7 @@ import Data.Proxy
 import GHC.TypeLits
 import GHC.Exts
 import Data.Aeson
-import Data.UUID.Types
+import Data.UUID (UUID)
 import Data.Functor.Const
 import Data.Time.LocalTime
 import Data.ByteString (ByteString)
