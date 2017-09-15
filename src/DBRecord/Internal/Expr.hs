@@ -330,7 +330,7 @@ text :: T.Text -> Expr sc T.Text
 text = fromString . T.unpack
 
 citext :: CI T.Text -> Expr sc (CI T.Text)
-citext = annotateType . Expr . PQ.ConstExpr . PQ.Other . foldedCase
+citext = annotateType . Expr . PQ.ConstExpr . PQ.String . foldedCase
 
 date :: Day -> Expr sc Day
 date = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
@@ -387,10 +387,10 @@ seconds i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " seconds\'"
 
 strToJson :: String -> Expr sc (Json a)
-strToJson = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack
+strToJson = annotateType . Expr . PQ.ConstExpr . PQ.String . T.pack
 
 strToJsonStr :: String -> Expr sc (JsonStr a)
-strToJsonStr = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack
+strToJsonStr = annotateType . Expr . PQ.ConstExpr . PQ.String . T.pack
 
 lazyJson :: LB.ByteString -> Expr sc (Json a)
 lazyJson = strToJson . lazyDecodeUtf8
