@@ -366,6 +366,10 @@ dayTruncTZ (Expr utct) = Expr (PQ.FunExpr "date_trunc" [PQ.ConstExpr (PQ.String 
 
 -- TODO: Provide a mapping to DiffTime
 -- https://github.com/lpsmith/postgresql-simple/pull/115#issuecomment-48754627
+
+interval :: Interval -> Expr sc Interval
+interval (Interval e) = annotateType (literalExpr (PQ.Other e))
+
 hours :: Int -> Expr sc Interval
 hours i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " hours\'"
