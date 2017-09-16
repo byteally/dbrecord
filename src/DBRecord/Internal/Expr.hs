@@ -327,7 +327,7 @@ pattern FALSE :: Expr sc Bool
 pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
 
 text :: T.Text -> Expr sc T.Text
-text = fromString . T.unpack
+text = annotateType . Expr . PQ.ConstExpr . PQ.String
 
 citext :: CI T.Text -> Expr sc (CI T.Text)
 citext = annotateType . Expr . PQ.ConstExpr . PQ.String . foldedCase
