@@ -374,6 +374,10 @@ hours :: Int -> Expr sc Interval
 hours i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " hours\'"
 
+months :: Int -> Expr sc Interval
+months i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
+  where txt = T.pack $ "\'" ++ show i ++ " months\'"
+
 days :: Int -> Expr sc Interval
 days i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " days\'"
