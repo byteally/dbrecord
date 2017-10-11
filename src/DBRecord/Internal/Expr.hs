@@ -34,6 +34,8 @@ import Data.Time.Calendar (Day)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Data.CaseInsensitive (CI, foldedCase, mk)
+import qualified Data.Attoparsec.Char8 as A
+import Control.Applicative
 
 
 newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
@@ -366,6 +368,34 @@ dayTruncTZ (Expr utct) = Expr (PQ.FunExpr "date_trunc" [PQ.ConstExpr (PQ.String 
 
 -- TODO: Provide a mapping to DiffTime
 -- https://github.com/lpsmith/postgresql-simple/pull/115#issuecomment-48754627
+
+-- From: https://github.com/lpsmith/postgresql-simple/blob/c1a3238b3bce67592fbf62c0ea0cd73708b947b3/src/Database/PostgreSQL/Simple/Time/Implementation.hs
+parseTimeInterval :: A.Parser Interval
+parseTimeInterval = do
+  h <- A.decimal
+  _ <- A.char ':'
+  m <- A.decimal
+  _ <- A.char ':'
+  s <- A.decimal
+  subsec <- A.option 0 (A.char '.' *> (A.decimal))
+  return $ undefined -- secondsToDiffTime (h*3600 + m*60 + s) + picosecondsToDiffTime (subsec * 100000000000)
+
+parseDayInterval :: A.Parser Interval
+parseDayInterval = do
+  n <- A.signed A.decimal
+  factor <- A.choice [ A.string " year" *> pure (12*30*86400)
+                     , A.string " mon"  *> pure (   30*86400)
+                     , A.string " day"  *> pure (      86400)
+                     ]
+  _ <- A.string "s " <|> A.string " "
+  return undefined -- (secondsToDiffTime (n*factor))
+
+parseInterval :: A.Parser Interval
+parseInterval = do
+  ds <- many parseDayInterval
+  timesign <- A.option 1 (A.char '+' *> pure 1 <|> A.char '-' *> pure (-1))
+  time <- parseTimeInterval
+  return undefined -- (sum ds + time*timesign)
 
 interval :: Interval -> Expr sc Interval
 interval (Interval e) = annotateType (literalExpr (PQ.Other e))

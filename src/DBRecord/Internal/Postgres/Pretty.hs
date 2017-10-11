@@ -4,8 +4,20 @@
 --                Purely Agile Limited (c) 2014-2016
 -- License     :  BSD-style
 
-module DBRecord.Internal.Postgres.Pretty where
+module DBRecord.Internal.Postgres.Pretty
+  ( renderQuery
+  , renderDelete
+  , renderInsert
+  , renderInsertRet
+  , renderUpdate
+  , renderUpdateRet
 
+  , ppSqlExpr
+  ) where
+
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BS8
+import qualified Data.ByteString.Base16 as Base16
 import DBRecord.Internal.Postgres.Types hiding (alias, criteria)
 import qualified DBRecord.Internal.Postgres.Types as PGT
 import qualified Data.List.NonEmpty as NEL
@@ -17,7 +29,7 @@ import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   parens, comma, punctuate,
                                   hcat, vcat, brackets, doubleQuotes,
                                    hsep, equals, char, empty, render,
-                                  quotes)
+                                  quotes, space)
 
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
@@ -158,8 +170,8 @@ ppOffset :: Maybe SqlExpr -> Doc
 ppOffset Nothing    = empty
 ppOffset (Just off) = text "OFFSET " <> ppSqlExpr off
 
-ppOid :: SqlOidName -> Doc
-ppOid (SqlOidName n) = quotes (doubleQuotes (text (T.unpack n)))
+-- ppOid :: SqlOidName -> Doc
+-- ppOid (SqlOidName n) = quotes (doubleQuotes (text (T.unpack n)))
 
 ppColumn :: SqlColumn -> Doc
 ppColumn (SqlColumn s) =
@@ -179,7 +191,7 @@ ppSqlExpr :: SqlExpr -> Doc
 ppSqlExpr expr =
   case expr of
     ColumnSqlExpr c     -> ppColumn c
-    OidSqlExpr s        -> ppOid s
+    -- OidSqlExpr s        -> ppOid s
     CompositeSqlExpr s x -> parens (ppSqlExpr s) <> text "." <> text x
     ParensSqlExpr e -> parens (ppSqlExpr e)
     BinSqlExpr op e1 e2 -> ppSqlExpr e1 <+> text op <+> ppSqlExpr e2
@@ -187,11 +199,13 @@ ppSqlExpr expr =
     PostfixSqlExpr op e -> ppSqlExpr e <+> text op
     FunSqlExpr f es     -> text f <> parens (commaH ppSqlExpr es)
     AggrFunSqlExpr f es ord -> text f <> parens (commaH ppSqlExpr es <+> ppOrderBy ord)
-    ConstSqlExpr c      -> text c
-    CaseSqlExpr cs el   -> text "CASE" <+> vcat (toList (fmap ppWhen cs))
-      <+> text "ELSE" <+> ppSqlExpr el <+> text "END"
+    ConstSqlExpr c      -> ppLiteral c
+    CaseSqlExpr cs el   -> text "CASE" <> space <> vcat (toList (fmap ppWhen cs))
+      <> ppElse el <> space <> text "END"
       where ppWhen (w,t) = text "WHEN" <+> ppSqlExpr w
                        <+> text "THEN" <+> ppSqlExpr t
+            ppElse (Just e) = space <> (text "ELSE" <+> ppSqlExpr e)
+            ppElse Nothing  = space 
     ListSqlExpr es      -> parens (commaH ppSqlExpr es)
     ParamSqlExpr _ v -> ppSqlExpr v
     PlaceHolderSqlExpr -> text "?"
@@ -253,8 +267,41 @@ ppAliasedCol = doubleQuotes . hcat . punctuate aliasSep . map text
 aliasSep :: Doc
 aliasSep = char '_'
 
+
+ppLiteral :: LitSql -> Doc
+ppLiteral l =
+  case l of
+    NullSql -> text "NULL"
+    DefaultSql -> text "DEFAULT"
+    BoolSql True -> text "TRUE"
+    BoolSql False -> text "FALSE"
+    ByteSql s -> binQuote s
+    StringSql s -> text (quote (T.unpack s))
+    IntegerSql i -> text (show i)
+    DoubleSql d -> if isNaN d then text "'NaN'"
+                  else if isInfinite d && d < 0 then text "'-Infinity'"
+                  else if isInfinite d && d > 0 then text "'Infinity'"
+                  else text (show d)
+    OtherSql s -> text (T.unpack s)
 -- testPP doc = render doc
 
+binQuote :: ByteString -> Doc
+binQuote s = text "E'\\\\x" <> text (BS8.unpack (Base16.encode s)) <> text "'"
+
+quote :: String -> String
+quote s = "E'" ++ concatMap escape s ++ "'"
+
+escape :: Char -> String
+escape '\NUL' = "\\0"
+escape '\''   = "''"
+escape '"'    = "\\\""
+escape '\b'   = "\\b"
+escape '\n'   = "\\n"
+escape '\r'   = "\\r"
+escape '\t'   = "\\t"
+escape '\\'   = "\\\\"
+escape c      = [c]
+          
 renderQuery :: SqlSelect -> String
 renderQuery = render . ppSelect
 

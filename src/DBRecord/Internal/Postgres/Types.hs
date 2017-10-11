@@ -1,7 +1,10 @@
+{-# LANGUAGE DeriveGeneric #-}
 module DBRecord.Internal.Postgres.Types where
 
+import Data.ByteString (ByteString)
 import qualified Data.List.NonEmpty as NEL
 import Data.Text
+import GHC.Generics (Generic)
 
 type TableName = Text
 type Name      = Text
@@ -112,14 +115,14 @@ data Returning a = Returning a (NEL.NonEmpty SqlExpr)
                  deriving (Show, Read, Eq) 
 
 data SqlExpr = ColumnSqlExpr  SqlColumn
-             | OidSqlExpr     SqlOidName
+             -- | OidSqlExpr     SqlOidName
              | BinSqlExpr     String SqlExpr SqlExpr
              | PrefixSqlExpr  String SqlExpr
              | PostfixSqlExpr String SqlExpr
              | FunSqlExpr     String [SqlExpr]
              | AggrFunSqlExpr String [SqlExpr] [(SqlExpr, SqlOrder)]  -- ^ Aggregate functions separate from normal functions.
-             | ConstSqlExpr   String
-             | CaseSqlExpr    (NEL.NonEmpty (SqlExpr,SqlExpr)) SqlExpr
+             | ConstSqlExpr   LitSql
+             | CaseSqlExpr    (NEL.NonEmpty (SqlExpr,SqlExpr)) (Maybe SqlExpr)
              | ListSqlExpr    [SqlExpr]
              | ExistsSqlExpr  SqlSelect
              | ParamSqlExpr (Maybe SqlName) SqlExpr
@@ -140,3 +143,15 @@ data SelectBinOp = Except
                  | Intersect
                  | IntersectAll
                  deriving (Show, Read, Eq)
+
+data LitSql = NullSql
+            | DefaultSql
+            | BoolSql Bool
+            | StringSql Text
+            | ByteSql ByteString
+            | IntegerSql Integer
+            | DoubleSql Double
+            | OtherSql Text
+            deriving (Eq, Show, Read, Generic)
+
+

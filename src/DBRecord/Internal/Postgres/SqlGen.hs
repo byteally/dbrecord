@@ -156,7 +156,7 @@ data SqlGenerator = SqlGenerator
      sqlDelete      :: SqlTable -> [PQ.PrimExpr] -> SqlDelete,
      sqlInsert      :: SqlTable -> [PQ.Attribute] -> NEL.NonEmpty [PQ.PrimExpr] -> SqlInsert,
      sqlExpr        :: PQ.PrimExpr -> SqlExpr,
-     sqlLiteral     :: PQ.Lit -> String,
+     sqlLiteral     :: PQ.Lit -> LitSql,
      -- | Turn a string into a quoted string. Quote characters
      -- and any escaping are handled by this function.
      sqlQuote       :: String -> String
@@ -180,7 +180,7 @@ defaultSqlExpr :: SqlGenerator -> PQ.PrimExpr -> SqlExpr
 defaultSqlExpr gen expr = case expr of
   PQ.AttrExpr t          -> ColumnSqlExpr (sqlColumn t)
   PQ.BaseTableAttrExpr a -> ColumnSqlExpr (SqlColumn [a])
-  PQ.OidExpr a           -> OidSqlExpr    (SqlOidName a)
+  -- PQ.OidExpr a           -> OidSqlExpr    (SqlOidName a)
   PQ.CompositeExpr e x   -> CompositeSqlExpr (defaultSqlExpr gen e) (T.unpack x)
   PQ.BinExpr op e1 e2    ->
     let leftE = sqlExpr gen e1
@@ -221,7 +221,7 @@ defaultSqlExpr gen expr = case expr of
     let cs' = [(sqlExpr gen c, sqlExpr gen x)| (c,x) <- cs]
         e'  = sqlExpr gen e
     in case NEL.nonEmpty cs' of
-      Just nel -> CaseSqlExpr nel e'
+      Just nel -> CaseSqlExpr nel (Just e')
       Nothing  -> e'
       
   PQ.ListExpr es         -> ListSqlExpr (map (sqlExpr gen) es)
@@ -287,7 +287,19 @@ showAggrOp PQ.AggrArr            = "ARRAY_AGG"
 showAggrOp (PQ.AggrStringAggr _) = "STRING_AGG"
 showAggrOp (PQ.AggrOther s)      = s
 
-defaultSqlLiteral :: SqlGenerator -> PQ.Lit -> String
+defaultSqlLiteral :: SqlGenerator -> PQ.Lit -> LitSql
+defaultSqlLiteral _ l =
+    case l of
+      PQ.Null       -> NullSql
+      PQ.Default    -> DefaultSql
+      PQ.Bool b     -> BoolSql b
+      PQ.Byte s     -> ByteSql s
+      PQ.String s   -> StringSql s
+      PQ.Integer i  -> IntegerSql i
+      PQ.Double d   -> DoubleSql d
+      PQ.Other o    -> OtherSql o
+
+{-      
 defaultSqlLiteral _ l =
     case l of
       PQ.Null       -> "NULL"
@@ -302,6 +314,7 @@ defaultSqlLiteral _ l =
                        else if isInfinite d && d > 0 then "'Infinity'"
                        else show d
       PQ.Other o    -> T.unpack o
+-}
 
 defaultSqlQuote :: SqlGenerator -> String -> String
 defaultSqlQuote _ s = quote s
@@ -363,7 +376,7 @@ ensureColumns :: [(SqlExpr, Maybe a)] -> NEL.NonEmpty (SqlExpr, Maybe a)
 ensureColumns = ensureColumnsGen (\x -> (x,Nothing))
 
 ensureColumnsGen :: (SqlExpr -> a) -> [a] -> NEL.NonEmpty a
-ensureColumnsGen f = M.fromMaybe (return . f $ ConstSqlExpr "0") . NEL.nonEmpty
+ensureColumnsGen f = M.fromMaybe (return . f $ ConstSqlExpr (IntegerSql 0 )) . NEL.nonEmpty
 
 sqlColumn :: PQ.Sym -> SqlColumn
 sqlColumn e = SqlColumn (PQ.symPrefix e ++ [PQ.symField e])
@@ -372,3 +385,156 @@ infixr 8 .:
 
 (.:) :: (r -> z) -> (a -> b -> r) -> a -> b -> z
 (.:) f g x y = f (g x y)
+
+
+--
+
+primExprGen :: SqlExpr -> PQ.PrimExpr
+primExprGen expr = case expr of
+  ColumnSqlExpr (SqlColumn [pc]) -> PQ.BaseTableAttrExpr pc
+  ColumnSqlExpr (SqlColumn pcs)  -> PQ.AttrExpr (PQ.unsafeToSym pcs)
+  CompositeSqlExpr se n          -> PQ.CompositeExpr (primExprGen se) (T.pack n)
+  ListSqlExpr ses                -> PQ.ListExpr (map primExprGen ses)
+  FunSqlExpr n ses               -> funPrimExprGen n ses
+  CastSqlExpr typ se             -> PQ.CastExpr (T.pack typ) (primExprGen se)
+  DefaultSqlExpr                 -> PQ.DefaultInsertExpr
+  ArraySqlExpr ses               -> PQ.ArrayExpr (map primExprGen ses)
+  WindowSqlExpr w se             -> PQ.WindowExpr (T.pack w) (primExprGen se)
+  BinSqlExpr op sel ser          -> binPrimExprGen op sel ser
+  PrefixSqlExpr op se            -> prefixPrimExprGen op se
+  PostfixSqlExpr op se           -> postfixPrimExprGen op se
+  ParensSqlExpr se               -> primExprGen se
+  ConstSqlExpr c                 -> constPrimExprGen c
+  AggrFunSqlExpr n ses ords      -> aggrFunPrimExprGen n ses ords
+  e                              -> pqMappingFail e
+  
+funPrimExprGen :: String -> [SqlExpr] -> PQ.PrimExpr
+funPrimExprGen n ses = PQ.FunExpr (T.pack n) (map primExprGen ses)
+
+binPrimExprGen :: String -> SqlExpr -> SqlExpr -> PQ.PrimExpr
+binPrimExprGen binOp l r = PQ.BinExpr binPrimExpr (primExprGen l) (primExprGen r)
+  where binPrimExpr = case binOp of
+                        "="   -> PQ.OpEq
+                        "<"   -> PQ.OpLt
+                        "<="  -> PQ.OpLtEq
+                        ">"   -> PQ.OpGt
+                        ">="  -> PQ.OpGtEq
+                        "<>"  -> PQ.OpNotEq
+                        "AND" -> PQ.OpAnd
+                        "OR"  -> PQ.OpOr
+                        "LIKE" -> PQ.OpLike
+                        "IN"   -> PQ.OpIn
+                        "||"   -> PQ.OpCat
+                        "+"    -> PQ.OpPlus
+                        "-"    -> PQ.OpMinus
+                        "*"    -> PQ.OpMul
+                        "/"    -> PQ.OpDiv
+                        "MOD"  -> PQ.OpMod
+                        "~"    -> PQ.OpBitNot
+                        "&"    -> PQ.OpBitAnd
+                        "|"    -> PQ.OpBitOr
+                        "^"    -> PQ.OpBitXor
+                        "="    -> PQ.OpAsg
+                        "AT TIME ZONE" -> PQ.OpAtTimeZone
+                        s      -> PQ.OpOther s
+
+prefixPrimExprGen :: String -> SqlExpr -> PQ.PrimExpr
+prefixPrimExprGen = pqMappingSkipped "prefix expr"
+
+postfixPrimExprGen :: String -> SqlExpr -> PQ.PrimExpr
+postfixPrimExprGen op e =
+  PQ.UnExpr (primOp op) (primExprGen e)
+
+    where primOp "IS NULL"     = PQ.OpIsNull
+          primOp "NOT"         = PQ.OpNot
+          primOp "IS NOT NULL" = PQ.OpIsNotNull
+          primOp _             = error "Panic: not a known postfix operator"
+
+constPrimExprGen :: LitSql -> PQ.PrimExpr
+constPrimExprGen lsq = PQ.ConstExpr $ 
+  case lsq of
+    NullSql -> PQ.Null
+    DefaultSql -> PQ.Default
+    BoolSql b  -> PQ.Bool b
+    StringSql s -> PQ.String s
+    ByteSql b -> PQ.Byte b
+    IntegerSql i -> PQ.Integer i
+    DoubleSql d -> PQ.Double d
+    OtherSql t -> PQ.Other t
+
+aggrFunPrimExprGen :: String -> [SqlExpr] -> [(SqlExpr, SqlOrder)] -> PQ.PrimExpr
+aggrFunPrimExprGen op args =
+  pqMappingSkipped "agg expr"
+  -- PQ.AggrExpr aggrOp 
+
+pqMappingSkipped :: String -> a
+pqMappingSkipped msg = error $ "Incomplete mapping for: " ++ show msg
+
+pqMappingFail :: SqlExpr -> PQ.PrimExpr
+pqMappingFail e = error $ "Panic: No mapping for SqlExpr :" ++ show e ++ " to PrimExpr"
+{-  
+  PQ.FunExpr n exprs     -> FunSqlExpr (T.unpack n) (map (sqlExpr gen) exprs)
+  PQ.CastExpr typ e1     -> CastSqlExpr (T.unpack typ) (sqlExpr gen e1)
+  PQ.DefaultInsertExpr   -> DefaultSqlExpr
+  PQ.ArrayExpr es        -> ArraySqlExpr (map (sqlExpr gen) es)
+  PQ.WindowExpr w e      -> WindowSqlExpr (T.unpack w) (sqlExpr gen e)
+  
+-}
+
+{-  
+  PQ.AttrExpr t          -> ColumnSqlExpr (sqlColumn t)
+  PQ.BaseTableAttrExpr a -> ColumnSqlExpr (SqlColumn [a])
+  PQ.CompositeExpr e x   -> CompositeSqlExpr (defaultSqlExpr gen e) (T.unpack x)
+  PQ.BinExpr op e1 e2    ->
+    let leftE = sqlExpr gen e1
+        rightE = sqlExpr gen e2
+        paren = ParensSqlExpr
+        (expL, expR) = case (op, e1, e2) of
+          (PQ.OpAnd, PQ.BinExpr PQ.OpOr _ _, PQ.BinExpr PQ.OpOr _ _)  -> (paren leftE, paren rightE)
+          (PQ.OpOr, PQ.BinExpr PQ.OpAnd _ _, PQ.BinExpr PQ.OpAnd _ _) -> (paren leftE, paren rightE)
+          (PQ.OpAnd, PQ.BinExpr PQ.OpOr _ _, _)                       -> (paren leftE, rightE)
+          (PQ.OpAnd, _, PQ.BinExpr PQ.OpOr _ _)                       -> (leftE, paren rightE)
+          (PQ.OpOr, PQ.BinExpr PQ.OpAnd _ _, _)                       -> (paren leftE, rightE)
+          (PQ.OpOr, _, PQ.BinExpr PQ.OpAnd _ _)                       -> (leftE, paren rightE)
+          (_, PQ.ConstExpr _, PQ.ConstExpr _)                         -> (leftE, rightE)
+          (_, _, PQ.ConstExpr _)                                      -> (paren leftE, rightE)
+          (_, PQ.ConstExpr _, _)                                      -> (leftE, paren rightE)
+          _                                                           -> (paren leftE, paren rightE)
+    in BinSqlExpr (showBinOp op) expL expR
+       
+  PQ.UnExpr op e         ->
+    let (op',t) = sqlUnOp op
+        e' = sqlExpr gen e
+    in case t of
+      UnOpFun     -> FunSqlExpr op' [e']
+      UnOpPrefix  -> PrefixSqlExpr op' e'      
+      UnOpPrefixParen  -> PrefixSqlExpr op' (ParensSqlExpr e')
+      UnOpPostfix -> PostfixSqlExpr op' e'
+
+  PQ.AggrExpr op e ord   ->
+    let op'  = showAggrOp op
+        e'   = sqlExpr gen e
+        ord' = sqlOrder gen <$> ord
+        moreAggrFunParams = case op of
+          PQ.AggrStringAggr primE -> [sqlExpr gen primE]
+          _ -> []
+    in AggrFunSqlExpr op' (e' : moreAggrFunParams) ord'
+  PQ.ConstExpr l         -> ConstSqlExpr (sqlLiteral gen l)
+  PQ.CaseExpr cs e       ->
+    let cs' = [(sqlExpr gen c, sqlExpr gen x)| (c,x) <- cs]
+        e'  = sqlExpr gen e
+    in case NEL.nonEmpty cs' of
+      Just nel -> CaseSqlExpr nel e'
+      Nothing  -> e'
+      
+  PQ.ListExpr es         -> ListSqlExpr (map (sqlExpr gen) es)
+  PQ.ParamExpr n _       -> ParamSqlExpr n PlaceHolderSqlExpr
+  PQ.FunExpr n exprs     -> FunSqlExpr (T.unpack n) (map (sqlExpr gen) exprs)
+  PQ.CastExpr typ e1     -> CastSqlExpr (T.unpack typ) (sqlExpr gen e1)
+  PQ.DefaultInsertExpr   -> DefaultSqlExpr
+  PQ.ArrayExpr es        -> ArraySqlExpr (map (sqlExpr gen) es)
+  PQ.WindowExpr w e      -> WindowSqlExpr (T.unpack w) (sqlExpr gen e)
+
+primQueryGen :: SqlExpr -> PQ.PrimQuery
+primQueryGen = undefined
+-}

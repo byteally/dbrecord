@@ -199,8 +199,9 @@ mkMigrationTable _ _
                          createDefSeqs (DemotedDBTagSeq tab col (Just seqn)) = Nothing
                          createDefSeqs (DemotedDBTagSeq tab col Nothing)     =
                            let seqn = (genKeyName $ SeqNameGen tab col Nothing)
-                               seqnE = PQ.OidExpr seqn
-                           in  Just (AlterTable (coerce tab) $ AlterColumn (ColName col) $ AddDefault (DefExpr (PQ.FunExpr "nextVal" [seqnE])))
+                               seqnE = PQ.AttrExpr (PQ.unsafeToSym [seqn])
+                               nextValE = PQ.FunExpr "nextVal" [seqnE]
+                           in  Just (AlterTable (coerce tab) $ AlterColumn (ColName col) $ AddDefault (DefExpr nextValE))
                      in (fmap addCreateSeq tagSeqs, catMaybes (fmap createDefSeqs tagSeqs), catMaybes (fmap addAlterSeq tagSeqs))
         addChks = let addChk (cname, chExpr) = AlterTable (coerce tabN) $ AddConstraint (coerce (genKeyName $ CkNameGen tabN cname))
                                                 $ AddCheck (CheckExpr chExpr)
@@ -287,3 +288,30 @@ mkMigrationType _ _
 
 diffMigration :: [Migration] -> [Migration] -> [Migration] -> [Migration]
 diffMigration _current _previous _reified = []
+
+{-
+validateSchemaInfo :: Proxy db -> PGS.Connection -> IO ()
+validateSchemaInfo pdb conn = do
+  let mig = mkMigration pdb
+  schemaInfo <- getSchemaInfo conn
+  compareSchemaInfo mig schemaInfo
+-}
+
+{-
+
+SELECT
+    tc.constraint_name, tc.table_name, kcu.column_name, 
+    ccu.table_name AS foreign_table_name,
+    ccu.column_name AS foreign_column_name 
+FROM 
+    information_schema.table_constraints AS tc 
+    JOIN information_schema.key_column_usage AS kcu
+      ON tc.constraint_name = kcu.constraint_name
+    JOIN information_schema.constraint_column_usage AS ccu
+      ON ccu.constraint_name = tc.constraint_name
+WHERE constraint_type = 'FOREIGN KEY'
+
+SELECT * FROM information_schema.key_column_usage;
+SELECT * FROM information_schema.constraint_column_usage;
+
+-}

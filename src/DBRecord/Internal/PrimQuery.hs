@@ -140,7 +140,7 @@ data OrderOp = OrderOp
   } deriving (Show, Read, Generic)
 
 data PrimExpr = AttrExpr Sym -- Eg?
-              | OidExpr  Attribute
+              -- | OidExpr  Attribute
               | BaseTableAttrExpr Attribute
               | CompositeExpr     PrimExpr Attribute -- ^ Composite Type Query
               | BinExpr   BinOp PrimExpr PrimExpr
