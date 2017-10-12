@@ -16,8 +16,21 @@ import Data.Either (either)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.Postgres.Parser
 import DBRecord.Internal.Postgres.SqlGen (primExprGen)
-import DBRecord.Internal.Migration.Types ( Migration (..), TypeName (..), EnumVal (..)
-                                         , ColName (..), ColType (..), Column (..), TabName (..), AlterTable (..), AddConstraint (..), ConstraintName (..))
+import DBRecord.Internal.Migration.Types ( PrimDDL (..), TypeName (..), EnumVal (..)
+                                         , ColName (..), ColType (..), Column (..), TabName (..)
+                                         , AlterTable (..), AddConstraint (..), ConstraintName (..)
+                                         , AlterColumn (..), DefExpr (..)
+                                         )
+import DBRecord.Internal.Migration.Types ( createTable
+                                         , addPrimaryKey
+                                         , addUnique
+                                         , addForeignKey
+                                         , addCheckExpr
+                                         , addDefaultExpr
+                                         , addNotNull
+                                         , column
+                                         , single
+                                         )
 import qualified DBRecord.Internal.Migration.Types as MT
 import Data.Coerce
 import Data.Maybe
@@ -73,7 +86,7 @@ data CheckInfo = CheckInfo { checkName     :: Text
 
 data DefaultInfo = DefaultInfo { defaultOnColumn  :: Text
                                , defaultOnTable   :: Text
-                               , defaultExpr      :: PQ.PrimExpr
+                               , defaultExp       :: PQ.PrimExpr
                                } deriving (Show)
 
 data ForeignKeyInfo = ForeignKeyInfo { fkName :: Text
@@ -139,7 +152,7 @@ defaultInfo :: [TableColInfo] -> [DefaultInfo]
 defaultInfo =
   map (\t -> DefaultInfo { defaultOnColumn = dbColumnName t
                         , defaultOnTable   = dbTableName t
-                        , defaultExpr      = unsafeParseExpr (fromJust (dbColDefault t))
+                        , defaultExp       = unsafeParseExpr (fromJust (dbColDefault t))
                         }
       ) . filter (isJust . dbColDefault)
 
@@ -276,40 +289,39 @@ foreignKeysQ = "SELECT tc.constraint_name, tc.table_name, kcu.column_name, \
 \WHERE constraint_type = 'FOREIGN KEY'  AND \
       \kcu.constraint_schema = 'public'"
                               
-getSchemaInfo :: Proxy db -> Connection -> IO ()
+getSchemaInfo :: Proxy db -> Connection -> IO [PrimDDL]
 getSchemaInfo _ conn = do
   enumTs <- query_ conn enumQ
-  print (enumTs :: [EnumInfo])
   tcols <- query_ conn tableColQ
   tchks <- query_ conn checksQ
   prims <- query_ conn primKeysQ
   uniqs <- query_ conn uniqKeysQ
   fks   <- query_ conn foreignKeysQ  
-  print (toTableInfo (tabColInfo tcols) (checkInfo tchks) (defaultInfo tcols) (primKeyInfo prims) (uniqKeyInfo uniqs) (foreignKeyInfo fks))
-  return ()
+  pure $ mkMigrations enumTs (toTableInfo (tabColInfo tcols) (checkInfo tchks) (defaultInfo tcols) (primKeyInfo prims) (uniqKeyInfo uniqs) (foreignKeyInfo fks))
 
 unsafeParseExpr :: Text -> PQ.PrimExpr
 unsafeParseExpr t = primExprGen . either parsePanic id . parseOnly sqlExpr $ t
   where parsePanic e = error $ "Panic while parsing: " ++ show e ++ " , " ++ "while parsing " ++ show t
 
-mkMigration :: TableInfo -> Migration
-mkMigration _tabInfo = undefined
+mkMigrations :: [EnumInfo] -> [TableInfo] -> [PrimDDL]
+mkMigrations enumInfos tabInfos =
+  mkMigrationTypes enumInfos ++ mkMigrationTables tabInfos
 
 -- conversion to migrations
 
 -- Only enums for now
-mkMigrationTypes :: [EnumInfo] -> [Migration]
+mkMigrationTypes :: [EnumInfo] -> [PrimDDL]
 mkMigrationTypes = map mkMigrationType
   where mkMigrationType e =
           let tn = TypeName (enumTypeName e)
               vals = map EnumVal (V.toList (enumCons e))
           in CreateEnum tn vals
 
-mkMigrationTables :: [TableInfo] -> [Migration]
+mkMigrationTables :: [TableInfo] -> [PrimDDL]
 mkMigrationTables =
   concatMap mkMigrationTable
 
-mkMigrationTable :: TableInfo -> [Migration]
+mkMigrationTable :: TableInfo -> [PrimDDL]
 mkMigrationTable tabInfo =
   concat $ 
     [ single createTab
@@ -322,21 +334,20 @@ mkMigrationTable tabInfo =
     
   where createTab =
           let cols = map colInfo (columns tabInfo)
-              colInfo c = Column (ColName (columnName c)) (ColType (coerce (typeN c)))
-          in  CreateTable (coerce tabN) cols
+              colInfo c = column (coerce (columnName c)) (coerce (typeN c))
+          in  createTable (coerce tabN) cols
           
         alterPKs = map alterPK (primaryKeys tabInfo)
         alterPK pk =
           let pkCols = primKeyColumns pk
               pkName = primKeyName pk
-          in AlterTable (coerce tabN) $
-              AddConstraint (coerce pkName) (AddPrimaryKey (coerce pkCols))
+          in addPrimaryKey (coerce tabN) (coerce pkName) (coerce pkCols)
+
         alterUqs = map alterUq (uniqueKeys tabInfo)
         alterUq uq =
           let uqCols = uniqKeyColumns uq
               uqName = uniqKeyName uq
-          in  AlterTable (coerce tabN) $
-                AddConstraint (coerce uqName) (AddUnique (coerce uqCols))
+          in  addUnique (coerce tabN) (coerce uqName) (coerce uqCols)
 
         alterFKs = map alterFK (foreignKeys tabInfo)
         alterFK fk =
@@ -344,19 +355,25 @@ mkMigrationTable tabInfo =
               refCols = fkRefCols fk
               fkN     = fkName fk
               fkRefN  = fkRefTab fk
-          in  AlterTable (coerce tabN) $
-                AddConstraint (coerce fkN) (AddForeignKey (coerce fkCols)
-                                                          (coerce fkRefN)
-                                                          (coerce refCols)
-                                           )
+          in addForeignKey (coerce tabN) (coerce fkN) (coerce fkCols)
+                           (coerce fkRefN) (coerce refCols)
+
         checkExprs = map checkExpr (checks tabInfo)
         checkExpr chkInfo =
           let chkName = checkName chkInfo
               chkExpr = check chkInfo
-          in AlterTable (coerce tabN) $
-            AddConstraint (coerce chkName) (AddCheck (MT.CheckExpr chkExpr))
-        defaultExprs = map checkExpr (checks tabInfo)
-        single a = [a]
+          in case isNotNullExp chkExpr of
+                  (Just col)  -> addNotNull (coerce tabN) (coerce col)
+                  Nothing     -> addCheckExpr (coerce tabN) (coerce chkName) (coerce chkExpr)
+
+        defaultExprs = map defaultExpr (defaults tabInfo)
+        defaultExpr defInfo =
+          let colName = defaultOnColumn defInfo
+              defExp  = defaultExp defInfo
+          in addDefaultExpr (coerce tabN) (coerce colName) (coerce defExp)               
         tabN = tableName tabInfo        
-        
+
+        isNotNullExp exp = case exp of
+          PQ.UnExpr PQ.OpIsNotNull (PQ.BaseTableAttrExpr coln) -> Just coln
+          _                                                    -> Nothing
                                         

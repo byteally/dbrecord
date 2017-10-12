@@ -25,7 +25,7 @@ newtype SeqName = SeqName T.Text
                 deriving Show
 
 
-data Migration
+data PrimDDL
   = CreateTable TabName [Column]
   | CreateType TypeName [Column]
   | CreateSeq  SeqName
@@ -82,3 +82,36 @@ data TypeAttr
   = SumAttr [(ColName, [Column])]
   | ProdAttr [Column]
   | EnumAttr [ColName]
+
+column :: ColName -> ColType -> Column
+column = Column
+
+createTable :: TabName -> [Column] -> PrimDDL
+createTable = CreateTable
+
+addPrimaryKey :: TabName -> ConstraintName -> [ColName] -> PrimDDL
+addPrimaryKey tn cn cols =
+  AlterTable tn (AddConstraint cn (AddPrimaryKey cols))
+
+addUnique :: TabName -> ConstraintName -> [ColName] -> PrimDDL
+addUnique tn cn cols =
+  AlterTable tn (AddConstraint cn (AddUnique cols))
+
+addForeignKey :: TabName -> ConstraintName -> [ColName] -> TabName -> [ColName] -> PrimDDL
+addForeignKey tn cn cols reft refcols =
+  AlterTable tn (AddConstraint cn (AddForeignKey cols reft refcols))
+
+addCheckExpr :: TabName -> ConstraintName -> CheckExpr -> PrimDDL
+addCheckExpr tn cn ce =
+  AlterTable tn (AddConstraint cn (AddCheck ce))
+
+addDefaultExpr :: TabName -> ColName -> DefExpr -> PrimDDL
+addDefaultExpr tn col de =
+  AlterTable tn (AlterColumn col (AddDefault de))
+
+addNotNull :: TabName -> ColName -> PrimDDL
+addNotNull tn col =
+  AlterTable tn (AlterColumn col SetNotNull)
+
+single :: a -> [a]
+single a = [a]

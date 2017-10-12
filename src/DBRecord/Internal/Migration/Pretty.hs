@@ -56,7 +56,7 @@ ppEnumVal :: EnumVal -> Doc
 ppEnumVal (EnumVal e) = quotes e
 
 ppSeqName :: SeqName -> Doc
-ppSeqName (SeqName seqN) = doubleQuotes seqN
+ppSeqName (SeqName seqN) = text_ seqN
 
 ppColumn :: Column -> Doc
 ppColumn (Column name ty) =
@@ -66,47 +66,47 @@ ppColumn (Column name ty) =
 ppConstraintName :: ConstraintName -> Doc
 ppConstraintName (ConstraintName c) = doubleQuotes c
 
-ppMigration :: Migration -> Doc
-ppMigration (CreateTable tab cols) =
+ppPrimDDL :: PrimDDL -> Doc
+ppPrimDDL (CreateTable tab cols) =
       text "CREATE TABLE"
   <+> ppTableName tab
   <+> parens (hsep (punctuate comma (map ppColumn cols)))
   <+> semi
-ppMigration (CreateType ty cols) =
+ppPrimDDL (CreateType ty cols) =
       text "CREATE TYPE"
   <+> ppTypeName ty
   <+> text "AS"
   <+> parens (hsep (punctuate comma (map ppColumn cols)))
   <+> semi
-ppMigration (CreateSeq seqN) =
+ppPrimDDL (CreateSeq seqN) =
       text "CREATE SEQUENCE"
   <+> ppSeqName seqN
   <+> semi  
-ppMigration (CreateEnum ty cols) =
+ppPrimDDL (CreateEnum ty cols) =
       text "CREATE TYPE"
   <+> ppTypeName ty
   <+> text "AS ENUM"
   <+> parens (hsep (punctuate comma (map ppEnumVal cols)))
   <+> semi
-ppMigration (DropTable tab) =
+ppPrimDDL (DropTable tab) =
       text "DROP TABLE"
   <+> ppTableName tab
   <+> semi
-ppMigration (DropType ty) =
+ppPrimDDL (DropType ty) =
       text "DROP TYPE"
   <+> ppTypeName ty
   <+> semi
-ppMigration (AlterTable tab alter) =
+ppPrimDDL (AlterTable tab alter) =
       text "ALTER TABLE"
   <+> ppTableName tab
   <+> ppAlterTable alter
   <+> semi
-ppMigration (AlterType typ alter) =
+ppPrimDDL (AlterType typ alter) =
       text "ALTER TYPE"
   <+> ppTypeName typ
   <+> ppAlterType alter
   <+> semi  
-ppMigration (AlterSeq seqN alter) =
+ppPrimDDL (AlterSeq seqN alter) =
       text "ALTER SEQUENCE"
   <+> ppSeqName seqN
   <+> ppAlterSeqType alter
@@ -204,5 +204,5 @@ ppAlterAttr (ChangeAttrType ty) =
      text "SET DATA TYPE"
   <+> ppColumnType ty  
 
-renderMig :: Migration -> String
-renderMig = render . ppMigration
+renderDDL :: PrimDDL -> String
+renderDDL = render . ppPrimDDL

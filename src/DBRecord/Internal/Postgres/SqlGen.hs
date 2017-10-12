@@ -439,14 +439,17 @@ binPrimExprGen binOp l r = PQ.BinExpr binPrimExpr (primExprGen l) (primExprGen r
                         s      -> PQ.OpOther s
 
 prefixPrimExprGen :: String -> SqlExpr -> PQ.PrimExpr
-prefixPrimExprGen = pqMappingSkipped "prefix expr"
+prefixPrimExprGen op e =
+  PQ.UnExpr (primOp op) (primExprGen e)
+
+    where primOp "NOT"         = PQ.OpNot
+          primOp _             = error "Panic: not a known prefix operator"
 
 postfixPrimExprGen :: String -> SqlExpr -> PQ.PrimExpr
 postfixPrimExprGen op e =
   PQ.UnExpr (primOp op) (primExprGen e)
 
     where primOp "IS NULL"     = PQ.OpIsNull
-          primOp "NOT"         = PQ.OpNot
           primOp "IS NOT NULL" = PQ.OpIsNotNull
           primOp _             = error "Panic: not a known postfix operator"
 
