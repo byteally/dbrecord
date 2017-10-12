@@ -88,11 +88,20 @@ class ( Database db
   type PrimaryKey db tab :: [Symbol]
   type PrimaryKey db tab = '[]
 
+  type PrimaryKeyName db tab :: Maybe Symbol
+  type PrimaryKeyName db tab = 'Nothing
+
   type ForeignKey db tab :: [ForeignRef Type Type]
   type ForeignKey db tab = '[]
 
+  type ForeignKeyNames db tab :: [(Symbol, Symbol)]
+  type ForeignKeyNames db tab = '[]
+
   type Unique db tab     :: [UniqueCT]
   type Unique db tab = '[]
+
+  type UniqueKeyNames db tab :: [(Symbol, Symbol)]
+  type UniqueKeyNames db tab = '[]
 
   type HasDefault db tab :: [Symbol]
   type HasDefault db tab = '[]
@@ -100,6 +109,9 @@ class ( Database db
   type Check db tab :: [CheckCT]
   type Check db tab = '[]
 
+  type CheckNames db tab :: [(Symbol, Symbol)]
+  type CheckNames db tab = '[]
+  
   type ColIgnore db tab :: IgnoredCol
   type ColIgnore db tab = 'IgnoreNone
 
@@ -110,6 +122,9 @@ class ( Database db
   type TableSequence db tab :: [Sequence Type Type]
   type TableSequence db tab = '[]
 
+  type SequenceNames db tab :: [(Symbol, Symbol)]
+  type SequenceNames db tab = '[]
+  
   type ColumnNames db tab :: [(Symbol, Symbol)]
   type ColumnNames db tab = '[]
 
@@ -120,11 +135,12 @@ class ( Database db
   checks = DBChecks Nil
 
 data Sequence db tab = PGSerial Symbol   -- ^ Column
+                                Symbol   -- ^ Sequence Name
                      | PGOwned  Symbol   -- ^ Column
                                 Symbol   -- ^ Sequence Name
 
-type family Serial (cname :: Symbol) where
-  Serial cname = PGSerial cname
+type family Serial (cname :: Symbol) (seqname :: Symbol) where
+  Serial cname seqname = PGSerial cname seqname
 
 type family Owned (cname :: Symbol) (seqname :: Symbol) where
   Owned cname seqname = PGOwned cname seqname
@@ -173,9 +189,9 @@ data instance Sing (dbTag :: DBTag db tab) where
   SDBTagRefBy :: ( AllF SingE (MapAliasedCol fcols (ColumnNames db tab))
                  , AllF SingE (MapAliasedCol rcols (ColumnNames db reft))
                  , KnownSymbol (TableName db reft)
-                 ) => Sing db -> Sing (MapAliasedCol fcols (ColumnNames db tab)) -> Sing reft -> Sing (MapAliasedCol rcols (ColumnNames db reft)) -> Sing ('DBTagFk db tab ('RefBy fcols reft rcols))
-  SDBTagRef :: KnownSymbol (TableName db reft) => Sing db -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing reft -> Sing ('DBTagFk db tab ('Ref col reft))
-  SDBSeqPGSerial :: (KnownSymbol (TableName db tab)) => Sing db -> Sing (TableName db tab) -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing ('DBTagSeq db tab ('PGSerial col))
+                 ) => Sing db -> Sing (MapAliasedCol fcols (ColumnNames db tab)) -> Sing reft -> Sing (MapAliasedCol rcols (ColumnNames db reft)) -> Sing ('DBTagFk db tab ('RefBy fcols reft rcols fkname))
+  SDBTagRef :: KnownSymbol (TableName db reft) => Sing db -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing reft -> Sing ('DBTagFk db tab ('Ref col reft fkname))
+  SDBSeqPGSerial :: (KnownSymbol (TableName db tab)) => Sing db -> Sing (TableName db tab) -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing ('DBTagSeq db tab ('PGSerial col seqn))
   SDBSeqPGOwned :: (KnownSymbol (TableName db tab), KnownSymbol seqn) => Sing db -> Sing (TableName db tab) -> Sing seqn -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing ('DBTagSeq db tab ('PGOwned col seqn))  
 
 data instance Sing (ch :: CheckCT) where
@@ -214,7 +230,7 @@ instance ( SingI db
          , KnownSymbol (TableName db reft)
          , SingI (MapAliasedCol fcols (ColumnNames db tab))
          , SingI (MapAliasedCol rcols (ColumnNames db reft))
-         ) => SingI ('DBTagFk (db :: *) (tab :: *) ('RefBy fcols (reft :: *) rcols)) where
+         ) => SingI ('DBTagFk (db :: *) (tab :: *) ('RefBy fcols (reft :: *) rcols fkname)) where
   sing = SDBTagRefBy sing sing sing sing
 
 -- NOTE: Validate that the aliases match in this form 
@@ -222,13 +238,13 @@ instance ( SingI db
          , SingI (AliasedCol col (ColumnNames db tab))
          , SingI reft
          , KnownSymbol (TableName db reft)
-         ) => SingI ('DBTagFk (db :: *) (tab :: *) ('Ref col (reft :: *))) where
+         ) => SingI ('DBTagFk (db :: *) (tab :: *) ('Ref col (reft :: *) fkname)) where
   sing = SDBTagRef sing sing sing  
 
 instance ( SingI db
          , KnownSymbol (AliasedCol col (ColumnNames db tab))
          , KnownSymbol (TableName db tab)
-         ) => SingI ('DBTagSeq (db :: *) (tab :: *) ('PGSerial col)) where
+         ) => SingI ('DBTagSeq (db :: *) (tab :: *) ('PGSerial col seqn)) where
   sing = SDBSeqPGSerial sing sing sing
 
 instance ( SingI db
@@ -328,13 +344,13 @@ type family ValidateTabPk (tab :: *) (pks :: [Symbol]) :: Constraint where
   ValidateTabPk tab '[]       = ()
 
 type family ValidateTabFk db tab (fks :: [ForeignRef Type Type]) :: Constraint where
-  ValidateTabFk db tab ('Ref fn reft ': fks)
+  ValidateTabFk db tab ('Ref fn reft _ ': fks)
     = ( MatchFkFields db tab reft (FindFields (OriginalTableFields tab) '[fn]) (FindFields (OriginalTableFields reft) '[fn])
 --        MatchFkRefFld tab reft fn (FindField (OriginalTableFields tab) fn) (FindField (OriginalTableFields reft) (HeadPk reft (PrimaryKey db reft)))
       , ValidateRefPk reft '[fn] (PrimaryKey db reft)
       , ValidateTabFk db tab fks
       )
-  ValidateTabFk db tab ('RefBy fkeys reft rkeys ': fks)
+  ValidateTabFk db tab ('RefBy fkeys reft rkeys _ ': fks)
     = ( MatchFkFields db tab reft (FindFields (OriginalTableFields tab) fkeys) (FindFields (OriginalTableFields reft) rkeys)
       , ValidateRefPk reft rkeys (PrimaryKey db reft)
       , ValidateTabFk db tab fks
@@ -437,8 +453,8 @@ type family GetUniqBy (un :: Symbol) (uqs :: [UniqueCT]) :: Maybe [Symbol] where
   GetUniqBy _ '[]                        = 'Nothing
 
 data ForeignRef (db :: *) (refd :: *)
-  = RefBy [Symbol] refd [Symbol]
-  | Ref Symbol refd
+  = RefBy [Symbol] refd [Symbol] Symbol
+  | Ref Symbol refd Symbol
 
 data UniqueCT = UniqueOn [Symbol] Symbol
 
