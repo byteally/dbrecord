@@ -67,6 +67,7 @@ library
                      , time              >= 1.5
                      , attoparsec
                      , unordered-containers >= 0.2
+                     , uniplate             >= 1.6
                      , scientific        >= 0.3 
                      , binary            >= 0.8
                      , base64-bytestring >= 1.0

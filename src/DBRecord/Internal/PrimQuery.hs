@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveGeneric, FlexibleInstances #-}
+{-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses #-}
 -- |
 -- Copyright   :  Daan Leijen (c) 1999, daan@cs.uu.nl
 --                HWT Group (c) 2003, haskelldb-users@lists.sourceforge.net
@@ -19,6 +19,8 @@ import qualified Data.Aeson as A
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import GHC.Generics
 import qualified Data.ByteString.Base64 as B64
+import Data.Generics.Uniplate.Direct
+
 
 -- import DBRecord.Migration hiding (TableName)
 -- import GHC.TypeLits
@@ -39,7 +41,7 @@ data BinType = Union | Intersection | Except | UnionAll | IntersectionAll | Exce
 
 data Sym = Sym { symPrefix :: [Text]
                , symField  :: Text
-               } deriving (Show, Read, Generic)
+               } deriving (Show, Read, Generic, Eq, Ord)
 
 data PrimQuery = BaseTable TableId Clauses
                | Product (NEL.NonEmpty PrimQuery) Clauses
@@ -92,7 +94,7 @@ data Lit = Null
          | Integer Integer
          | Double Double
          | Other Text
-         deriving (Show, Read, Generic)
+         deriving (Show, Read, Generic, Eq, Ord)
 
 data BinOp = OpEq | OpLt | OpLtEq | OpGt | OpGtEq | OpNotEq
            | OpAnd | OpOr
@@ -102,7 +104,7 @@ data BinOp = OpEq | OpLt | OpLtEq | OpGt | OpGtEq | OpNotEq
            | OpPlus | OpMinus | OpMul | OpDiv | OpMod
            | OpBitNot | OpBitAnd | OpBitOr | OpBitXor
            | OpAsg | OpAtTimeZone
-           deriving (Show, Read, Generic)
+           deriving (Show, Read, Generic, Eq, Ord)
 
 data UnOp = OpNot
           | OpIsNull
@@ -114,30 +116,30 @@ data UnOp = OpNot
           | OpUpper
           | UnOpOtherPrefix String
           | UnOpOtherFun String
-          deriving (Show, Read, Generic)
+          deriving (Show, Read, Generic, Eq, Ord)
 
 data AggrOp = AggrCount | AggrSum | AggrAvg | AggrMin | AggrMax
             | AggrStdDev | AggrStdDevP | AggrVar | AggrVarP
             | AggrBoolOr | AggrBoolAnd | AggrArr | AggrStringAggr PrimExpr
             | AggrOther String
-            deriving (Show, Read, Generic)
+            deriving (Show, Read, Generic, Eq, Ord)
 
 data LimitOp = LimitOp Int | OffsetOp Int | LimitOffsetOp Int Int
-             deriving (Show, Read, Generic)
+             deriving (Show, Read, Generic, Eq, Ord)
                      
 data OrderExpr = OrderExpr OrderOp PrimExpr
-               deriving (Show, Read, Generic)
+               deriving (Show, Read, Generic, Eq, Ord)
 
 data OrderNulls = NullsFirst | NullsLast
-                deriving (Show, Read, Generic)
+                deriving (Show, Read, Generic, Eq, Ord)
 
 data OrderDirection = OpAsc | OpDesc
-                    deriving (Show, Read, Generic)
+                    deriving (Show, Read, Generic, Eq, Ord)
 
 data OrderOp = OrderOp
   { orderDirection :: OrderDirection
   , orderNulls     :: OrderNulls
-  } deriving (Show, Read, Generic)
+  } deriving (Show, Read, Generic, Eq, Ord)
 
 data PrimExpr = AttrExpr Sym -- Eg?
               -- | OidExpr  Attribute
@@ -159,7 +161,27 @@ data PrimExpr = AttrExpr Sym -- Eg?
                                     -- needed for insert expressions.
               | ArrayExpr [PrimExpr] -- ^ ARRAY[..]
               | WindowExpr WindowName PrimExpr -- OVER   
-              deriving (Read, Show, Generic)
+              deriving (Read, Show, Generic, Eq, Ord)
+
+instance Uniplate PrimExpr where
+  uniplate (AttrExpr s)          = plate AttrExpr |- s
+  uniplate (BaseTableAttrExpr b) = plate BaseTableAttrExpr |- b
+  uniplate (CompositeExpr pe a)  = plate CompositeExpr |* pe |- a
+  uniplate (BinExpr bop pe1 pe2) = plate BinExpr |- bop |* pe1 |* pe2
+  uniplate (UnExpr uop pe)       = plate UnExpr |- uop |* pe
+  uniplate (AggrExpr aop pe oes) = plate AggrExpr |- aop |* pe ||+ oes
+  uniplate (ConstExpr l)         = plate ConstExpr |- l
+  uniplate (CaseExpr alts def)   = plate CaseExpr |- alts |* def -- TODO: alts
+  uniplate (ListExpr pes)        = plate ListExpr ||* pes
+  uniplate (ParamExpr n pe)      = plate ParamExpr |- n |* pe
+  uniplate (FunExpr n pes)       = plate FunExpr |- n ||* pes
+  uniplate (CastExpr n pe)       = plate CastExpr |- n |* pe
+  uniplate (DefaultInsertExpr)   = plate DefaultInsertExpr
+  uniplate (ArrayExpr pes)       = plate ArrayExpr ||* pes
+  uniplate (WindowExpr n pe)     = plate WindowExpr |- n |* pe
+
+instance Biplate OrderExpr PrimExpr where
+  biplate (OrderExpr oop pe) = plate OrderExpr |- oop |* pe
 
 data PrimQueryFold p = PrimQueryFold
   { baseTable :: TableId -> Clauses -> p
@@ -237,7 +259,39 @@ isFieldExpr (BaseTableAttrExpr {}) = True
 isFieldExpr (CompositeExpr {})     = True
 isFieldExpr _                      = False
 
+inverseBinOp :: BinOp -> Maybe BinOp
+inverseBinOp OpEq = Just OpNotEq
+inverseBinOp OpNotEq = Just OpEq
+inverseBinOp OpLt = Just OpGtEq
+inverseBinOp OpLtEq = Just OpGt
+inverseBinOp OpGt = Just OpLtEq
+inverseBinOp OpGtEq = Just OpLt
+inverseBinOp _ = Nothing
 
+
+normaliseExpr :: PrimExpr -> PrimExpr
+normaliseExpr = transform go
+  where
+    go orig@(UnExpr OpNot (BinExpr bop pe1 pe2)) = case inverseBinOp bop of
+      Just revOp -> BinExpr revOp pe1 pe2
+      Nothing    -> orig
+    go origExpr@(BinExpr OpAnd org1@(BinExpr OpLtEq pe1 pe2) pe3) = case pe3 of
+      BinExpr OpNotEq pe31 pe32
+        | pe1 == pe31 && pe2 == pe32 -> BinExpr OpLt org1 pe2
+        | otherwise                  -> origExpr
+      UnExpr OpNot (BinExpr OpEq pe31 pe32)
+        | pe1 == pe31 && pe2 == pe32 -> BinExpr OpLt org1 pe2
+        | otherwise                  -> origExpr
+      _                              -> origExpr
+    go origExpr@(BinExpr OpOr org1@(UnExpr OpNot (BinExpr OpLtEq pe1 pe2)) pe3) = case pe3 of
+      BinExpr OpEq pe31 pe32
+        | pe1 == pe31 && pe2 == pe32 -> BinExpr OpGtEq org1 pe2
+        | otherwise                  -> origExpr
+      UnExpr OpNot (BinExpr OpNotEq pe31 pe32)
+        | pe1 == pe31 && pe2 == pe32 -> BinExpr OpGtEq org1 pe2
+        | otherwise                  -> origExpr
+      _                              -> origExpr
+    go pe = pe
 
 renderSym :: Sym -> Text
 renderSym (Sym pfx fld) = T.intercalate "." (pfx ++ [fld])
