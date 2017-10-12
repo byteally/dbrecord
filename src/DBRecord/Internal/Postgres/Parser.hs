@@ -128,10 +128,10 @@ binOp = fmap T.unpack $
   symbol "+"    <|>
   symbol "="    <|>  
   symbol "-"    <|>
+  symbol ">="   <|>
+  symbol "<="   <|>  
   symbol ">"    <|>
   symbol "<"    <|>
-  symbol ">="   <|>
-  symbol "<="   <|>
   symbol "||"   <|>
   symbol "AND"  <|>
   symbol "OR"   <|>

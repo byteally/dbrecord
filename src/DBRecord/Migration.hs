@@ -15,13 +15,14 @@
 
 module DBRecord.Migration
        ( mkMigration
-       , renderMig
+       , renderDDL
        , diffMigration
        , BaseTable (..)
+       , validateSchemaInfo
        , module DBRecord.Migration
        ) where
 
-
+import qualified Database.PostgreSQL.Simple  as PGS
 import qualified DBRecord.Internal.Migration as M
 import qualified DBRecord.Internal.Schema    as S
 import Data.Maybe
@@ -39,7 +40,8 @@ import GHC.TypeLits
 import Data.Kind
 import Data.Functor.Const
 import Data.Coerce (coerce)
-
+import DBRecord.Internal.Migration.Validation (getSchemaInfo)
+import Data.Monoid ((<>))
 
 class BaseDatabase (base :: *) where
   type BaseVersion base :: *
@@ -151,13 +153,13 @@ mkMigration :: forall db schema tables types.
   , TyCxts db types
   , SingI tables
   , SingI types
-  ) => Proxy db -> [Migration]
+  ) => Proxy db -> [PrimDDL]
 mkMigration pxyDB = mkMigrationTypes pxyDB (sing :: Sing types)
   ++ mkMigrationTables pxyDB (sing :: Sing tables)
 
 mkMigrationTables :: forall db tabs.
                     ( All (Table db) tabs
-                    ) => Proxy (db :: *) -> Sing (tabs :: [*]) -> [Migration]
+                    ) => Proxy (db :: *) -> Sing (tabs :: [*]) -> [PrimDDL]
 mkMigrationTables _ SNil             = []
 mkMigrationTables pxyDB (SCons tab tabs) = mkMigrationTable pxyDB tab ++ mkMigrationTables pxyDB tabs
 
@@ -171,45 +173,44 @@ mkMigrationTable :: forall db tab pks fks chks uqs defs seqs nonNulls colMap.
                    , seqs ~ TableSequence db tab
                    , colMap ~ (ColumnNames db tab)
                    , nonNulls ~ GetNonNulls (DB db) (OriginalTableFields tab) colMap
-                   ) => Proxy (db :: *) -> Sing (tab :: *) -> [Migration]
+                   ) => Proxy (db :: *) -> Sing (tab :: *) -> [PrimDDL]
 mkMigrationTable _ _
   = let addPks = case fromSing (sing :: Sing (MapAliasedCol pks colMap)) of
                       [] -> []
                       xs  ->
                         let keyCols = fmap T.pack $ xs
-                        in [AlterTable (coerce tabN) $ AddConstraint (coerce (genKeyName $ PkNameGen tabN keyCols)) $ AddPrimaryKey (coerce keyCols)]
+                        in single (addPrimaryKey (coerce tabN) (coerce (genKeyName $ PkNameGen tabN keyCols)) (coerce keyCols))
         addUqs = let addUq fs =
                        let keyCols = fmap T.pack fs
-                       in AlterTable (coerce tabN) $ AddConstraint (coerce (genKeyName $ UqNameGen tabN keyCols)) $ AddUnique (coerce keyCols)
+                       in addUnique (coerce tabN) (coerce (genKeyName $ UqNameGen tabN keyCols)) (coerce keyCols)
                  in fmap addUq $ fromSing (sing :: Sing (GetAllUniqs uqs colMap))
-        addFks = let addFk (DemotedDBTagFk fcols reft rcols) = AlterTable (coerce tabN) $ AddConstraint (coerce (genKeyName $ FkNameGen tabN fcols reft)) $ AddForeignKey (coerce fcols) (coerce reft) (coerce rcols)
+        addFks = let addFk (DemotedDBTagFk fcols reft rcols) = addForeignKey (coerce tabN) (coerce (genKeyName $ FkNameGen tabN fcols reft)) (coerce fcols) (coerce reft) (coerce rcols)
                  in fmap addFk  $ fromSing (sing :: Sing (TagEachFks db tab fks))
         (cTabSeqs, defSeqs, oTabSeqs)
                    = let addCreateSeq (DemotedDBTagSeq tab col seqn) = case seqn of
                            Nothing  -> createSeq tab col Nothing
                            (Just n) -> createSeq tab col (Just n)
-                         createSeq tab col (Just seqn) = CreateSeq (coerce (genKeyName $ SeqNameGen tab col (Just seqn)))
-                         createSeq tab col Nothing     = CreateSeq (coerce (genKeyName $ SeqNameGen tab col Nothing))
+                         createSeq tab col (Just seqn) = CreateSeq (coerce $ doubleQuoteT (genKeyName $ SeqNameGen tab col (Just seqn)))
+                         createSeq tab col Nothing     = CreateSeq (coerce $ doubleQuoteT (genKeyName $ SeqNameGen tab col Nothing))
                          addAlterSeq (DemotedDBTagSeq tab col seqn) = case seqn of
                            Nothing -> Just (addOwnSeq tab col)
                            Just _  -> Nothing 
-                         addOwnSeq tab col             = AlterSeq (coerce (genKeyName $ SeqNameGen tab col Nothing))
+                         addOwnSeq tab col             = AlterSeq (coerce $ doubleQuoteT (genKeyName $ SeqNameGen tab col Nothing))
                                                                   (AddOwner (coerce tab) (coerce col))                         
                          tagSeqs = fromSing (sing :: Sing (TagEachSeqs db tab seqs))
                          createDefSeqs (DemotedDBTagSeq tab col (Just seqn)) = Nothing
                          createDefSeqs (DemotedDBTagSeq tab col Nothing)     =
-                           let seqn = (genKeyName $ SeqNameGen tab col Nothing)
-                               seqnE = PQ.AttrExpr (PQ.unsafeToSym [seqn])
+                           let seqn = quoteT $ doubleQuoteT (genKeyName $ SeqNameGen tab col Nothing)
+                               seqnE = PQ.ConstExpr (PQ.Other seqn)
                                nextValE = PQ.FunExpr "nextVal" [seqnE]
                            in  Just (AlterTable (coerce tab) $ AlterColumn (ColName col) $ AddDefault (DefExpr nextValE))
                      in (fmap addCreateSeq tagSeqs, catMaybes (fmap createDefSeqs tagSeqs), catMaybes (fmap addAlterSeq tagSeqs))
-        addChks = let addChk (cname, chExpr) = AlterTable (coerce tabN) $ AddConstraint (coerce (genKeyName $ CkNameGen tabN cname))
-                                                $ AddCheck (CheckExpr chExpr)
+        addChks = let addChk (cname, chExpr) = addCheckExpr (coerce tabN) (coerce (genKeyName $ CkNameGen tabN cname)) (CheckExpr chExpr)
                   in fmap addChk $ case (checks :: DBChecks db tab) of
                                      DBChecks hl -> happlyChkCtx hl
-        addNotNullChks = let addNonNullCtx colN = AlterTable (coerce tabN) $ AlterColumn (coerce (T.pack colN)) SetNotNull
+        addNotNullChks = let addNonNullCtx colN = addNotNull (coerce tabN) (coerce (T.pack colN))
                          in fmap addNonNullCtx $ fromSing (sing :: Sing nonNulls)                                           
-        addDefs = let addDef (cname, dfExpr) = AlterTable (coerce tabN) $ AlterColumn (ColName cname) $ AddDefault (DefExpr dfExpr)
+        addDefs = let addDef (cname, dfExpr) = addDefaultExpr (coerce tabN) (coerce (cname :: T.Text)) (DefExpr dfExpr)
                       defs = case (defaults :: DBDefaults db tab) of
                                      DBDefaults hl -> (happlyDefExprs (Proxy @db) hl)
                   in  fmap addDef defs
@@ -257,7 +258,7 @@ type family TyCxts (db :: *) (tys :: [*]) :: Constraint where
 mkMigrationTypes :: forall db tys.
                     ( Database db
                     , TyCxts db tys
-                    ) => Proxy (db :: *) -> Sing (tys :: [*]) -> [Migration]
+                    ) => Proxy (db :: *) -> Sing (tys :: [*]) -> [PrimDDL]
 mkMigrationTypes _ SNil             = []
 mkMigrationTypes pxyDB (SCons ty tys) = mkMigrationType pxyDB ty ++ mkMigrationTypes pxyDB tys
 
@@ -265,7 +266,7 @@ mkMigrationType :: forall db ty.
                   ( Database db
                   , ShowDBType (DB db) (GetDBTypeRep (DB db) ty)
                   , SingAttrs db (GetTypeFields ty)
-                  ) => Proxy (db :: *) -> Sing (ty :: *) -> [Migration]
+                  ) => Proxy (db :: *) -> Sing (ty :: *) -> [PrimDDL]
 mkMigrationType _ _
   = let tyName = showDBType (Proxy @(DB db)) (Proxy @(GetDBTypeRep (DB db) ty))
         tyAttrHList = singAttrs (Proxy @db) (Proxy :: Proxy (GetTypeFields ty))
@@ -286,32 +287,29 @@ mkMigrationType _ _
     in concat [ migTypes
               ]
 
-diffMigration :: [Migration] -> [Migration] -> [Migration] -> [Migration]
+diffMigration :: [PrimDDL] -> [PrimDDL] -> [PrimDDL] -> [PrimDDL]
 diffMigration _current _previous _reified = []
 
-{-
-validateSchemaInfo :: Proxy db -> PGS.Connection -> IO ()
+validateSchemaInfo :: ( Database db
+                        , AllF (Table db) (Tables db)
+                        , TyCxts db (Types db)
+                        , SingI (Tables db)
+                        , SingI (Types db)
+                        ) => Proxy (db :: *) -> PGS.Connection -> IO Bool
 validateSchemaInfo pdb conn = do
   let mig = mkMigration pdb
-  schemaInfo <- getSchemaInfo conn
-  compareSchemaInfo mig schemaInfo
--}
+      migStmtQ = unlines (fmap renderDDL mig)
+  rMigs <- getSchemaInfo pdb conn
+  let rmigStmtQ = unlines (fmap renderDDL rMigs)
+  putStrLn "+++++++++++++++++++++++++++++++++++++++++"
+  putStrLn migStmtQ
+  putStrLn "========================================="
+  putStrLn rmigStmtQ
+  return False
+  
 
-{-
+doubleQuoteT :: T.Text -> T.Text
+doubleQuoteT t = "\"" <> t <> "\""
 
-SELECT
-    tc.constraint_name, tc.table_name, kcu.column_name, 
-    ccu.table_name AS foreign_table_name,
-    ccu.column_name AS foreign_column_name 
-FROM 
-    information_schema.table_constraints AS tc 
-    JOIN information_schema.key_column_usage AS kcu
-      ON tc.constraint_name = kcu.constraint_name
-    JOIN information_schema.constraint_column_usage AS ccu
-      ON ccu.constraint_name = tc.constraint_name
-WHERE constraint_type = 'FOREIGN KEY'
-
-SELECT * FROM information_schema.key_column_usage;
-SELECT * FROM information_schema.constraint_column_usage;
-
--}
+quoteT :: T.Text -> T.Text
+quoteT t = "\'" <> t <> "\'"
