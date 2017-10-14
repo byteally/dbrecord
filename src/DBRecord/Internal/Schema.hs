@@ -460,17 +460,52 @@ type family ValidateTableProps (db :: *) (tab :: *) :: Constraint where
     , ValidateTabFk db tab (ForeignKey db tab)
     , ValidateTabCk tab (Check db tab)
     , ValidateTabIx tab
-    , ValidateColumnAlias tab (OriginalTableFields tab) (ColumnNames db tab)
+    , ValidateNames tab ('Text "at the usage of ColumnNames") (OriginalTableFields tab) (ColumnNames db tab)
+    , ValidateNames tab ('Text "at the usage of ForeignKeyNames") (OriginalFKNames db tab) (ForeignKeyNames db tab)
+    , ValidateNames tab ('Text "at the usage of UniqueNames") (OriginalUQNames db tab) (UniqueNames db tab)
+    , ValidateNames tab ('Text "at the usage of CheckNames") (OriginalCheckNames db tab) (CheckNames db tab)
+    , ValidateNames tab ('Text "at the usage of SequenceNames") (OriginalSequenceNames db tab) (SequenceNames db tab)            
     )
 
-type family ValidateColumnAlias (tab :: *) (flds :: [*]) (colMap :: [(Symbol, Symbol)]) :: Constraint where
-  ValidateColumnAlias tab flds ('(fn, _) ': colMaps) = (ValidateColumnAlias' tab flds fn, ValidateColumnAlias tab flds colMaps)
-  ValidateColumnAlias _ flds '[] = ()
+type family OriginalFKNames db tab :: [Symbol] where
+  OriginalFKNames db tab = GetFKNames (ForeignKey db tab)
 
-type family ValidateColumnAlias' (tab :: *) (flds :: [*]) (aliased :: Symbol) :: Constraint where
-  ValidateColumnAlias' _ (fn ::: _ ': flds) fn   = ()
-  ValidateColumnAlias' tab (fn ::: _ ': flds) cn = ValidateColumnAlias' tab flds cn
-  ValidateColumnAlias' tab '[] cn                = TypeError ('Text "column " ':<>: ('ShowType cn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
+type family GetFKNames (fks :: [ForeignRef]) :: [Symbol] where
+  GetFKNames (RefBy _ _ _ n ': refs) = n ': GetFKNames refs
+  GetFKNames (Ref _ _ n ': refs)     = n ': GetFKNames refs
+  GetFKNames '[]                     = '[]
+
+type family OriginalUQNames db tab :: [Symbol] where
+  OriginalUQNames db tab = GetUQNames (Unique db tab)
+
+type family GetUQNames (uqs :: [UniqueCT]) :: [Symbol] where
+  GetUQNames (UniqueOn _ n ': uqs) = n ': GetUQNames uqs
+  GetUQNames '[]                   = '[]
+
+type family OriginalCheckNames db tab :: [Symbol] where
+  OriginalCheckNames db tab = GetCheckNames (Check db tab)
+
+type family GetCheckNames (chks :: [CheckCT]) :: [Symbol] where
+  GetCheckNames (CheckOn _ n ': chks) = n ': GetCheckNames chks
+  GetCheckNames '[]                   = '[]
+
+type family OriginalSequenceNames db tab :: [Symbol] where
+  OriginalSequenceNames db tab = GetSequenceNames (TableSequence db tab)
+
+type family GetSequenceNames (seqs :: [Sequence]) :: [Symbol] where
+  GetSequenceNames (PGSerial _ n ': seqs) = n ': GetSequenceNames seqs
+  GetSequenceNames (PGOwned _ n ': seqs)  = n ': GetSequenceNames seqs
+  GetSequenceNames '[]                    = '[]
+
+type family ValidateNames (tab :: *) (msg :: ErrorMessage) (flds :: [k]) (map :: [(Symbol, Symbol)]) :: Constraint where
+  ValidateNames tab msg flds ('(fn, _) ': maps) = (ValidateAlias' tab msg flds fn, ValidateNames tab msg flds maps)
+  ValidateNames _ _ flds '[] = ()
+
+type family ValidateAlias' (tab :: *) (msg :: ErrorMessage) (flds :: [k]) (aliased :: Symbol) :: Constraint where
+  ValidateAlias' _ _ (fn ::: _ ': flds) fn     = ()
+  ValidateAlias' _ _ (fn ': flds) fn           = ()  
+  ValidateAlias' tab msg (fn ': flds) cn       = ValidateAlias' tab msg flds cn  
+  ValidateAlias' tab msg '[] cn                = TypeError ('Text "column " ':<>: ('ShowType cn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab) ':$$: msg)
   
 type family ValidateTabPk (tab :: *) (pks :: [Symbol]) :: Constraint where
   ValidateTabPk tab (p ': ps) = If (ElemField (OriginalTableFields tab) p) (ValidateTabPk tab ps) (TypeError ('Text "column " ':<>: ('ShowType p) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)))
@@ -630,7 +665,6 @@ data DBDefaults (db :: *) tab = forall xs.(AllF (DefExpr db tab) xs) => DBDefaul
 end :: HList f '[]
 end = Nil
 
--- HList (Def tab) xs
 dbDefaults :: forall tab db xs. (AllF (DefExpr db tab) xs) => HList (Def tab) xs -> DBDefaults db tab
 dbDefaults = DBDefaults
 
