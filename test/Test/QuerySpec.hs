@@ -81,7 +81,7 @@ instance Table TestDB User where
   type Check TestDB User         = '[ 'CheckOn '["name"] "notnull"
                                     , 'CheckOn '["email"] "emailValidity"
                                     ]
-  type ForeignKey TestDB User    = '[ 'RefBy '["id"] User '["id"]
+  type ForeignKey TestDB User    = '[ 'RefBy '["id"] User '["id"] "id_fk"
 --                                    , 'Ref "id" User
                                     ]
   type ColumnNames TestDB User   = '[ '("id", "ID") ]
@@ -89,7 +89,7 @@ instance Table TestDB User where
   type Unique TestDB User        = '[ 'UniqueOn '["name"] "uq_user_name"
                                     ]
   type TableName TestDB User     = "usr"
-  type TableSequence TestDB User = '[Serial "id", Owned "id" "sq"]
+  type TableSequence TestDB User = '[Serial "id" "sq_serial", Owned "id" "sq"]
   defaults = dbDefaults
     (  #role (DBRecord.Query.toEnum Admin)
     -- :& #id   serial

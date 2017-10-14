@@ -37,24 +37,27 @@ import DBRecord.Internal.Common
 import DBRecord.Internal.Expr
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.DBTypes
+import qualified Data.List as L
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
-
---col :: forall (a :: Symbol). Col a
---col = Col
 
 class ( -- TypeCxts db (Types db)
       ) => Database (db :: *) where
   type Schema db :: Symbol
   type Schema db = "public"
+  
   type Tables db :: [Type]
+  
   type Types db :: [Type]
   type Types db = '[]
+  
   type TabIgnore db :: [Type]
   type TabIgnore db = '[]
+  
   type Baseline db :: *
   type Baseline db = ()
+  
   type Version db :: *
   type Version db = ()  
 
@@ -91,7 +94,7 @@ class ( Database db
   type PrimaryKeyName db tab :: Maybe Symbol
   type PrimaryKeyName db tab = 'Nothing
 
-  type ForeignKey db tab :: [ForeignRef Type Type]
+  type ForeignKey db tab :: [ForeignRef]
   type ForeignKey db tab = '[]
 
   type ForeignKeyNames db tab :: [(Symbol, Symbol)]
@@ -100,8 +103,8 @@ class ( Database db
   type Unique db tab     :: [UniqueCT]
   type Unique db tab = '[]
 
-  type UniqueKeyNames db tab :: [(Symbol, Symbol)]
-  type UniqueKeyNames db tab = '[]
+  type UniqueNames db tab :: [(Symbol, Symbol)]
+  type UniqueNames db tab = '[]
 
   type HasDefault db tab :: [Symbol]
   type HasDefault db tab = '[]
@@ -119,7 +122,7 @@ class ( Database db
   type TableName db tab = DefaultTableName tab
 
   -- NOTE: Validations not in place
-  type TableSequence db tab :: [Sequence Type Type]
+  type TableSequence db tab :: [Sequence]
   type TableSequence db tab = '[]
 
   type SequenceNames db tab :: [(Symbol, Symbol)]
@@ -134,16 +137,16 @@ class ( Database db
   checks :: DBChecks db tab
   checks = DBChecks Nil
 
-data Sequence db tab = PGSerial Symbol   -- ^ Column
-                                Symbol   -- ^ Sequence Name
-                     | PGOwned  Symbol   -- ^ Column
-                                Symbol   -- ^ Sequence Name
+data Sequence = PGSerial Symbol   -- ^ Column
+                         Symbol   -- ^ Sequence Name
+              | PGOwned  Symbol   -- ^ Column
+                         Symbol   -- ^ Sequence Name
 
 type family Serial (cname :: Symbol) (seqname :: Symbol) where
-  Serial cname seqname = PGSerial cname seqname
+  Serial cname seqname = 'PGSerial cname seqname
 
 type family Owned (cname :: Symbol) (seqname :: Symbol) where
-  Owned cname seqname = PGOwned cname seqname
+  Owned cname seqname = 'PGOwned cname seqname
 
 class ( Generic ty
       ) => UDType (db :: *) (ty :: *) where
@@ -158,14 +161,20 @@ type ColType  = Text
 data Column   = Column !ColName !ColType
   deriving (Show)
 
-data DBTag (db :: *) (tab :: *) = DBTagFk db tab (ForeignRef db tab)
-                                | DBTagSeq db tab (Sequence db tab)
+data DBTag (db :: *) (tab :: *) = DBTagFk db tab ForeignRef
+                                | DBTagSeq db tab Sequence
 
-type family TagEachFks (db :: *) (tab :: *) (ents :: [ForeignRef Type Type]) :: [DBTag Type Type] where
+data TagK a = Tag Type a
+
+type family TagEach (db :: *) (ent :: [k]) :: [TagK k] where
+  TagEach db (ent ': ents) = Tag db ent ': TagEach db ents
+  TagEach db '[]           = '[]
+
+type family TagEachFks (db :: *) (tab :: *) (ents :: [ForeignRef]) :: [DBTag Type Type] where
   TagEachFks db tab '[]       = '[]
   TagEachFks db tab (e ': es) = 'DBTagFk db tab e ': TagEachFks db tab es
 
-type family TagEachSeqs (db :: *) (tab :: *) (ents :: [Sequence Type Type]) :: [DBTag Type Type] where
+type family TagEachSeqs (db :: *) (tab :: *) (ents :: [Sequence]) :: [DBTag Type Type] where
   TagEachSeqs db tab '[]       = '[]
   TagEachSeqs db tab (e ': es) = 'DBTagSeq db tab e ': TagEachSeqs db tab es
 
@@ -181,10 +190,34 @@ data instance Sing (b :: Bool) where
   STrue :: Sing 'True
   SFalse :: Sing 'False
 
+data instance Sing (t :: Maybe k) where
+  SJust     :: Sing (a :: k) -> Sing ('Just a)
+  SNothing  :: Sing 'Nothing
+
+data instance Sing (t :: (k1, k2)) where
+  STuple :: Sing (a :: k1) -> Sing (b :: k2) -> Sing '(a, b)
+
 data instance Sing (xs :: [k]) where
   SNil  :: Sing '[]
   SCons :: Sing x -> Sing xs -> Sing (x ': xs)
 
+data instance Sing (a :: TagK k) where
+  STag :: Sing tag -> Sing a -> Sing ('Tag tag a)
+
+data instance Sing (uq :: UniqueCT) where
+  SUniqueOn :: Sing uniqFlds -> Sing uniqOn -> Sing (UniqueOn uniqFlds uniqOn)
+
+data instance Sing (fk :: ForeignRef) where
+  SRefBy :: Sing cols -> Sing reft -> Sing refCols -> Sing fkname -> Sing ('RefBy cols reft refCols fkname)
+  SRef   :: Sing col -> Sing reft -> Sing fkname -> Sing ('Ref col reft fkname)
+
+data instance Sing (ch :: CheckCT) where
+  SCheck :: Sing cols -> Sing cname -> Sing ('CheckOn cols cname)
+
+data instance Sing (uq :: Sequence) where
+  SPGSerial :: Sing col -> Sing seqn -> Sing ('PGSerial col seqn)
+  SPGOwned  :: Sing col -> Sing seqn -> Sing ('PGOwned col seqn)
+  
 data instance Sing (dbTag :: DBTag db tab) where
   SDBTagRefBy :: ( AllF SingE (MapAliasedCol fcols (ColumnNames db tab))
                  , AllF SingE (MapAliasedCol rcols (ColumnNames db reft))
@@ -193,10 +226,6 @@ data instance Sing (dbTag :: DBTag db tab) where
   SDBTagRef :: KnownSymbol (TableName db reft) => Sing db -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing reft -> Sing ('DBTagFk db tab ('Ref col reft fkname))
   SDBSeqPGSerial :: (KnownSymbol (TableName db tab)) => Sing db -> Sing (TableName db tab) -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing ('DBTagSeq db tab ('PGSerial col seqn))
   SDBSeqPGOwned :: (KnownSymbol (TableName db tab), KnownSymbol seqn) => Sing db -> Sing (TableName db tab) -> Sing seqn -> Sing (AliasedCol col (ColumnNames db tab)) -> Sing ('DBTagSeq db tab ('PGOwned col seqn))  
-
-data instance Sing (ch :: CheckCT) where
-  SCheck :: ( All SingE cols
-           ) => Sing cols -> Sing cname -> Sing ('CheckOn cols cname)
 
 data instance Sing (ch :: DefSyms) where
   SDef :: ( All SingE cols
@@ -211,6 +240,15 @@ instance SingI 'True where
 instance SingI 'False where
   sing = SFalse
 
+instance (SingI a, SingI b) => SingI ( '(a, b)) where
+  sing = STuple sing sing
+
+instance (SingI a) => SingI ('Just a) where
+  sing = SJust sing
+
+instance SingI 'Nothing where
+  sing = SNothing
+
 instance SingI '[] where
   sing = SNil
 
@@ -220,8 +258,26 @@ instance (SingI x, SingI xs) => SingI (x ': xs) where
 instance (KnownSymbol sy) => SingI (sy :: Symbol) where
   sing = SSym
 
+instance (SingI a, SingI tag) => SingI (Tag tag a)  where
+  sing = STag sing sing
+
 instance (Typeable t) => SingI (t :: *) where
   sing = STypeRep
+
+instance (SingI uniqFlds, SingI uniqOn) => SingI (UniqueOn uniqFlds uniqOn) where
+  sing = SUniqueOn sing sing 
+
+instance (SingI cols, SingI reft, SingI refcols, SingI fkname) => SingI (RefBy cols reft refcols fkname) where
+  sing = SRefBy sing sing sing sing
+
+instance (SingI col, SingI reft, SingI fkname) => SingI (Ref col reft fkname) where
+  sing = SRef sing sing sing
+
+instance (SingI col, SingI seqn) => SingI (PGSerial col seqn)  where
+  sing = SPGSerial sing sing
+
+instance (SingI col, SingI seqn) => SingI (PGOwned col seqn)  where
+  sing = SPGOwned sing sing
 
 instance ( SingI db
          , SingI reft
@@ -276,11 +332,83 @@ instance SingE (sy :: Symbol) where
   type Demote sy = String
   fromSing SSym = symbolVal (Proxy :: Proxy sy)
 
+type family Fst (tup :: (k1, k2)) :: k1 where
+  Fst '(a, b) = a
+
+type family Snd (tup :: (k1, k2)) :: k2 where
+  Snd '(a, b) = b
+
+type family MaybeCtx (ctx :: k -> Constraint) (m :: Maybe k) :: Constraint where
+  MaybeCtx ctx ('Just m) = ctx m
+  MaybeCtx _   'Nothing  = ()
+
+type family UqCtx (ctx :: Symbol -> Constraint) (uq :: UniqueCT) :: Constraint where
+  UqCtx ctx ('UniqueOn uniqFlds uniqOn) = (All ctx uniqFlds, ctx uniqOn)
+
+type family FKCtx (ctx :: Symbol -> Constraint) (fk :: TagK ForeignRef) :: Constraint where
+  FKCtx ctx (Tag db ('RefBy cols reft refcols name)) = (All ctx cols, All ctx refcols, ctx name, KnownSymbol (DefaultTableName reft)
+                                                       , SingE (ColumnNames db reft), SingI (ColumnNames db reft), SingE (TableName db reft)
+                                                       , SingE (OriginalTableFieldNames reft), SingI (OriginalTableFieldNames reft)
+
+                                                       , Table db reft
+                                                       )
+  FKCtx ctx (Tag db ('Ref col reft name))            = (ctx col, KnownSymbol (DefaultTableName reft), ctx name, SingE (ColumnNames db reft)
+                                                       , SingI (ColumnNames db reft), SingE (TableName db reft), Table db reft
+                                                       , SingE (OriginalTableFieldNames reft), SingI (OriginalTableFieldNames reft)
+                                                       )
+
+instance ( SingE (Fst tup)
+         , SingE (Snd tup)
+         ) => SingE (tup :: (k1, k2)) where
+  type Demote (tup :: (k1, k2)) = (Demote (Any :: k1), Demote (Any :: k2))
+  fromSing (STuple x y) = (fromSing x, fromSing y)
+
+instance (MaybeCtx SingE m) => SingE (m :: Maybe k) where
+  type Demote (m :: Maybe k) = Maybe (Demote (Any :: k))
+  fromSing SNothing   = Nothing
+  fromSing (SJust x)  = Just (fromSing x)
+  
 instance All SingE xs => SingE (xs :: [k]) where
   type Demote (xs :: [k]) = [Demote (Any :: k)]
   fromSing SNil         = []
   fromSing (SCons x xs) = fromSing x : fromSing xs
 
+instance (UqCtx SingE uq) => SingE (uq :: UniqueCT) where
+  type Demote (uq :: UniqueCT)         = (Demote (Any :: [Symbol]), Demote (Any :: Symbol))
+  fromSing (SUniqueOn uniqFlds uniqOn) = (fromSing uniqFlds, fromSing uniqOn)
+
+instance (FKCtx SingE fk) => SingE (fk :: TagK ForeignRef) where
+  type Demote (fk :: TagK ForeignRef) = ForeignRefD
+  fromSing (STag db (SRefBy cols reft refcols fkname)) =
+    RefByD (fromSing fkname) (fromSing cols)
+           (fromSingDefTabName reft) (fromSing refcols)
+           (fromSingTabName db reft) (fromSingColNames db reft) 
+  fromSing (STag db (SRef col reft fkname)) =
+    RefD  (fromSing fkname) (fromSing col) (fromSingDefTabName reft)
+          (fromSingTabName db reft) (fromSingColNames db reft)
+
+fromSingDefTabName :: forall reft.
+                      ( SingI (DefaultTableName reft)
+                      , SingE (DefaultTableName reft)
+                      ) => Sing reft -> Demote (DefaultTableName reft :: Symbol)
+fromSingDefTabName _ = fromSing (sing :: Sing (DefaultTableName reft))
+
+fromSingTabName :: forall db reft.
+                      ( SingI (TableName db reft)
+                      , SingE (TableName db reft)
+                      , Table db reft
+                      ) => Sing db -> Sing reft -> Demote (TableName db reft :: Symbol)
+fromSingTabName _ _ = fromSing (sing :: Sing (TableName db reft))
+
+fromSingColNames :: forall db reft.
+                      ( Table db reft
+                      , SingE (ColumnNames db reft)
+                      , SingE (OriginalTableFieldNames reft)
+                      , SingI (OriginalTableFieldNames reft)
+                      , SingI (ColumnNames db reft)
+                      ) => Sing db -> Sing reft -> [ColumnNameInfo]
+fromSingColNames _ _ = colNamesInfo (Proxy :: Proxy db) (Proxy :: Proxy reft)
+                      
 tabName :: forall db t proxy.
   KnownSymbol (TableName db t) => proxy db -> proxy t -> String
 tabName _ _ = symbolVal (Proxy :: Proxy (TableName db t))
@@ -299,6 +427,11 @@ instance SingE (defs :: DefSyms) where
 
 data DemotedDBTag = DemotedDBTagFk   ![Text] !Text ![Text]
                   | DemotedDBTagSeq  !Text   !Text (Maybe Text)
+
+instance SingE (seq :: Sequence) where
+  type Demote seq = (String, String, SequenceType)
+  fromSing (SPGSerial col seqn) = (fromSing col, fromSing seqn, SeqSerial)
+  fromSing (SPGOwned col seqn)  = (fromSing col, fromSing seqn, SeqOwned)
   
 instance SingE (dbTag :: DBTag Type Type) where
   type Demote dbTag = DemotedDBTag
@@ -309,11 +442,11 @@ instance SingE (dbTag :: DBTag Type Type) where
   fromSing (SDBTagRef db coln reft) =
     DemotedDBTagFk [T.pack $ fromSing coln]
     (T.pack $ tabName db reft) [T.pack $ fromSing coln]
-  fromSing (SDBSeqPGSerial db tab col) =
-    DemotedDBTagSeq (T.pack $ fromSing tab) (T.pack $ fromSing col)
+  fromSing (SDBSeqPGSerial _db tab coln) =
+    DemotedDBTagSeq (T.pack $ fromSing tab) (T.pack $ fromSing coln)
                     Nothing
-  fromSing (SDBSeqPGOwned db tab seqn col) =
-    DemotedDBTagSeq (T.pack $ fromSing tab) (T.pack $ fromSing col)
+  fromSing (SDBSeqPGOwned _db tab seqn coln) =
+    DemotedDBTagSeq (T.pack $ fromSing tab) (T.pack $ fromSing coln)
                     (Just (T.pack $ fromSing seqn))
 
 newtype I a = I a
@@ -343,7 +476,7 @@ type family ValidateTabPk (tab :: *) (pks :: [Symbol]) :: Constraint where
   ValidateTabPk tab (p ': ps) = If (ElemField (OriginalTableFields tab) p) (ValidateTabPk tab ps) (TypeError ('Text "column " ':<>: ('ShowType p) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)))
   ValidateTabPk tab '[]       = ()
 
-type family ValidateTabFk db tab (fks :: [ForeignRef Type Type]) :: Constraint where
+type family ValidateTabFk db tab (fks :: [ForeignRef]) :: Constraint where
   ValidateTabFk db tab ('Ref fn reft _ ': fks)
     = ( MatchFkFields db tab reft (FindFields (OriginalTableFields tab) '[fn]) (FindFields (OriginalTableFields reft) '[fn])
 --        MatchFkRefFld tab reft fn (FindField (OriginalTableFields tab) fn) (FindField (OriginalTableFields reft) (HeadPk reft (PrimaryKey db reft)))
@@ -452,9 +585,9 @@ type family GetUniqBy (un :: Symbol) (uqs :: [UniqueCT]) :: Maybe [Symbol] where
   GetUniqBy un1 ('UniqueOn fs un2 : uqs) = GetUniqBy un1 uqs
   GetUniqBy _ '[]                        = 'Nothing
 
-data ForeignRef (db :: *) (refd :: *)
-  = RefBy [Symbol] refd [Symbol] Symbol
-  | Ref Symbol refd Symbol
+data ForeignRef -- (db :: *) (refd :: *)
+  = RefBy [Symbol] Type [Symbol] Symbol
+  | Ref Symbol Type Symbol
 
 data UniqueCT = UniqueOn [Symbol] Symbol
 
@@ -577,36 +710,6 @@ type family GetTypeFields (t :: *) :: [(Symbol, [*])] where
 newtype EnumType a = EnumType a
 newtype SumType a = SumType a
 
-{-
-ERROR:  foreign key constraint "pk_users" cannot be implemented
-DETAIL:  Key columns "id" and "id" are of incompatible types: text and integer.
--
-ERROR:  column "id" referenced in foreign key constraint does not exist
--
-ERROR:  there is no unique constraint matching given keys for referenced table "super_user"
--}
-
-{- Constraints Naming Convention
- "ix": 'ix_%(column_0_label)s',
- "uq": "uq_%(table_name)s_%(column_0_name)s",
- "ck": "ck_%(table_name)s_%(constraint_name)s",
- "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
- "pk": "pk_%(table_name)s"
--}
-
-{-
-type family DBConstraintFmt db (tab :: *) (ct :: k) :: [Symbol] where
-  DBConstraintFmt db tab (pks :: [Symbol])    = "pk" ': (TableName db tab) ': '[]
-  DBConstraintFmt db tab (uqs :: [[Symbol]])  = "uk" ': (TableName db tab) ': (Concat uqs)
-  DBConstraintFmt db tab ('Ref fld reft)     = "fk" ': (TableName db tab) ': fld ': '[(TableName db reft)]
-  DBConstraintFmt db tab ('RefBy fs reft ft) = "fk" ': (TableName db tab) ': (TableName db reft) ': fs -- TODO: Maybe change the ord of reft.
-  DBConstraintFmt db tab ('CheckOn fs cn)    = "ck" ': (TableName db tab) ': '[cn]
-  DBConstraintFmt db tab ('Ix col)           = '["ix", col]
--}
-
--- type CheckExpr = Text
--- type DefExpr = Text
-
 recordToList :: HList (Const a) rs -> [a]
 recordToList Nil = []
 recordToList (x :& xs) = getConst x : recordToList xs
@@ -639,11 +742,11 @@ happly f (v :& vs) = f v : happly f vs
 happly f Nil       = []
 -}
 
-happlyChkCtx :: (AllF (ChkCtx db tab) chks) => HList (Chk db tab) chks -> [(T.Text, PQ.PrimExpr)]
+happlyChkCtx :: (AllF (ChkCtx db tab) chks) => HList (Chk db tab) chks -> [(String, PQ.PrimExpr)]
 happlyChkCtx (v :& vs) = chkCtx v : happlyChkCtx vs
 happlyChkCtx  Nil      = []
 
-happlyDefExprs :: (AllF (DefExpr db tab) xs) => Proxy db -> HList (Def tab) xs -> [(T.Text, PQ.PrimExpr)]
+happlyDefExprs :: (AllF (DefExpr db tab) xs) => Proxy db -> HList (Def tab) xs -> [(String, PQ.PrimExpr)]
 happlyDefExprs p (v :& vs) = defExpr p v : happlyDefExprs p vs
 happlyDefExprs _  Nil      = []
 
@@ -652,13 +755,13 @@ type family CheckCtx' db tab (chk :: CheckCT) val :: Constraint where
     CheckCtx db tab chkOns chkName val
 
 class ChkCtx db tab (chk :: CheckCT) where
-  chkCtx :: Chk db tab chk -> (T.Text, PQ.PrimExpr)
+  chkCtx :: Chk db tab chk -> (String, PQ.PrimExpr)
 
 instance ChkCtx db tab ('CheckOn chkOns chkName) where
   chkCtx (Chk val) = checkCtx (Proxy @db) (Proxy @tab) (Proxy @chkOns) (Proxy @chkName) val
 
 class CheckCtx db tab (chkOns :: [Symbol]) (chkName :: Symbol) val where
-  checkCtx :: Proxy db -> Proxy tab -> Proxy chkOns -> Proxy chkName -> val -> (T.Text, PQ.PrimExpr)
+  checkCtx :: Proxy db -> Proxy tab -> Proxy chkOns -> Proxy chkName -> val -> (String, PQ.PrimExpr)
 
 instance ( CheckCtx db tab chkOns chkName b
          , colMap ~ (ColumnNames db tab)
@@ -666,18 +769,327 @@ instance ( CheckCtx db tab chkOns chkName b
          , KnownSymbol aCol
          ) => CheckCtx db tab (chkOn ': chkOns) chkName (Expr sc a -> b) where
   checkCtx pDb pTab _ pChkN v =
-    let colE  = unsafeCol [colN]
-        colN = T.pack (symbolVal (Proxy @aCol))
+    let colE  = unsafeCol [T.pack colN]
+        colN = symbolVal (Proxy @aCol)
     in  checkCtx pDb pTab (Proxy @chkOns) pChkN (v colE)
 
 instance (KnownSymbol chkName) => CheckCtx db tab '[] chkName (Expr sc a) where
-  checkCtx _ _ _ _ e = (T.pack $ symbolVal (Proxy @chkName), getExpr e)
+  checkCtx _ _ _ _ e = (symbolVal (Proxy @chkName), getExpr e)
 
 class DefExpr (db :: *) (tab :: *) (fld :: Symbol) where
-  defExpr :: Proxy db -> Def tab fld -> (T.Text, PQ.PrimExpr)
+  defExpr :: Proxy db -> Def tab fld -> (String, PQ.PrimExpr)
 
 instance ( colMap ~ ColumnNames db tab
          , aCol ~ AliasedCol fld colMap
          , KnownSymbol aCol
          ) => DefExpr (db :: *) (tab :: *) (fld :: Symbol) where
-  defExpr _ (Def (Expr e)) = (T.pack $ symbolVal (Proxy @aCol), e)
+  defExpr _ (Def (Expr e)) = (symbolVal (Proxy @aCol), e)
+
+-- Value level counterparts
+newtype TypeName = TypeName { typeName :: Text }
+                 deriving (Show, Eq)
+                          
+data DatabaseInfo = DatabaseInfo { dbName       :: Text
+                                 , schemaName   :: Text
+                                 , typeNames    :: [TypeName]
+                                 , ignoredTabs  :: ()
+                                 , baseline     :: ()
+                                 , version      :: ()
+                                 , tableInfos   :: [TableInfo]
+                                 } deriving (Show, Eq)
+
+data TableInfo = TableInfo { primaryKeyInfo   :: PrimaryKeyInfo
+                           , foreignKeyInfo   :: [ForeignKeyInfo]
+                           , defaultInfo      :: [DefaultInfo]
+                           , checkInfo        :: [CheckInfo]
+                           , uniqueInfo       :: [UniqueInfo]
+                           , sequenceInfo     :: [SequenceInfo]
+                           , tableName        :: TableNameInfo
+                           , columnNames      :: [ColumnNameInfo]
+                           , ignoredCols      :: ()
+                           } deriving (Show, Eq)
+
+data TableNameInfo = TableNameInfo { hsTableName :: Text
+                                   , dbTableName :: Text
+                                   } deriving (Show, Eq)
+
+data ColumnNameInfo = ColumnNameInfo { hsColumnName :: Text
+                                     , dbColumnName :: Text
+                                     } deriving (Show, Eq)
+
+data PrimaryKeyInfo = PrimaryKeyInfo { pkeyName    :: Maybe Text
+                                     , pkeyColumns :: [ColumnNameInfo]
+                                     } deriving (Eq, Show)
+
+data ForeignKeyInfo = ForeignKeyInfo { fkeyHsName  :: Text
+                                     , fkeyDbName  :: Text
+                                     , fkeyType    :: ForeignKeyType
+                                     } deriving (Show, Eq)
+
+data ForeignKeyType         = ForeignKeyRefBy [ColumnNameInfo]     -- ^ columns
+                                              TableNameInfo       -- ^ ref table
+                                              [ColumnNameInfo]     -- ^ ref cols
+                            | ForeignKeyRef   ColumnNameInfo      -- ^ col
+                                              TableNameInfo       -- ^ ref table
+                                              ColumnNameInfo      -- ^ ref col
+                    deriving (Show, Eq)
+                             
+data UniqueInfo = UniqueInfo { uqName    :: Text
+                             , uqColumns :: [ColumnNameInfo]
+                             } deriving (Show, Eq)
+
+data DefaultInfo = DefaultInfo { defaultOn  :: ColumnNameInfo
+                               , defaultExp :: PQ.PrimExpr
+                               } deriving (Show, Eq)
+
+data CheckInfo = CheckInfo { checkOn   :: ColumnNameInfo
+                           , checkExp  :: PQ.PrimExpr
+                           , checkName :: Text
+                           } deriving (Show, Eq)
+
+data SequenceInfo = SequenceInfo { seqName :: Text
+                                 , seqOn   :: ColumnNameInfo
+                                 , seqType :: SequenceType
+                                 } deriving (Show, Eq)
+
+data SequenceType = SeqOwned | SeqSerial
+                  deriving (Show, Eq)
+
+data ForeignRefD = RefByD String -- ^ fk name
+                          [String] -- ^ cols
+                          String   -- ^ ref tab name
+                          [String] -- ^ ref cols
+                          String   -- ^ db tab
+                          [ColumnNameInfo] -- ^ ref col map
+                 | RefD   String   -- ^ fk name
+                          String   -- ^ col
+                          String   -- ^ ref tab name
+                          String   -- ^ db tab
+                          [ColumnNameInfo] -- ^ ref col map
+
+databaseInfo :: Proxy db -> DatabaseInfo
+databaseInfo = undefined
+
+tableInfo :: forall db tab.
+             ( SingCtx db tab               
+             ) => Proxy db -> Proxy tab -> TableInfo
+tableInfo db tab =
+  let tabNI  = tabNameInfo db tab
+      colNIs = colNamesInfo db tab
+  in  TableInfo { primaryKeyInfo  = pkInfo db tab tabNI colNIs
+                , foreignKeyInfo  = fkInfo db tab tabNI colNIs
+                , uniqueInfo      = uqInfo db tab tabNI colNIs
+                , defaultInfo     = defInfo db tab tabNI colNIs
+                , checkInfo       = cksInfo db tab tabNI colNIs
+                , sequenceInfo    = seqsInfo db tab tabNI colNIs
+                , tableName       = tabNI
+                , columnNames     = colNIs
+                , ignoredCols     = ()
+                }
+
+pkInfo :: forall db tab.
+          ( Table db tab
+          , Database db
+          , SingE (PrimaryKeyName db tab)
+          , SingI (PrimaryKeyName db tab)
+          , SingE (PrimaryKey db tab)
+          , SingI (PrimaryKey db tab)
+          ) => Proxy db -> Proxy tab -> TableNameInfo -> [ColumnNameInfo] -> PrimaryKeyInfo
+pkInfo _ _ tni cnis =
+  PrimaryKeyInfo { pkeyName    = fmap T.pack (fromSing (sing :: Sing (PrimaryKeyName db tab)))
+                 , pkeyColumns = filterColumnNames (fromSing (sing :: Sing (PrimaryKey db tab))) cnis
+                 }
+
+fkInfo :: forall db tab.
+          ( Table db tab
+          , Database db
+          , SingE (TagEach db (ForeignKey db tab))
+          , SingI (TagEach db (ForeignKey db tab))
+          , SingE (ForeignKeyNames db tab)
+          , SingI (ForeignKeyNames db tab)
+          ) => Proxy db -> Proxy tab -> TableNameInfo -> [ColumnNameInfo] -> [ForeignKeyInfo]
+fkInfo _ _ tni cnis = 
+  let fkds = fromSing (sing :: Sing (TagEach db (ForeignKey db tab)))
+      fkNameMappings = fromSing (sing :: Sing (ForeignKeyNames db tab))
+  in map (fkInfoOne fkNameMappings) fkds
+
+  where fkInfoOne fkMappings (RefByD fkname cols refHsTabN refcols refDbTabN refcolmap) =
+          let colInfos = filterColumnNames cols cnis
+              refColInfos = filterColumnNames refcols refcolmap
+              tabInfo  = TableNameInfo { hsTableName = T.pack refHsTabN
+                                       , dbTableName = T.pack refDbTabN
+                                       } 
+          in ForeignKeyInfo { fkeyHsName = T.pack fkname
+                            , fkeyDbName = getDbFkName fkname fkMappings
+                            , fkeyType   = ForeignKeyRefBy colInfos tabInfo refColInfos
+                            }
+        fkInfoOne fkMappings (RefD fkname col refHsTabN refDbTabN refcolmap) =
+          let colInfo = getColumnName cnis col
+              refcolInfo = getColumnName refcolmap col
+              tabInfo  = TableNameInfo { hsTableName = T.pack refHsTabN
+                                       , dbTableName = T.pack refDbTabN
+                                       }               
+          in ForeignKeyInfo { fkeyHsName = T.pack fkname
+                            , fkeyDbName = getDbFkName fkname fkMappings
+                            , fkeyType   = ForeignKeyRef colInfo tabInfo refcolInfo
+                            }
+        getDbFkName fkname fkMappings = T.pack $ 
+          case L.lookup fkname fkMappings of
+            Just fkmapped -> fkmapped
+            Nothing       -> fkname
+                                                                         
+uqInfo :: forall db tab.
+          ( Table db tab
+          , Database db
+          , SingE (Unique db tab)
+          , SingE (UniqueNames db tab)
+          , SingI (Unique db tab)
+          , SingI (UniqueNames db tab)
+          ) => Proxy db -> Proxy tab -> TableNameInfo -> [ColumnNameInfo] -> [UniqueInfo]
+uqInfo _ _ tni cnis =
+  let uniqs = fromSing (sing :: Sing (Unique db tab))
+      uniqNameMappings = fromSing (sing :: Sing (UniqueNames db tab))
+  in  map (uniqWithMapping uniqNameMappings) uniqs
+  
+  where uniqWithMapping uniqMaps (uniqFlds, uniqHsName) =
+          UniqueInfo { uqColumns = filterColumnNames uniqFlds   cnis
+                     , uqName    = lookupUniqMapping uniqHsName uniqMaps
+                     }
+        lookupUniqMapping uniqHsName uniqMaps = T.pack $ 
+          case L.lookup uniqHsName uniqMaps of
+            Just uniqDbName -> uniqDbName
+            _               -> uniqHsName
+
+defInfo :: forall db tab.
+           ( Table db tab
+           ) => Proxy db -> Proxy tab -> TableNameInfo -> [ColumnNameInfo] -> [DefaultInfo]
+defInfo _ _ _ cnis = case (checks :: DBChecks db tab) of
+  DBChecks hl -> map mkDefInfo (happlyChkCtx hl)
+
+  where mkDefInfo (n, exp) = DefaultInfo { defaultOn  = getColumnName cnis n
+                                         , defaultExp = exp
+                                         }
+
+cksInfo :: forall db tab. (Table db tab) => Proxy db -> Proxy tab -> TableNameInfo -> [ColumnNameInfo] -> [CheckInfo]
+cksInfo _ _ _ cnis = case (defaults :: DBDefaults db tab) of
+  DBDefaults hl -> map mkCheckInfo (happlyDefExprs (Proxy @db) hl)
+
+  where mkCheckInfo (n, exp) = CheckInfo { checkOn   = getColumnName cnis n
+                                         , checkExp  = exp
+                                         , checkName = lookupchkMappings chkHsn chkNameMaps
+                                         }
+
+        chkHsn            = undefined
+        chkNameMaps       = undefined
+        lookupchkMappings = undefined
+        
+seqsInfo :: forall db tab.
+            ( Table db tab
+            , Database db
+            , SingI (TableSequence db tab)
+            , SingE (TableSequence db tab)
+            , SingI (SequenceNames db tab)
+            , SingE (SequenceNames db tab)
+            ) => Proxy db -> Proxy tab -> TableNameInfo -> [ColumnNameInfo] -> [SequenceInfo]
+seqsInfo _ _ _ cnis =
+  let seqs = fromSing (sing :: Sing (TableSequence db tab))
+      seqNameMappings = fromSing (sing :: Sing (SequenceNames db tab))
+  in  map (mkSeqInfo seqNameMappings) seqs
+
+  where mkSeqInfo seqNameMaps (seqcol, seqHsn, st) =
+          SequenceInfo { seqName = lookupSeqMapping seqHsn seqNameMaps
+                       , seqOn   = getColumnName cnis seqcol
+                       , seqType = st
+                       } 
+        lookupSeqMapping seqHsName seqMaps = T.pack $ 
+          case L.lookup seqHsName seqMaps of
+            Just seqDbName -> seqDbName
+            _              -> seqHsName
+       
+
+tabNameInfo :: forall tab db.
+               ( Table db tab
+               , Database db
+               , KnownSymbol (TableName db tab)
+               , KnownSymbol (DefaultTableName tab)
+               ) => Proxy (db :: *) -> Proxy (tab :: *) -> TableNameInfo
+tabNameInfo _ _ =
+  TableNameInfo { hsTableName = T.pack (fromSing (sing :: Sing (DefaultTableName tab)))
+                , dbTableName = T.pack (fromSing (sing :: Sing (TableName db tab)))
+                }
+
+colNamesInfo :: forall tab db.
+                ( Table db tab
+                , Database db
+                , SingE (ColumnNames db tab)
+                , SingI (ColumnNames db tab)
+                , SingE (OriginalTableFieldNames tab)
+                , SingI (OriginalTableFieldNames tab)
+                ) => Proxy db -> Proxy tab -> [ColumnNameInfo]
+colNamesInfo _ _ =
+  let colMap = fromSing (sing :: Sing (ColumnNames db tab))
+      hsns   = fromSing (sing :: Sing (OriginalTableFieldNames tab))
+  in  map (go colMap) hsns
+                         
+  where go :: [(String, String)] -> String -> ColumnNameInfo
+        go cMap hsn =
+          let dbn = case L.lookup hsn cMap of
+               Just dbn' -> dbn'
+               _         -> hsn
+          in ColumnNameInfo { hsColumnName = T.pack hsn
+                            , dbColumnName = T.pack dbn
+                            }
+
+filterColumnNames :: [String] -> [ColumnNameInfo] -> [ColumnNameInfo]
+filterColumnNames hsns cnis = map (getColumnName cnis) hsns
+
+getDbColumnNames :: [ColumnNameInfo] -> [Text]
+getDbColumnNames = map dbColumnName
+
+getColumnName :: [ColumnNameInfo] -> String -> ColumnNameInfo
+getColumnName cnis hsn = 
+  let mcni = L.find (\cni -> hsColumnName cni == T.pack hsn) cnis
+  in case mcni of
+       Just cni -> cni
+       Nothing  -> error $ "Panic: invalid column name lookup for (hs)column: " ++ show hsn
+             
+class ( Table db tab
+      , Database db
+      , KnownSymbol (TableName db tab)
+      , KnownSymbol (DefaultTableName tab)
+        
+      , SingE (ColumnNames db tab)
+      , SingI (ColumnNames db tab)                  
+      , SingE (OriginalTableFieldNames tab)
+      , SingI (OriginalTableFieldNames tab)
+
+      , SingE (PrimaryKeyName db tab)
+      , SingI (PrimaryKeyName db tab)
+      , SingE (PrimaryKey db tab)
+      , SingI (PrimaryKey db tab)
+
+      , SingE (Unique db tab)
+      , SingE (UniqueNames db tab)
+      , SingI (Unique db tab)
+      , SingI (UniqueNames db tab)
+
+      , SingE (TagEach db (ForeignKey db tab))
+      , SingI (TagEach db (ForeignKey db tab))
+      , SingE (ForeignKeyNames db tab)
+      , SingI (ForeignKeyNames db tab)
+
+      , SingI (TableSequence db tab)
+      , SingE (TableSequence db tab)
+      , SingI (SequenceNames db tab)
+      , SingE (SequenceNames db tab)
+      ) => SingCtx db tab where
+
+type family OriginalTableFieldNames (tab :: *) where
+  OriginalTableFieldNames tab = GetFieldNames (OriginalTableFields tab)
+
+type family GetFieldNames (xs :: [*]) :: [Symbol] where
+  GetFieldNames (fld ::: x ': xs) = fld ': GetFieldNames xs
+  GetFieldNames '[]               = '[]
+
+reproxy :: proxy a -> Proxy a
+reproxy _ = Proxy

@@ -1,5 +1,5 @@
 {-# LANGUAGE DataKinds, TypeOperators, UndecidableInstances, OverloadedLabels, FlexibleInstances, MultiParamTypeClasses, DuplicateRecordFields, GADTs, TypeApplications, KindSignatures, DeriveGeneric, FlexibleContexts, FunctionalDependencies, ExplicitForAll, TypeFamilies, ScopedTypeVariables, OverloadedStrings, GeneralizedNewtypeDeriving, RankNTypes #-}
-module Test.MigSpec ( spec ) where
+module Test.MigSpec {-( spec )-} where
 
 import DBRecord.Schema
 import DBRecord.Migration
@@ -44,12 +44,13 @@ instance Database TestDB where
                         ]
 
 instance Table TestDB Employee where
+  type TableName TestDB Employee = "EMPloyee"
   type ColumnNames TestDB Employee = '[ '("employeeName", "emp_name")
                                       , '("userId"      , "user_id")
                                       ]
   type HasDefault TestDB Employee  = '[ "designation" ]
-  type ForeignKey TestDB Employee  = '[ RefBy '[ "userId", "employeeName" ] User '[ "id", "name" ] ]
-  type TableSequence TestDB Employee = '[Serial "id"]
+  type ForeignKey TestDB Employee  = '[ RefBy '[ "userId", "employeeName" ] User '[ "id", "name" ] "id_ref"]
+  type TableSequence TestDB Employee = '[Serial "id" "emp_seq"]
   
   defaults = dbDefaults
     (  #designation (text "common")
@@ -64,7 +65,7 @@ instance Table TestDB User where
   type PrimaryKey TestDB User    = '["id", "name"]
   type Unique TestDB User        = '[ 'UniqueOn '["name", "email"] "User_name_email_key"
                                     ]
-  type TableSequence TestDB User = '[Serial "id"]
+  type TableSequence TestDB User = '[Serial "id" "user_seq"]
   checks = dbChecks
     (  #age_positive (\a -> a .> 0)
     :& end

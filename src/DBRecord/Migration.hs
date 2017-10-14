@@ -28,7 +28,7 @@ import qualified DBRecord.Internal.Schema    as S
 import Data.Maybe
 
 import DBRecord.Internal.Migration   hiding (Column)
-import DBRecord.Internal.Schema      hiding (Column)
+import DBRecord.Internal.Schema      hiding (Column, TypeName)
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
 import DBRecord.Internal.DBTypes
@@ -163,6 +163,56 @@ mkMigrationTables :: forall db tabs.
 mkMigrationTables _ SNil             = []
 mkMigrationTables pxyDB (SCons tab tabs) = mkMigrationTable pxyDB tab ++ mkMigrationTables pxyDB tabs
 
+mkMigrationTable' :: forall db tab. (SingCtx db tab) => Proxy (db :: *) -> Sing (tab :: *) -> [PrimDDL]
+mkMigrationTable' pdb stab =
+  let tabInfo = tableInfo pdb (reproxy stab)
+      tabNDb  = dbTableName (tableName tabInfo)
+      addPks  = let pkInfo   = primaryKeyInfo tabInfo
+                    pkNameDb = maybe (genKeyName $ PkNameGen tabNDb pkColsDb) id (pkeyName pkInfo)
+                    pkColsDb = getDbColumnNames (pkeyColumns pkInfo)
+                in  addPrimaryKey (coerce tabNDb) (coerce pkNameDb) (coerce pkColsDb)
+      addUqs  = let uqInfos         = uniqueInfo tabInfo
+                    uqNameDb uqInfo = genKeyName $ UqNameGen tabNDb (uqColsDb uqInfo)
+                    -- maybe (genKeyName $ UqNameGen tabNDb uqColsDb) id (uqName uqInfo)
+                    uqColsDb uqInfo = getDbColumnNames (uqColumns uqInfo)                    
+                    addUniq uqInfo  = addUnique (coerce tabNDb)
+                                                (coerce (uqNameDb uqInfo))
+                                                (coerce (uqColsDb uqInfo))
+                in  map addUniq uqInfos
+      addFks  = let fkInfos = foreignKeyInfo tabInfo
+                    fkNameDb fkInfo = genKeyName $ FkNameGen tabNDb (fkColsDb fkInfo) (fkRefTabDb fkInfo)
+                     -- use name here?
+                    fkRefTabDb fkInfo = dbTableName (getTabInfo (fkeyType fkInfo))
+                    getTabInfo (ForeignKeyRefBy _ reft _) = reft
+                    getTabInfo (ForeignKeyRef _ reft _)   = reft
+                    fkColsDb fkInfo = getDbColumnNames (getFkColsDb (fkeyType fkInfo))
+                    fkRefColsDb fkInfo = getDbColumnNames (getRefColsDb (fkeyType fkInfo))                    
+                    getFkColsDb (ForeignKeyRefBy fkcols _ _) = fkcols
+                    getFkColsDb (ForeignKeyRef   fkcol _ _)  = [fkcol]
+                    getRefColsDb (ForeignKeyRefBy _ _ refcols) = refcols
+                    getRefColsDb (ForeignKeyRef   _ _ refcol)  = [refcol]
+                    
+                    addFk fkInfo = addForeignKey (coerce tabNDb)
+                                                 (coerce (fkNameDb fkInfo))
+                                                 (coerce (fkColsDb fkInfo))
+                                                 (coerce (fkRefTabDb fkInfo))
+                                                 (coerce (fkRefColsDb fkInfo))
+                                   
+                in  map addFk fkInfos
+      addCks  = let ckInfos = checkInfo tabInfo
+                    ckName ckInfo = genKeyName $ CkNameGen tabNDb (dbColumnName (checkOn ckInfo))
+                    addCk ckInfo = addCheckExpr (coerce tabNDb)
+                                                (coerce (ckName ckInfo))
+                                                (coerce (checkExp ckInfo))
+                in  map addCk ckInfos
+      addDefs = let defInfos = defaultInfo tabInfo
+                    addDef defInfo = addDefaultExpr (coerce tabNDb)
+                                                    (coerce (dbColumnName (defaultOn defInfo)))
+                                                    (coerce (defaultExp  defInfo))
+                in map addDef defInfos
+      
+  in  undefined
+      
 mkMigrationTable :: forall db tab pks fks chks uqs defs seqs nonNulls colMap.
                    ( Table db tab
                    , pks ~ PrimaryKey db tab
@@ -205,12 +255,16 @@ mkMigrationTable _ _
                                nextValE = PQ.FunExpr "nextVal" [seqnE]
                            in  Just (AlterTable (coerce tab) $ AlterColumn (ColName col) $ AddDefault (DefExpr nextValE))
                      in (fmap addCreateSeq tagSeqs, catMaybes (fmap createDefSeqs tagSeqs), catMaybes (fmap addAlterSeq tagSeqs))
-        addChks = let addChk (cname, chExpr) = addCheckExpr (coerce tabN) (coerce (genKeyName $ CkNameGen tabN cname)) (CheckExpr chExpr)
+        addChks = let addChk (cnameStr, chExpr) =
+                        let cname = T.pack cnameStr
+                        in addCheckExpr (coerce tabN) (coerce (genKeyName $ CkNameGen tabN cname)) (CheckExpr chExpr)
                   in fmap addChk $ case (checks :: DBChecks db tab) of
                                      DBChecks hl -> happlyChkCtx hl
         addNotNullChks = let addNonNullCtx colN = addNotNull (coerce tabN) (coerce (T.pack colN))
                          in fmap addNonNullCtx $ fromSing (sing :: Sing nonNulls)                                           
-        addDefs = let addDef (cname, dfExpr) = addDefaultExpr (coerce tabN) (coerce (cname :: T.Text)) (DefExpr dfExpr)
+        addDefs = let addDef (cnameStr, dfExpr) =
+                        let cname = T.pack cnameStr
+                        in addDefaultExpr (coerce tabN) (coerce (cname :: T.Text)) (DefExpr dfExpr)
                       defs = case (defaults :: DBDefaults db tab) of
                                      DBDefaults hl -> (happlyDefExprs (Proxy @db) hl)
                   in  fmap addDef defs
