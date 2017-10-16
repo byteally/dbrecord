@@ -167,10 +167,13 @@ mkMigrationTable' :: forall db tab. (SingCtx db tab) => Proxy (db :: *) -> Sing 
 mkMigrationTable' pdb stab =
   let tabInfo = tableInfo pdb (reproxy stab)
       tabNDb  = dbTableName (tableName tabInfo)
+      toMColumn colInfo = M.Column (coerce (dbColumnName (columnNameInfo colInfo)))
+                                   (coerce (columnTypeName colInfo))
+      createTab = [CreateTable (coerce tabNDb) (coerce (map toMColumn (columnInfo tabInfo)))]
       addPks  = let pkInfo   = primaryKeyInfo tabInfo
                     pkNameDb = maybe (genKeyName $ PkNameGen tabNDb pkColsDb) id (pkeyName pkInfo)
                     pkColsDb = getDbColumnNames (pkeyColumns pkInfo)
-                in  addPrimaryKey (coerce tabNDb) (coerce pkNameDb) (coerce pkColsDb)
+                in  [addPrimaryKey (coerce tabNDb) (coerce pkNameDb) (coerce pkColsDb)]
       addUqs  = let uqInfos         = uniqueInfo tabInfo
                     uqNameDb uqInfo = genKeyName $ UqNameGen tabNDb (uqColsDb uqInfo)
                     -- maybe (genKeyName $ UqNameGen tabNDb uqColsDb) id (uqName uqInfo)
@@ -199,19 +202,48 @@ mkMigrationTable' pdb stab =
                                                  (coerce (fkRefColsDb fkInfo))
                                    
                 in  map addFk fkInfos
-      addCks  = let ckInfos = checkInfo tabInfo
-                    ckName ckInfo = genKeyName $ CkNameGen tabNDb (dbColumnName (checkOn ckInfo))
-                    addCk ckInfo = addCheckExpr (coerce tabNDb)
-                                                (coerce (ckName ckInfo))
-                                                (coerce (checkExp ckInfo))
-                in  map addCk ckInfos
+      addChks  = let ckInfos = checkInfo tabInfo
+                     ckName ckInfo = genKeyName $ CkNameGen tabNDb (checkName ckInfo)
+                     addCk ckInfo = addCheckExpr (coerce tabNDb)
+                                                 (coerce (ckName ckInfo))
+                                                 (coerce (checkExp ckInfo))
+                 in  map addCk ckInfos
       addDefs = let defInfos = defaultInfo tabInfo
                     addDef defInfo = addDefaultExpr (coerce tabNDb)
-                                                    (coerce (dbColumnName (defaultOn defInfo)))
+                                                    (coerce (dbColumnName (columnNameInfo (defaultOn defInfo))))
                                                     (coerce (defaultExp  defInfo))
                 in map addDef defInfos
+      addNotNullChks = let notNullCols              = getNonNullableColumns (columnInfo tabInfo)
+                           addNotNullCtx notNullCol = addNotNull (coerce tabNDb) (coerce (dbColumnName (columnNameInfo notNullCol)))
+                       in map addNotNullCtx notNullCols
+      cTabSeqs = let createSeq colInfo seqn = let coln = dbColumnName (columnNameInfo colInfo)
+                                              in CreateSeq (coerce $ doubleQuoteT (genKeyName $ SeqNameGen tabNDb coln (Just seqn)))
+                 in  map (\si -> createSeq (seqOn si) (seqName si)) (sequenceInfo tabInfo)
+      oTabSeqs = let ownSeq colInfo seqn seqT = case seqT of
+                       SeqOwned -> let coln = dbColumnName (columnNameInfo colInfo)
+                                   in Just $ AlterSeq (coerce $ doubleQuoteT (genKeyName $ SeqNameGen tabNDb coln Nothing))
+                                            (AddOwner (coerce tabNDb) (coerce coln))
+                       _        -> Nothing
+                 in  catMaybes $ map (\si -> ownSeq (seqOn si) (seqName si) (seqType si)) (sequenceInfo tabInfo)
+      defSeqs = undefined
+{-                     
+      defSeqs = let seqn = quoteT $ doubleQuoteT (genKeyName $ SeqNameGen tab col Nothing)
+                    seqnE = PQ.ConstExpr (PQ.Other seqn)
+                    nextValE = PQ.FunExpr "nextVal" [seqnE]
+                in  Just (AlterTable (coerce tab) $ AlterColumn (ColName col) $ AddDefault (DefExpr nextValE))
+-}
       
-  in  undefined
+  in  concat [ cTabSeqs
+             , createTab
+             , oTabSeqs
+             , addPks  
+             , addUqs
+             , addFks
+             , addChks
+             , defSeqs
+             , addDefs
+             , addNotNullChks
+             ]
       
 mkMigrationTable :: forall db tab pks fks chks uqs defs seqs nonNulls colMap.
                    ( Table db tab
@@ -259,7 +291,7 @@ mkMigrationTable _ _
                         let cname = T.pack cnameStr
                         in addCheckExpr (coerce tabN) (coerce (genKeyName $ CkNameGen tabN cname)) (CheckExpr chExpr)
                   in fmap addChk $ case (checks :: DBChecks db tab) of
-                                     DBChecks hl -> happlyChkCtx hl
+                                     DBChecks hl -> undefined -- happlyChkExpr hl
         addNotNullChks = let addNonNullCtx colN = addNotNull (coerce tabN) (coerce (T.pack colN))
                          in fmap addNonNullCtx $ fromSing (sing :: Sing nonNulls)                                           
         addDefs = let addDef (cnameStr, dfExpr) =
