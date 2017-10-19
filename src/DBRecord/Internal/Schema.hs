@@ -42,6 +42,11 @@ import qualified Data.List as L
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
 
+type ColName  = Text
+type ColType  = Text
+data Column   = Column !ColName !ColType
+  deriving (Show)
+           
 class ( -- TypeCxts db (Types db)
       ) => Database (db :: *) where
   type Schema db :: Symbol
@@ -71,6 +76,19 @@ class ( Database db
       , AssertCxt (Elem (Tables db) tab) ('Text "Database " ':<>: 'ShowType db ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
       , ValidateTableProps db tab
       , KnownSymbol (TableName db tab)
+      , SingI (MapAliasedCol (PrimaryKey db tab) (ColumnNames db tab))
+      , SingI (GetAllUniqs (Unique db tab) (ColumnNames db tab))
+      -- , SingI (TagEachFks db tab (ForeignKey db tab))
+      -- , SingI (Check db tab)
+      -- , SingI ('DefSyms (HasDefault db tab))
+      , SingI (GetNonNulls (DB db) (OriginalTableFields tab) (ColumnNames db tab))
+      , All SingE (GetAllUniqs (Unique db tab) (ColumnNames db tab))
+      -- , All SingE (TagEachFks db tab (ForeignKey db tab))
+      -- , All SingE (Check db tab)
+      , AllF SingE (MapAliasedCol (PrimaryKey db tab) (ColumnNames db tab))
+      , AllF SingE (GetNonNulls (DB db) (OriginalTableFields tab) (ColumnNames db tab))
+      -- , SingE ('DefSyms (HasDefault db tab))
+      , SingCols db (OriginalTableFields tab) (ColumnNames db tab)        
       , Generic tab
       ) => Table (db :: *) (tab :: *) where
   type PrimaryKey db tab :: [Symbol]
@@ -140,7 +158,7 @@ class ( Generic ty
 data UDTypeMappings = Composite [(Symbol, Symbol)]
                     | Flat [(Symbol, Symbol)]
 
-data TagHK (b :: tk) (a :: k) = Tag b a
+data TagHK b a = Tag b a
 
 type family TagEach (db :: tk) (ent :: [k]) :: [TagHK tk k] where
   TagEach db (ent ': ents) = Tag db ent ': TagEach db ents
@@ -618,7 +636,7 @@ data ForeignRef
   | Ref Symbol Type Symbol
 
 data UniqueCT = UniqueOn [Symbol] Symbol
-
+data Uq (un :: Symbol) = Uq
 data CheckCT = CheckOn [Symbol] Symbol
 
 data Ix = Ix Symbol
