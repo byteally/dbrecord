@@ -211,6 +211,13 @@ data instance Sing (t :: DBTypeK) where
   SDBNullable    :: Sing a -> Sing ('DBNullable a)
   SDBCustomType  :: Sing t -> Sing dbt -> Sing b -> Sing ('DBCustomType t dbt b)
   SDBTypeName    :: Sing sym -> Sing ('DBTypeName sym)
+
+data instance Sing (db :: DbK) where
+  SPostgres  :: Sing Postgres
+  SMySQL     :: Sing MySQL
+  SSQLite    :: Sing SQLite
+  SCassandra :: Sing Cassandra
+  SPresto    :: Sing Presto
   
 data instance Sing (a :: TagHK tk k) where
   STag :: Sing tag -> Sing a -> Sing ('Tag tag a)
@@ -359,6 +366,21 @@ instance ( SingI cols
          ) => SingI ('CheckOn cols cname) where
   sing = SCheck sing sing
 
+instance SingI 'Postgres where
+  sing = SPostgres
+
+instance SingI 'MySQL where
+  sing = SMySQL
+
+instance SingI 'SQLite where
+  sing = SSQLite
+
+instance SingI 'Cassandra where
+  sing = SCassandra
+
+instance SingI 'Presto where
+  sing = SPresto
+
 class SingE (a :: k) where
   type Demote a :: *
   fromSing :: Sing a -> Demote (Any :: k)
@@ -437,6 +459,14 @@ instance (FKCtx SingE fk) => SingE (fk :: TagHK Type ForeignRef) where
   fromSing (STag db (SRef col reft fkname)) =
     RefD  (fromSing fkname) (fromSing col) (fromSingDefTabName reft)
           (fromSingTabName db reft) (fromSingColNames db reft)
+
+instance SingE (db :: DbK) where
+  type Demote dbK = DbK
+  fromSing SPostgres  = Postgres
+  fromSing SMySQL     = MySQL
+  fromSing SSQLite    = SQLite
+  fromSing SCassandra = Cassandra
+  fromSing SPresto    = Presto
 
 fromSingDefTabName :: forall reft.
                       ( SingI (DefaultTableName reft)
@@ -637,6 +667,14 @@ data ForeignRef
 
 data UniqueCT = UniqueOn [Symbol] Symbol
 data Uq (un :: Symbol) = Uq
+
+instance un ~ uqn => IsLabel un (Uq uqn) where
+#if __GLASGOW_HASKELL__ > 800
+  fromLabel = Uq
+#else
+  fromLabel _ = Uq
+#endif
+
 data CheckCT = CheckOn [Symbol] Symbol
 
 data Ix = Ix Symbol
@@ -1168,6 +1206,39 @@ class ( Table db tab
       , SingI (CheckNames db tab)
       ) => SingCtx db tab where
 
+instance ( Table db tab
+      , KnownSymbol (TableName db tab)
+      , KnownSymbol (DefaultTableName tab)
+        
+      , SingE (ColumnNames db tab)
+      , SingI (ColumnNames db tab)                  
+      , SingE (OriginalTableFieldInfo db tab)
+      , SingI (OriginalTableFieldInfo db tab)
+
+      , SingE (PrimaryKeyName db tab)
+      , SingI (PrimaryKeyName db tab)
+      , SingE (PrimaryKey db tab)
+      , SingI (PrimaryKey db tab)
+
+      , SingE (Unique db tab)
+      , SingE (UniqueNames db tab)
+      , SingI (Unique db tab)
+      , SingI (UniqueNames db tab)
+
+      , SingE (TagEach db (ForeignKey db tab))
+      , SingI (TagEach db (ForeignKey db tab))
+      , SingE (ForeignKeyNames db tab)
+      , SingI (ForeignKeyNames db tab)
+
+      , SingI (TableSequence db tab)
+      , SingE (TableSequence db tab)
+      , SingI (SequenceNames db tab)
+      , SingE (SequenceNames db tab)
+
+      , SingE (CheckNames db tab)
+      , SingI (CheckNames db tab)
+      ) => SingCtx db tab
+  
 type family OriginalTableFieldInfo (db :: *) (tab :: *) where
   OriginalTableFieldInfo db tab = GetFieldInfo (DB db) (OriginalTableFields tab)
 

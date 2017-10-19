@@ -147,6 +147,7 @@ runPGMigration :: ( Database db
                    , TyCxts db types
                    , SingI tables
                    , SingI types
+                   , All (SingCtx db) tables
                    ) => Proxy db -> PGS.Connection -> IO ()
 runPGMigration pdb conn = do
   let mig = mkMigration pdb
