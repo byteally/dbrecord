@@ -224,15 +224,17 @@ mkMigrationTable' pdb stab =
                                    in Just $ AlterSeq (coerce $ doubleQuoteT (genKeyName $ SeqNameGen tabNDb coln Nothing))
                                             (AddOwner (coerce tabNDb) (coerce coln))
                        _        -> Nothing
-                 in  catMaybes $ map (\si -> ownSeq (seqOn si) (seqName si) (seqType si)) (sequenceInfo tabInfo)
-      defSeqs = undefined
-{-                     
-      defSeqs = let seqn = quoteT $ doubleQuoteT (genKeyName $ SeqNameGen tab col Nothing)
-                    seqnE = PQ.ConstExpr (PQ.Other seqn)
-                    nextValE = PQ.FunExpr "nextVal" [seqnE]
-                in  Just (AlterTable (coerce tab) $ AlterColumn (ColName col) $ AddDefault (DefExpr nextValE))
--}
-      
+                 in  catMaybes $ map (\si -> ownSeq (seqOn si) (seqName si) (seqType si)) (sequenceInfo tabInfo)                     
+      defSeqs = let seqn coln = quoteT $ doubleQuoteT (genKeyName $ SeqNameGen tabNDb coln Nothing)
+                    seqnE coln = PQ.ConstExpr (PQ.Other (seqn coln))
+                    nextValE coln = PQ.FunExpr "nextVal" [seqnE coln]
+                    defSeq colInfo seqn seqT =
+                      case seqT of
+                        SeqOwned  -> Nothing
+                        SeqSerial -> let coln = dbColumnName (columnNameInfo colInfo)
+                                     in  Just (AlterTable (coerce tabNDb) $ AlterColumn (ColName coln) $ AddDefault (DefExpr $ nextValE coln))
+                in catMaybes $ map (\si -> defSeq (seqOn si) (seqName si) (seqType si)) (sequenceInfo tabInfo)                     
+
   in  concat [ cTabSeqs
              , createTab
              , oTabSeqs
