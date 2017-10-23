@@ -14,14 +14,20 @@ import Data.Function
 
 import Database.PostgreSQL.Simple as PGS
 import Database.PostgreSQL.Simple.FromField as PGS
+import Database.PostgreSQL.Simple.FromRow as PGS
 import DBRecord.Internal.Common
 import DBRecord.Internal.Schema
 import Data.String
 import Control.Monad.Reader
 import DBRecord.Transaction hiding (runTrasaction)
 import Test.Hspec
+import Data.Functor.Identity (Identity (..))
 
-data TestDB
+--- TODO: Cheating.
+instance (FromField a) => FromRow (Identity a) where
+  fromRow = Identity <$> field
+
+data TestDB deriving (Generic)
 
 data UserRole = Admin | Guest | Nor'mal
   deriving (Show, Generic, Enum)
@@ -92,6 +98,7 @@ instance Table TestDB User where
   type TableSequence TestDB User = '[Serial "id" "sq_serial", Owned "id" "sq"]
   defaults = dbDefaults
     (  #role (DBRecord.Query.toEnum Admin)
+    :& #name "foo"
     -- :& #id   serial
     :& end
     )
@@ -177,10 +184,10 @@ someFunc = do
                                  ]
     _ <- insert @User Proxy (#email "m@m.com", #role Admin)
     delete @User (#id .== #id)
-    (_ :: Maybe User) <- getBy #uq_user_name (\n -> n .== "foo")
-    (_ :: Maybe User) <- get (\uid -> (uid .== 10) .&& (#id .== #id))
-    _ <- get @User (\uid -> (uid .== 10) .&& (#id .== #id))
-    _ <- getBy @User #uq_user_name (\n -> n .== "foo")
+    (_ :: Maybe User) <- getBy #uq_user_name (Identity (#name "foo"))
+    (_ :: Maybe User) <- get (Identity (#id 10))
+    _ <- get @User (Identity (#id 10))
+    _ <- getBy @User #uq_user_name (Identity (#name "foo"))
     _cnt <- count @User (#id .== #id)
     update @User (#id .== #id) (\row ->
                                   row & (Col @"id") .~ 10

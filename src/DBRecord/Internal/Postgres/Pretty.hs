@@ -8,10 +8,7 @@ module DBRecord.Internal.Postgres.Pretty
   ( renderQuery
   , renderDelete
   , renderInsert
-  , renderInsertRet
   , renderUpdate
-  , renderUpdateRet
-
   , ppSqlExpr
   ) where
 
@@ -216,35 +213,31 @@ ppSqlExpr expr =
     WindowSqlExpr w e -> ppSqlExpr e <+> text "OVER" <+> text w 
 
 ppInsert :: SqlInsert -> Doc
-ppInsert (SqlInsert table names values)
+ppInsert (SqlInsert table names values rets)
     = text "INSERT INTO" <+> ppTable table
       <+> parens (commaV ppColumn names)
       $$ text "VALUES" <+> commaV (\v -> parens (commaV ppSqlExpr v))
                                   (toList values)
+      $$ ppReturning rets
 
 ppUpdate :: SqlUpdate -> Doc
-ppUpdate (SqlUpdate table assigns criteria)
+ppUpdate (SqlUpdate table assigns criteria rets)
         = text "UPDATE" <+> ppTable table
         $$ text "SET" <+> commaV ppAssign assigns
         $$ ppWhere criteria
+        $$ ppReturning rets
     where
       ppAssign (c,e) = ppColumn c <+> equals <+> ppSqlExpr e
 
 ppDelete :: SqlDelete -> Doc
 ppDelete (SqlDelete table criteria) =
     text "DELETE FROM" <+> ppTable table $$ ppWhere criteria
-                                   
-ppInsertReturning :: Returning SqlInsert -> Doc
-ppInsertReturning (Returning insert returnExprs) =
-  ppInsert insert
-  $$ text "RETURNING"
-  <+> commaV ppSqlExpr (toList returnExprs)
-
-ppUpdateReturning :: Returning SqlUpdate -> Doc
-ppUpdateReturning (Returning update returnExprs) =
-  ppUpdate update
-  $$ text "RETURNING"
-  <+> commaV ppSqlExpr (toList returnExprs)
+    
+ppReturning :: [SqlExpr] -> Doc
+ppReturning []   = empty
+ppReturning rets =
+  text "RETURNING"
+  <+> commaV ppSqlExpr (toList rets)
 
 deliteral :: SqlExpr -> SqlExpr
 deliteral expr@(ConstSqlExpr _) = FunSqlExpr "COALESCE" [expr]
@@ -311,11 +304,5 @@ renderDelete = render . ppDelete
 renderInsert :: SqlInsert -> String
 renderInsert = render . ppInsert
 
-renderInsertRet :: Returning SqlInsert -> String
-renderInsertRet = render . ppInsertReturning
-
 renderUpdate :: SqlUpdate -> String
 renderUpdate = render . ppUpdate
-
-renderUpdateRet :: Returning SqlUpdate -> String
-renderUpdateRet = render . ppUpdateReturning

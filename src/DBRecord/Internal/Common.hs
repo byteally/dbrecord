@@ -104,6 +104,20 @@ type family (:++) (as :: [k]) (bs :: [k]) :: [k] where
   '[] :++ bs       = bs
   (a ': as) :++ bs = a ': (as :++ bs)
 
+type family TypesOf (xs :: [*]) :: [*] where
+  TypesOf (x ': xs) = TypeOf x ': TypesOf xs
+  TypesOf '[]       = '[]
+
+type family TypeOf (x :: *) :: * where
+  TypeOf (fld ::: t) = t
+
+type family FieldsOf (xs :: [*]) :: [Symbol] where
+  FieldsOf (t ': ts) = FieldOf t ': FieldsOf ts
+  FieldsOf '[]       = '[]
+
+type family FieldOf (x :: *) :: Symbol where
+  FieldOf (fld ::: t) = fld
+
 type family Elem (xs :: [k]) (v :: k) :: Bool where
   Elem (x ': xs) x = 'True
   Elem (x ': xs) y = Elem xs y
@@ -181,6 +195,15 @@ type family FMapMaybe (fn :: k -> *) (may :: Maybe k) where
   FMapMaybe fn ('Just v) = 'Just (fn v)
   FMapMaybe _ 'Nothing   = 'Nothing
 
+type family FromRights (xs :: [Either k k1]) :: [k1] where
+  FromRights (x ': xs) = FromRight x ': FromRights xs
+  FromRights '[]       = '[]
+
+type family FromRight (x :: Either k k1) where
+  FromRight ('Right t) = t
+
+type family FromLeft (x :: Either k k1) where
+  FromLeft ('Left t) = t
 
 class (AllF f xs) => All (f :: k -> Constraint) (xs :: [k])
 instance (AllF f xs) => All f xs

@@ -21,7 +21,7 @@ import Control.Monad.Reader
 import DBRecord.Transaction hiding (runTrasaction)
 import Test.Hspec
 
-data TestDB
+data TestDB deriving Generic
 
 data User = User
   { id    :: Int

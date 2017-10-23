@@ -50,17 +50,19 @@ data PrimQuery = BaseTable TableId Clauses
                -- Values
                deriving (Show, Read, Generic)
 
-data InsertQuery = InsertQuery TableId [Attribute] (NEL.NonEmpty [PrimExpr])
+data InsertQuery = InsertQuery TableId [Attribute] (NEL.NonEmpty [PrimExpr]) [PrimExpr]
                  deriving (Show, Read, Generic)
 
-data UpdateQuery = UpdateQuery TableId [PrimExpr] Assoc
+data UpdateQuery = UpdateQuery TableId [PrimExpr] Assoc [PrimExpr]
                  deriving (Show, Read, Generic)
 
 data DeleteQuery = DeleteQuery TableId [PrimExpr]
                  deriving (Show, Read, Generic)
 
 
-data Clauses = Clauses { projections :: [(Sym, PrimExpr)]
+type Projection = (Sym, PrimExpr)
+
+data Clauses = Clauses { projections :: [Projection]
                        , criteria    :: [PrimExpr]
                        , windows     :: [WindowClause]
                        , groupbys    :: [PrimExpr]
@@ -70,6 +72,19 @@ data Clauses = Clauses { projections :: [(Sym, PrimExpr)]
                        , offset      :: Maybe PrimExpr
                        , alias       :: Maybe Text  
                        } deriving (Show, Read, Generic)
+
+clauses :: Clauses
+clauses =
+  Clauses { projections = []
+          , criteria    = []
+          , windows     = []
+          , groupbys    = []
+          , havings     = []
+          , orderbys    = []
+          , limit       = Nothing
+          , offset      = Nothing
+          , alias       = Nothing
+          }
 
 data WindowClause = WindowClause
   { windowName    :: Text
@@ -221,7 +236,7 @@ fix :: (t -> t) -> t
 fix g = let x = g x in x
 
 newtype InsertQueryFold p = InsertQueryFold
-  { insertQ :: TableId -> [Attribute] -> (NEL.NonEmpty [PrimExpr]) -> p
+  { insertQ :: TableId -> [Attribute] -> (NEL.NonEmpty [PrimExpr]) -> [PrimExpr] -> p
   }
 
 insertQueryFoldDefault :: InsertQueryFold InsertQuery
@@ -229,10 +244,10 @@ insertQueryFoldDefault = InsertQueryFold { insertQ = InsertQuery}
 
 foldInsertQuery :: InsertQueryFold p -> InsertQuery -> p
 foldInsertQuery f = fix fold
-  where fold _self (InsertQuery tid attr vals) = insertQ f tid attr vals
+  where fold _self (InsertQuery tid attr vals rets) = insertQ f tid attr vals rets
 
 newtype UpdateQueryFold p = UpdateQueryFold
-  { updateQ :: TableId -> [PrimExpr] -> Assoc -> p
+  { updateQ :: TableId -> [PrimExpr] -> Assoc -> [PrimExpr] -> p
   }
 
 updateQueryFoldDefault :: UpdateQueryFold UpdateQuery
@@ -240,7 +255,7 @@ updateQueryFoldDefault = UpdateQueryFold {updateQ = UpdateQuery}
 
 foldUpdateQuery :: UpdateQueryFold p -> UpdateQuery -> p
 foldUpdateQuery f = fix fold
-  where fold _self (UpdateQuery ti cond assoc) = updateQ f ti cond assoc
+  where fold _self (UpdateQuery ti cond assoc rets) = updateQ f ti cond assoc rets
 
 newtype DeleteQueryFold p = DeleteQueryFold
  { deleteQ :: TableId -> [PrimExpr] -> p

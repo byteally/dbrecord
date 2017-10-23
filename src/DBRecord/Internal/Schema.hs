@@ -34,7 +34,7 @@ import Data.Typeable
 import Data.Functor.Const
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
-import DBRecord.Internal.Expr
+-- import DBRecord.Internal.Expr
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.DBTypes
 import qualified Data.List as L
@@ -902,8 +902,8 @@ data TableInfo = TableInfo { primaryKeyInfo   :: PrimaryKeyInfo
                            , ignoredCols      :: ()
                            } deriving (Show, Eq)
 
-data TableNameInfo = TableNameInfo { dbTableName   :: Text
-                                   , tableTypeName :: TypeName
+data TableNameInfo = TableNameInfo { dbTableName     :: Text
+                                   , tableTypeName   :: TypeName
                                    } deriving (Show, Eq)
 
 data ColumnNameInfo = ColumnNameInfo { hsColumnName :: Text
@@ -965,11 +965,7 @@ data ForeignRefD = RefByD String -- ^ fk name
                           [ColumnInfo] -- ^ ref col map
 
 databaseInfo :: forall db.
-                ( Database db
-                , SingE (DefaultDatabaseName db)
-                , SingE (Schema db)
-                , SingI (DefaultDatabaseName db)
-                , SingI (Schema db)
+                ( SingCtxDb db
                 ) => Proxy db -> DatabaseInfo
 databaseInfo _ =
   DatabaseInfo { hsName = T.pack (fromSing (sing :: Sing (DefaultDatabaseName db)))
@@ -1238,6 +1234,20 @@ instance ( Table db tab
       , SingE (CheckNames db tab)
       , SingI (CheckNames db tab)
       ) => SingCtx db tab
+
+class ( Database db
+      , SingE (DefaultDatabaseName db)
+      , SingE (Schema db)
+      , SingI (DefaultDatabaseName db)
+      , SingI (Schema db)
+      ) => SingCtxDb db where
+
+instance ( Database db
+         , SingE (DefaultDatabaseName db)
+         , SingE (Schema db)
+         , SingI (DefaultDatabaseName db)
+         , SingI (Schema db)
+         ) => SingCtxDb db where  
   
 type family OriginalTableFieldInfo (db :: *) (tab :: *) where
   OriginalTableFieldInfo db tab = GetFieldInfo (DB db) (OriginalTableFields tab)

@@ -9,7 +9,10 @@ import Data.Aeson
 import Database.PostgreSQL.Simple.FromField
 import Data.Typeable
 import qualified Data.Text as T
+import qualified DBRecord.Internal.PrimQuery as PQ
 
+
+data DBTag (db :: *) (tab :: *) (v :: k)
 
 newtype (f :: Symbol) ::: t = Field t
   deriving (Show, Eq, Generic)
@@ -53,6 +56,14 @@ instance (FromJSON a, Typeable a) => FromField (Json a) where
 
 newtype Interval = Interval T.Text
                  deriving (Show, Generic, FromJSON, ToJSON, FromField)
+
+newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
+                                      deriving Show
+
+unsafeCol :: [T.Text] -> Expr sc a
+unsafeCol = Expr . PQ.AttrExpr . sym
+  where sym = maybe (error "Panic: Empty col @col_") id . PQ.toSym
+
 
 {-
 instance (ToJSON a, Typeable a) => ToField (Json a) where

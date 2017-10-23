@@ -52,10 +52,10 @@ data SqlNullOrd = SqlNullsFirst
                 | SqlNullsLast
                 deriving (Show, Read, Eq)
 
-data SqlInsert = SqlInsert SqlTable [SqlColumn] (NEL.NonEmpty [SqlExpr])
+data SqlInsert = SqlInsert SqlTable [SqlColumn] (NEL.NonEmpty [SqlExpr]) [SqlExpr]
                  deriving (Show, Read, Eq)
                           
-data SqlUpdate = SqlUpdate SqlTable [(SqlColumn,SqlExpr)] [SqlExpr]
+data SqlUpdate = SqlUpdate SqlTable [(SqlColumn,SqlExpr)] [SqlExpr] [SqlExpr]
                  deriving (Show, Read, Eq)
                           
 data SqlDelete = SqlDelete SqlTable [SqlExpr]
@@ -110,9 +110,6 @@ data Binary = Binary
   , bSelect1 :: SqlSelect
   , bSelect2 :: SqlSelect
   } deriving (Show, Read, Eq)
-
-data Returning a = Returning a (NEL.NonEmpty SqlExpr)
-                 deriving (Show, Read, Eq) 
 
 data SqlExpr = ColumnSqlExpr  SqlColumn
              -- | OidSqlExpr     SqlOidName

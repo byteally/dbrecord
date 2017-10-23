@@ -152,9 +152,9 @@ toSqlWindow = sqlWindow defaultSqlGenerator
 
 data SqlGenerator = SqlGenerator
     {
-     sqlUpdate      :: SqlTable -> [PQ.PrimExpr] -> PQ.Assoc -> SqlUpdate,
+     sqlUpdate      :: SqlTable -> [PQ.PrimExpr] -> PQ.Assoc -> [PQ.PrimExpr] -> SqlUpdate,
      sqlDelete      :: SqlTable -> [PQ.PrimExpr] -> SqlDelete,
-     sqlInsert      :: SqlTable -> [PQ.Attribute] -> NEL.NonEmpty [PQ.PrimExpr] -> SqlInsert,
+     sqlInsert      :: SqlTable -> [PQ.Attribute] -> NEL.NonEmpty [PQ.PrimExpr] -> [PQ.PrimExpr] -> SqlInsert,
      sqlExpr        :: PQ.PrimExpr -> SqlExpr,
      sqlLiteral     :: PQ.Lit -> LitSql,
      -- | Turn a string into a quoted string. Quote characters
@@ -341,18 +341,20 @@ defaultSqlUpdate :: SqlGenerator
                    -> [PQ.PrimExpr] -- ^ Conditions which must all be true for a row
                                  --   to be updated.
                    -> PQ.Assoc -- ^ Update the data with this.
+                   -> [PQ.PrimExpr] -- ^ Returning these expressions.
                    -> SqlUpdate
-defaultSqlUpdate gen tbl criteria assigns
-        = SqlUpdate tbl (toSqlAssoc gen assigns) (map (sqlExpr gen) criteria)
+defaultSqlUpdate gen tbl criteria assigns rets
+        = SqlUpdate tbl (toSqlAssoc gen assigns) (map (sqlExpr gen) criteria) (map (sqlExpr gen) rets)
 
 
 defaultSqlInsert :: SqlGenerator
                    -> SqlTable
                    -> [PQ.Attribute]
                    -> NEL.NonEmpty [PQ.PrimExpr]
+                   -> [PQ.PrimExpr] -- ^ Returning these expressions.
                    -> SqlInsert
-defaultSqlInsert gen tbl attrs exprs =
-  SqlInsert tbl (map toSqlColumn attrs) ((fmap . map) (sqlExpr gen) exprs)
+defaultSqlInsert gen tbl attrs exprs rets =
+  SqlInsert tbl (map toSqlColumn attrs) ((fmap . map) (sqlExpr gen) exprs) (map (sqlExpr gen) rets)
 
 defaultSqlDelete :: SqlGenerator
                    -> SqlTable

@@ -1,6 +1,9 @@
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 {-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP #-}
-module DBRecord.Internal.Expr where
+module DBRecord.Internal.Expr
+       ( module DBRecord.Internal.Expr
+       , Expr (..)
+       ) where
 
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.HashMap.Strict as HM
@@ -36,37 +39,35 @@ import qualified Data.UUID as UUID
 import Data.CaseInsensitive (CI, foldedCase, mk)
 import qualified Data.Attoparsec.Char8 as A
 import Control.Applicative
+import Data.Coerce
+import DBRecord.Internal.Schema
+import GHC.Generics
 
-
-newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
-                                      deriving Show
-
-col :: forall (col :: Symbol) (a :: *) sc.
+col :: forall (db :: *) (tab :: *) (col :: Symbol) (a :: *) sc.
   ( KnownSymbol col
   , UnifyField sc (col ::: a) ('Text "Unable to find column " ':<>: 'ShowType col)
-  ) => Proxy col -> Expr sc a
+  , Table db tab
+  , Generic tab
+  , SingE (ColumnNames db tab)
+  , SingI (ColumnNames db tab)
+  , SingE (OriginalTableFieldInfo db tab)
+  , SingI (OriginalTableFieldInfo db tab)
+  , AllF SingE (GetFieldInfo (DB db) (GenTabFields (Rep tab)))
+  , AllF SingE (ColumnNames db tab)
+  ) => Proxy (DBTag db tab col) -> Expr sc a
 col _ = Expr (PQ.AttrExpr sym)
-  where sym = maybe (error "Panic: Empty col @col_") id (PQ.toSym [T.pack $ symbolVal (Proxy @col)]) -- (singPath (Proxy @(UnpackPath col))))
-
-unsafeCol :: [T.Text] -> Expr sc a
-unsafeCol = Expr . PQ.AttrExpr . sym
-  where sym = maybe (error "Panic: Empty col @col_") id . PQ.toSym
-
-instance
-  ( UnifyField sc (cn ::: a) ('Text "Unable to find column " ':<>: 'ShowType cn)
-  , KnownSymbol cn
-  ) => IsLabel cn (Expr sc a) where
-#if __GLASGOW_HASKELL__ > 800
-  fromLabel = col (Proxy @cn)
-#else  
-  fromLabel _ = col (Proxy @cn)
-#endif
+  where sym = maybe (error "Panic: Empty col @col_") id (PQ.toSym [dbColN]) -- (singPath (Proxy @(UnpackPath col))))
+        dbColN = dbColumnName (columnNameInfo (getColumnInfo (colInfos (Proxy @db) (Proxy @tab)) fld))
+        fld = symbolVal (Proxy @col)
 
 class ConstExpr t where
   constExpr :: t -> Expr sc t
 
 instance ConstExpr Text where
   constExpr = fromString . T.unpack
+
+instance ConstExpr Int where
+  constExpr = exprFromInteger . fromIntegral
 
 instance ConstExpr t => ConstExpr (fn ::: t) where
   constExpr (Field v) = coerce $ constExpr v
@@ -206,6 +207,12 @@ class EqExpr a where
 
 infix 4 .==
 infix 4 ./=
+
+instance (EqExpr t) => EqExpr (fld ::: t) where
+  a .== b = coerceExprTo a .== coerceExprTo b
+
+    where coerceExprTo :: Expr sc (fld ::: a) -> Expr sc a
+          coerceExprTo = coerceExpr
 
 instance EqExpr UTCTime where
   a .== b = binOp PQ.OpEq a b
@@ -730,3 +737,5 @@ runIdentity = unsafeCoerceExpr
 toIdentity :: Expr sc a -> Expr sc (Identity a)
 toIdentity = unsafeCoerceExpr
 
+coerceExpr :: (Coercible a b) => Expr sc a -> Expr sc b
+coerceExpr = unsafeCoerceExpr
