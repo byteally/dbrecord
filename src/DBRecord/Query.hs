@@ -24,7 +24,7 @@ module DBRecord.Query
        , module DBRecord.Internal.Expr
        , module DBRecord.Internal.Predicate
        , get, getBy, getAll
-       , update, update_
+       -- , update, update_
        , delete
        , insert, insert_, insertMany, insertMany_, insertRet, insertManyRet
        , count
@@ -48,7 +48,6 @@ import DBRecord.Internal.Schema
 import DBRecord.Internal.PrimQuery  hiding (insertQ, updateQ, deleteQ)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.Types
-import DBRecord.Internal.DBTypeValidation hiding (getTableId)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
@@ -57,7 +56,6 @@ import Data.Proxy
 import Data.Int
 import GHC.Exts
 import GHC.TypeLits
-import Data.Functor.Const
 import Data.Functor.Identity
 import qualified DBRecord.Internal.Postgres.SqlGen as PG
 import qualified DBRecord.Internal.Postgres.Pretty as PG
@@ -119,12 +117,10 @@ infixr 4 .~
         , sc ~ (OriginalTableFields tab)
         , KnownSymbol fn
         , Table db tab
-        , AllF SingE (ColumnNames db tab)
-        , AllF SingE (GetFieldInfo (DB db) sc)
-        , SingI (GetFieldInfo (DB db) sc)
-        , SingI (ColumnNames db tab)
+        , SingCtx db tab
+        , SingCtxDb db
         ) => Proxy db -> Col fn -> (Expr sc val -> Expr sc val) -> Updated tab sc -> Updated tab sc
-(%~) pdb col' exprFn updates = (.~) col' (exprFn $ col (Proxy :: Proxy (DBTag db tab fn))) updates
+(%~) _pdb col' exprFn updates = (.~) col' (exprFn $ col (Proxy :: Proxy (DBTag db tab fn))) updates
 
 infixr 4 %~
 
@@ -221,8 +217,8 @@ class HasCol db tab sc (t :: *) where
 instance ( KnownSymbol fld
          , Table db tab
          , UnifyField sc (fld ::: t) ('Text "Unable to find column " ':<>: 'ShowType fld)
-         , AllF SingE (ColumnNames db tab)
-         , AllF SingE (GetFieldInfo (DB db) (GenTabFields (Rep tab)))
+         , All SingE (ColumnNames db tab)
+         , All SingE (GetFieldInfo (DB db) (GenTabFields (Rep tab)))
          , SingI (GetFieldInfo (DB db) (GenTabFields (Rep tab)))
          , SingI (ColumnNames db tab)
          ) => HasCol db tab sc (fld ::: t) where
@@ -260,27 +256,28 @@ applyEqs _ Nil = true
 
 -- instance (fn ~ r) => ApplyExpr db tab '[] fn r where
 --   applyExpr _ _ _ r = r
+  -- , ApplyExpr db tab (PrimaryKey db tab) predicate (Expr (OriginalTableFields tab) Bool)
+  -- , UnifyPkPredicate db tab predicate
+
   
-get :: forall tab db predicate driver cfg pks pks' fn sc.
+get :: forall tab db driver cfg tpks pks sc.
   ( Table db tab
   , MonadIO (DBM db)
   , MonadReader (driver cfg) (DBM db)
   , HasQuery driver
   , FromDBRow driver tab
-  -- , ApplyExpr db tab (PrimaryKey db tab) predicate (Expr (OriginalTableFields tab) Bool)
-  -- , UnifyPkPredicate db tab predicate
-  , ToHList pks
-  , TupleToHList pks ~ pks'
-  , pks' ~ FromRights (FindFields (OriginalTableFields tab) (PrimaryKey db tab))
+  , ToHList tpks
+  , TupleToHList tpks ~ pks
+  , pks ~ FromRights (FindFields sc (PrimaryKey db tab))
   , SingCtx db tab
   , SingCtxDb db
-  , All EqExpr pks'
-  , All ConstExpr pks'
-  , All (HasCol db tab sc) pks'
+  , All EqExpr pks
+  , All ConstExpr pks
+  , All (HasCol db tab sc) pks
   , sc ~ OriginalTableFields tab
-  ) => pks -> DBM db (Maybe tab)
-get pks = do
-  let filtE = getExpr (applyEqs (Proxy @(DBTag db tab ())) (toHList pks Identity) :: Expr sc Bool)
+  ) => tpks -> DBM db (Maybe tab)
+get tpks = do
+  let filtE = getExpr (applyEqs (Proxy @(DBTag db tab ())) (toHList tpks Identity) :: Expr sc Bool)
       cls = clauses { criteria = [filtE] }
   res <- getAll' cls
   pure $ case res of
@@ -288,7 +285,7 @@ get pks = do
     [r] -> Just r
     _   -> error "get: query with primarykey return more than 1 rows"
 
-getBy :: forall tab (uniq :: Symbol) db driver cfg uqKeysM uqKeys uqs uqs' sc.
+getBy :: forall tab (uniq :: Symbol) db driver cfg uqKeysM uqKeys tuqs uqs sc.
   ( Table db tab
   , MonadIO (DBM db)
   , MonadReader (driver cfg) (DBM db)
@@ -298,16 +295,16 @@ getBy :: forall tab (uniq :: Symbol) db driver cfg uqKeysM uqKeys uqs uqs' sc.
   , SingCtx db tab
   , SingCtxDb db
   , 'Just uqKeys ~ uqKeysM
-  , uqs' ~ FromRights (FindFields (OriginalTableFields tab) uqKeys)
-  , All EqExpr uqs'
-  , All ConstExpr uqs'
-  , All (HasCol db tab sc) uqs'
+  , uqs ~ FromRights (FindFields sc uqKeys)
+  , All EqExpr uqs
+  , All ConstExpr uqs
+  , All (HasCol db tab sc) uqs
   , sc ~ OriginalTableFields tab
-  , ToHList uqs
-  , TupleToHList uqs ~ uqs'    
-  ) => Uq uniq -> uqs -> DBM db (Maybe tab)
-getBy _ uqs = do
-  let filtE = getExpr (applyEqs (Proxy @(DBTag db tab ())) (toHList uqs Identity) :: Expr sc Bool)
+  , ToHList tuqs
+  , TupleToHList tuqs ~ uqs
+  ) => Uq uniq -> tuqs -> DBM db (Maybe tab)
+getBy _ tuqs = do
+  let filtE = getExpr (applyEqs (Proxy @(DBTag db tab ())) (toHList tuqs Identity) :: Expr sc Bool)
       cls = clauses { criteria = [filtE] }
   res <- getAll' cls
   pure $ case res of
@@ -344,6 +341,7 @@ getAll filt ord page = do
         { criteria = filtE
         , limit = (ConstExpr . Integer . fromIntegral) <$> lmt
         , offset = (ConstExpr . Integer . fromIntegral) <$> off
+        , orderbys = ordE
         }
   getAll' cls
 
@@ -391,10 +389,11 @@ runQuery tabId cls = do
   driver <- ask
   liftIO $ dbQuery driver primQ
 
+{-
 update :: forall tab db keys driver cfg.
   ( Table db tab
   , MonadIO (DBM db)
-  , keys ~ PGS.Only Int -- TODO: Remove this
+  , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey db tab)))
   , driver ~ Driver (DBM db)
   , MonadReader (driver cfg) (DBM db)
   , HasUpdateRet driver
@@ -405,7 +404,6 @@ update :: forall tab db keys driver cfg.
   -> (Updated tab (OriginalTableFields tab) -> Updated tab (OriginalTableFields tab))
   -> DBM db [keys]
 update filt updateFn =
-  -- TODO: fix key expr
   runUpdateRet (Proxy @tab) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) undefined
   
 update_ :: forall tab db cfg driver.
@@ -423,6 +421,7 @@ update_ :: forall tab db cfg driver.
   -> DBM db ()
 update_ filt updateFn =
   runUpdate (Proxy @tab) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate)
+-}
 
 runUpdate :: forall tab db cfg driver.
              ( Table db tab
@@ -505,13 +504,13 @@ insert :: forall tab db row keys defs reqCols driver cfg.
   , SingCols db reqCols (ColumnNames db tab)
   , driver ~ Driver (DBM db)
   , MonadReader (driver cfg) (DBM db)
-  , HasInsert driver
   , SingCtx db tab
   , SingCtxDb db
-  , SingI (FieldsOf reqCols)
-  , SingE (FieldsOf reqCols)
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
+  , SingI (FieldsOf reqCols)
+  , SingE (FieldsOf reqCols)
+    
     -- TODO: Singletonize the output
   ) => Proxy tab -> row -> DBM db [HListToTuple keys]
 insert _ row = do
@@ -535,17 +534,15 @@ insertRet :: forall tab db row keys rets sc defs reqCols driver cfg.
   , TupleToHList row ~ reqCols
   , ToHList row
   , All ConstExpr reqCols
-  , SingCols db reqCols (ColumnNames db tab)
   , driver ~ Driver (DBM db)
   , MonadReader (driver cfg) (DBM db)
-  , HasInsert driver
   , SingCtx db tab
   , SingCtxDb db
-  , SingI (FieldsOf reqCols)
-  , SingE (FieldsOf reqCols)
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
   , sc ~ (OriginalTableFields tab)
+  , SingI (FieldsOf reqCols)
+  , SingE (FieldsOf reqCols)    
   ) => Proxy tab -> row -> HList (Expr sc) rets -> DBM db (Maybe (HListToTuple keys))
 insertRet _ row rets = do
   let
@@ -575,7 +572,6 @@ insertMany :: forall tab db row defs reqCols driver keys cfg.
   , SingCols db reqCols (ColumnNames db tab)
   , driver ~ Driver (DBM db)
   , MonadReader (driver cfg) (DBM db)
-  , HasInsert driver
   , SingCtx db tab
   , SingCtxDb db
   , SingI (FieldsOf reqCols)
@@ -637,7 +633,6 @@ insert_ :: forall tab db row defs reqCols driver cfg.
   , TupleToHList row ~ reqCols
   , ToHList row
   , All ConstExpr reqCols
-  , SingCols db reqCols (ColumnNames db tab)
   , driver ~ Driver (DBM db)
   , MonadReader (driver cfg) (DBM db)
   , HasInsert driver
@@ -667,7 +662,6 @@ insertMany_ :: forall tab db row defs reqCols driver cfg.
   , TupleToHList row ~ reqCols
   , ToHList row
   , All ConstExpr reqCols
-  , SingCols db reqCols (ColumnNames db tab)
   , driver ~ Driver (DBM db)
   , MonadReader (driver cfg) (DBM db)
   , HasInsert driver
@@ -689,7 +683,7 @@ insertMany_ _ rows = do
   pure ()
   
 getTableProjections :: forall db tab. (SingCtx db tab) => Proxy db -> Proxy tab -> [Projection]
-getTableProjections pdb ptab = go (colInfos (Proxy @db) (Proxy @tab))
+getTableProjections pdb ptab = go (colInfos pdb ptab)
   where go :: [ColumnInfo] -> [Projection]
         go = map mkProj
 

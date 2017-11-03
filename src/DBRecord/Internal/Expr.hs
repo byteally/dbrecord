@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
-{-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP #-}
+{-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP, PolyKinds #-}
 module DBRecord.Internal.Expr
        ( module DBRecord.Internal.Expr
        , Expr (..)
@@ -41,24 +41,8 @@ import qualified Data.Attoparsec.Char8 as A
 import Control.Applicative
 import Data.Coerce
 import DBRecord.Internal.Schema
+import DBRecord.Internal.Common
 import GHC.Generics
-
-col :: forall (db :: *) (tab :: *) (col :: Symbol) (a :: *) sc.
-  ( KnownSymbol col
-  , UnifyField sc (col ::: a) ('Text "Unable to find column " ':<>: 'ShowType col)
-  , Table db tab
-  , Generic tab
-  , SingE (ColumnNames db tab)
-  , SingI (ColumnNames db tab)
-  , SingE (OriginalTableFieldInfo db tab)
-  , SingI (OriginalTableFieldInfo db tab)
-  , AllF SingE (GetFieldInfo (DB db) (GenTabFields (Rep tab)))
-  , AllF SingE (ColumnNames db tab)
-  ) => Proxy (DBTag db tab col) -> Expr sc a
-col _ = Expr (PQ.AttrExpr sym)
-  where sym = maybe (error "Panic: Empty col @col_") id (PQ.toSym [dbColN]) -- (singPath (Proxy @(UnpackPath col))))
-        dbColN = dbColumnName (columnNameInfo (getColumnInfo (colInfos (Proxy @db) (Proxy @tab)) fld))
-        fld = symbolVal (Proxy @col)
 
 class ConstExpr t where
   constExpr :: t -> Expr sc t

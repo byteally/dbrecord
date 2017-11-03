@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor #-}
 module DBRecord.Internal.Types where
 
 import GHC.Generics
@@ -65,6 +65,9 @@ unsafeCol = Expr . PQ.AttrExpr . sym
   where sym = maybe (error "Panic: Empty col @col_") id . PQ.toSym
 
 
+-- newtype Only a = Only { fromOnly :: a }
+--                deriving (Eq, Ord, Read, Show, Typeable, Functor)
+                        
 {-
 instance (ToJSON a, Typeable a) => ToField (Json a) where
   toField = toJSONField . getJson
