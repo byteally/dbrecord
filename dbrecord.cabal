@@ -44,6 +44,7 @@ library
                        DBRecord.Internal.Migration.Validation
                        DBRecord.Internal.Migration
                        DBRecord.Internal.Common
+                       DBRecord.Internal.Lens                  
                        DBRecord.Internal.Types
                        DBRecord.Internal.DBTypeValidation
                        DBRecord.Internal.DBTypes
@@ -73,7 +74,6 @@ library
                      , base64-bytestring >= 1.0
                      , time              == 1.6.*
                      , postgresql-libpq  == 0.9.*
-
                      , mongoDB
                      , bson
 

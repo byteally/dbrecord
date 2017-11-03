@@ -25,16 +25,18 @@ import DBRecord.Internal.Migration.Types ( createTable
                                          , addPrimaryKey
                                          , addUnique
                                          , addForeignKey
-                                         , addCheckExpr
-                                         , addDefaultExpr
-                                         , addNotNull
+                                         , addCheck
+                                         , addDefault
+                                         , setNotNull
                                          , column
                                          , single
                                          )
 import qualified DBRecord.Internal.Migration.Types as MT
 import Data.Coerce
 import Data.Maybe
-
+import DBRecord.Internal.Schema
+import qualified DBRecord.Internal.Schema as S
+import qualified Data.HashMap.Strict as HM
 
 data EnumInfo = EnumInfo { enumTypeName :: Text
                          , enumCons     :: Vector Text
@@ -48,149 +50,129 @@ data TableColInfo = TableColInfo { dbTableName  :: Text
                                  , dbTypeName :: Text
                                  , dbLength :: Maybe Int
                                  } deriving (Show, Eq)
-
-
-data TableInfo = TableInfo { tableName   :: Text
-                           , columns     :: [ColumnInfo]
-                           , checks      :: [CheckInfo]
-                           , defaults    :: [DefaultInfo]
-                           , primaryKeys :: [PrimKeyInfo]
-                           , uniqueKeys  :: [UniqKeyInfo]
-                           , foreignKeys :: [ForeignKeyInfo]
-                           } deriving (Show)
-
-data ColumnInfo = ColumnInfo { columnName :: Text
-                             , typeN :: Text
-                             , pos  :: Int
-                             , colIsNullable :: Bool
-                             } deriving (Show)
-
+                                            
 data CheckCtx = CheckCtx Text Text Text
                deriving (Show, Eq)
 
 type CheckExpr = (Text, Text)
 
 data PrimKey = PrimKey Text Text Text Int
-             deriving (Show, Eq)
+             deriving (Show, Eq, Ord)
 
 data UniqKey = UniqKey Text Text Text Int
-             deriving (Show, Eq)
+             deriving (Show, Eq, Ord)
 
-data ForeignKey = ForeignKey Text Text Text Int Text Text Int
-                deriving (Show, Eq)
+data FKey = FKey Text Text Text Int Text Text Int
+          deriving (Show, Eq, Ord)
 
-data CheckInfo = CheckInfo { checkName     :: Text
-                           , checkOnTable  :: Text
-                           , check         :: PQ.PrimExpr
-                           } deriving (Show)
+type TableContent a = HM.HashMap Text [a]
 
-data DefaultInfo = DefaultInfo { defaultOnColumn  :: Text
-                               , defaultOnTable   :: Text
-                               , defaultExp       :: PQ.PrimExpr
-                               } deriving (Show)
-
-data ForeignKeyInfo = ForeignKeyInfo { fkName :: Text
-                                     , fkOnTab :: Text
-                                     , fkRefTab :: Text
-                                     , fkOnCols  :: [Text]
-                                     , fkRefCols :: [Text]
-                                     } deriving (Show, Eq)
-
-data PrimKeyInfo = PrimKeyInfo { primKeyName :: Text
-                               , ptableName :: Text
-                               , primKeyColumns :: [Text]
-                               } deriving (Show, Eq)
-
-data UniqKeyInfo = UniqKeyInfo { uniqKeyName :: Text
-                               , utableName :: Text
-                               , uniqKeyColumns :: [Text]
-                               } deriving (Show, Eq)
-
-primKeyInfo :: [PrimKey] -> [PrimKeyInfo]
-primKeyInfo = concatMap (map toPrimKeyInfo . groupByKeyName) . groupByTableName
+toPrimKeyInfo :: [PrimKey] -> HM.HashMap Text PrimaryKeyInfo
+toPrimKeyInfo = HM.fromList . map toPrimKeyInfo . groupByTableName
   where groupByTableName = L.groupBy (\(PrimKey _ tna _ _) (PrimKey _ tnb _ _) -> tna == tnb)
-        groupByKeyName   = L.groupBy (\(PrimKey kna _ _ _) (PrimKey knb _ _ _) -> kna == knb)
 
-        toPrimKeyInfo pks@(PrimKey kna tna _ _ : _) = PrimKeyInfo kna tna (getPKCols pks)
+        toPrimKeyInfo pks@(PrimKey kna tna _ _ : _) = (mkHaskName tna, PrimaryKeyInfo { _pkeyName    = Just kna
+                                                                                      , _pkeyColumns = getPKCols pks
+                                                                                      }
+                                                      )
         toPrimKeyInfo []                            = error "impossible: empty group"
         
         getPKCols = map snd . L.sortBy cmpByFst . map getPKCol
         getPKCol (PrimKey _ _ col i) = (i, col)
-        cmpByFst a b = compare a b
+        cmpByFst a b = compare (fst a) (fst b)
 
-uniqKeyInfo :: [UniqKey] -> [UniqKeyInfo]
-uniqKeyInfo = concatMap (map toUniqKeyInfo . groupByKeyName) . groupByTableName
+toUniqKeyInfo :: [UniqKey] -> TableContent UniqueInfo
+toUniqKeyInfo = HM.fromListWith (++) . concatMap (map toUniqKeyInfo . groupByKeyName) . groupByTableName
   where groupByTableName = L.groupBy (\(UniqKey _ tna _ _) (UniqKey _ tnb _ _) -> tna == tnb)
         groupByKeyName   = L.groupBy (\(UniqKey kna _ _ _) (UniqKey knb _ _ _) -> kna == knb)
 
-        toUniqKeyInfo pks@(UniqKey kna tna _ _ : _) = UniqKeyInfo kna tna (getPKCols pks)
+        toUniqKeyInfo pks@(UniqKey kna tna _ _ : _) = (mkHaskName tna, [UniqueInfo { _uqName     = mkEntityName (mkHaskName kna) kna
+                                                                                   , _uqColumns  = (getUQCols pks)
+                                                                                   }
+                                                                         ]
+                                                      )
         toUniqKeyInfo []                            = error "impossible: empty group"
         
-        getPKCols = map snd . L.sortBy cmpByFst . map getPKCol
-        getPKCol (UniqKey _ _ col i) = (i, col)
-        cmpByFst a b = compare a b
+        getUQCols = map snd . L.sortBy cmpByFst . map getUQCol
+        getUQCol (UniqKey _ _ col i) = (i, col)
+        cmpByFst a b = compare (fst a) (fst b)
 
-toTableInfo :: [(Text, [ColumnInfo])] -> [CheckInfo] -> [DefaultInfo] -> [PrimKeyInfo] -> [UniqKeyInfo] -> [ForeignKeyInfo] -> [TableInfo]
-toTableInfo tabInfo chks defs pks uqs fks =
-  map (\(tN, cInfos) ->
-         let tUqs = L.filter (\uq -> utableName uq == tN) uqs
-             tPks = L.filter (\pk -> ptableName pk == tN) pks
-             tFks = L.filter (\fk -> fkOnTab fk == tN) fks
-             tChks = L.filter (\chk -> checkOnTable chk == tN) chks
-             tDefs = L.filter (\def -> defaultOnTable def == tN) defs
-         in TableInfo tN cInfos tChks tDefs tPks tUqs tFks) tabInfo
+toTableInfo :: TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> [TableInfo]
+toTableInfo cols chks defs pk uqs fks =
+  let tabNs = HM.keys cols
+  in  L.map (\haskTN ->
+              let tUqs = HM.lookupDefault [] haskTN uqs
+                  tPk  = HM.lookup haskTN pk
+                  tFks = HM.lookupDefault [] haskTN fks
+                  tDefs = HM.lookupDefault [] haskTN defs
+                  tChks = HM.lookupDefault [] haskTN chks
+                  tCols = HM.lookupDefault [] haskTN cols
+              in TableInfo { _primaryKeyInfo = tPk
+                           , _foreignKeyInfo = tFks
+                           , _uniqueInfo     = tUqs
+                           , _defaultInfo    = tDefs
+                           , _checkInfo      = tChks
+                           , _sequenceInfo   = undefined
+                           , _tableName      = mkEntityName (mkHaskTypeName haskTN) haskTN
+                           , _columnInfo     = tCols
+                           , _ignoredCols    = ()
+                           }
+             ) tabNs
 
-checkInfo :: [CheckCtx] -> [CheckInfo]
-checkInfo = map chkInfo
-  where chkInfo (CheckCtx chkName chkOn chkExp) = 
-          CheckInfo { checkName    = chkName
-                    , checkOnTable = chkOn
-                    , check        = unsafeParseExpr chkExp
-                    }
+toCheckInfo :: [CheckCtx] -> TableContent CheckInfo
+toCheckInfo = HM.fromListWith (++) . map chkInfo
+  where chkInfo (CheckCtx chkName chkOn chkExp) =
+          ( mkHaskName chkOn
+          , [CheckInfo { _checkExp  = unsafeParseExpr chkExp
+                       , _checkName = mkEntityName chkName chkName
+                      }
+            ]
+          )
 
-defaultInfo :: [TableColInfo] -> [DefaultInfo]
-defaultInfo =
-  map (\t -> DefaultInfo { defaultOnColumn = dbColumnName t
-                        , defaultOnTable   = dbTableName t
-                        , defaultExp       = unsafeParseExpr (fromJust (dbColDefault t))
+toDefaultInfo :: [TableColInfo] -> TableContent DefaultInfo
+toDefaultInfo = HM.fromListWith (++) . map defaultInfo
+  where defaultInfo tci =
+          ( mkHaskName (dbColumnName tci)
+          , [DefaultInfo { _defaultOn  = (mkHaskName (dbColumnName tci))
+                         , _defaultExp = unsafeParseExpr (fromJust (dbColDefault tci))
                         }
-      ) . filter (isJust . dbColDefault)
+            ]
+          )
 
-foreignKeyInfo :: [ForeignKey] -> [ForeignKeyInfo]
-foreignKeyInfo = concatMap (map toForeignKeyInfo . groupByKeyName) . groupByTableName
-  where groupByTableName = L.groupBy (\(ForeignKey _ tna _ _ _ _ _) (ForeignKey _ tnb _ _ _ _ _) -> tna == tnb)
-        groupByKeyName   = L.groupBy (\(ForeignKey kna _ _ _ _ _ _) (ForeignKey knb _ _ _ _ _ _) -> kna == knb)
+toForeignKeyInfo :: [FKey] -> TableContent ForeignKeyInfo
+toForeignKeyInfo = HM.fromListWith (++) . concatMap (map toForeignKeyInfo . groupByKeyName) . groupByTableName
+  where groupByTableName = L.groupBy (\(FKey _ tna _ _ _ _ _) (FKey _ tnb _ _ _ _ _) -> tna == tnb)
+        groupByKeyName   = L.groupBy (\(FKey kna _ _ _ _ _ _) (FKey knb _ _ _ _ _ _) -> kna == knb)
 
-        toForeignKeyInfo fks@(ForeignKey kna tna _ _ rtna _ _ : _) =
-          ForeignKeyInfo { fkName    = kna
-                         , fkOnTab   = tna
-                         , fkRefTab  = rtna
-                         , fkOnCols  = (getFKCols fks)
-                         , fkRefCols = (getFKRefCols fks)
-                         }
+        toForeignKeyInfo fks@(FKey kna tna _ _ rtna _ _ : _) =
+          let fki = mkForeignKeyInfo (mkEntityName (mkHaskName kna) kna)
+                                     (getFKCols fks)
+                                     (mkHaskTypeName rtna)
+                                     (getFKRefCols fks)
+          in (mkHaskName tna , [fki])
         toForeignKeyInfo []                                        = error "impossible: empty group"
 
         getFKCols = map snd . L.sortBy cmpByFst . map getFKCol
-        getFKCol (ForeignKey _ _ col i _ _ _) = (i, col)
+        getFKCol (FKey _ _ col i _ _ _) = (i, col)
 
         getFKRefCols = map snd . L.sortBy cmpByFst . map getFKRefCol
-        getFKRefCol (ForeignKey _ _ _ _ _ col i) = (i, col)
+        getFKRefCol (FKey _ _ _ _ _ col i) = (i, col)
         
-        cmpByFst a b = compare a b
-  
+        cmpByFst a b = compare (fst a) (fst b)
 
-tabColInfo :: [TableColInfo] -> [(Text, [ColumnInfo])]
-tabColInfo = splitTabInfo . L.groupBy (\a b -> dbTableName a == dbTableName b)
-  where splitTabInfo = foldr (\as acc -> let cInfos = map (\a -> ColumnInfo (dbColumnName a) (dbTypeName a) (dbPosition a) (nullable a)) as
-                                        in case as of
-                                             []      -> acc
-                                             (a : _) -> ((dbTableName a), cInfos) : acc
-                             ) []
-
-        nullable a = case dbIsNullable a of
+toTabColInfo :: [TableColInfo] -> TableContent ColumnInfo
+toTabColInfo = HM.fromListWith (++) . map colInfo
+  where nullable a = case dbIsNullable a of
           "YES" -> True
           "NO"  -> False
           _     -> error "Panic: Invalid nullability information from DB"
+
+        colInfo tci =
+          let ci = mkColumnInfo (nullable tci)
+                                (mkEntityName (mkHaskName (dbColumnName tci)) (dbColumnName tci))
+                                (coerce (dbTypeName tci))
+                   
+          in ( dbTableName tci, [ci])
 
 instance FromRow EnumInfo where
   fromRow = EnumInfo <$> field <*> field
@@ -207,8 +189,8 @@ instance FromRow PrimKey where
 instance FromRow UniqKey where
   fromRow = UniqKey <$> field <*> field <*> field <*> field
 
-instance FromRow ForeignKey where
-  fromRow = ForeignKey <$> field <*> field <*> field <*> field <*> field <*> field <*> field
+instance FromRow FKey where
+  fromRow = FKey <$> field <*> field <*> field <*> field <*> field <*> field <*> field
 
 enumQ :: Query
 enumQ =
@@ -218,98 +200,126 @@ enumQ =
      \ON pg_enum.enumtypid = pg_type.oid \
  \GROUP BY enumtype"
 
--- TODO: parameterize by schema name
 tableColQ :: Query
 tableColQ =
-  "SELECT col.table_name, \
-         \col.column_name, \
-         \col.ordinal_position, \
-         \col.column_default, \
-         \col.is_nullable, \
-         \col.data_type, \
-         \col.character_maximum_length \
-  \FROM  (SELECT table_name, \
-                \column_name, \
-                \ordinal_position, \
-                \column_default, \
-                \is_nullable, \
-                \data_type, \
-                \character_maximum_length \
-         \FROM information_schema.columns) as col \
+ "SELECT col.table_name as table_name,\
+        \col.column_name,\ 
+        \col.ordinal_position as pos,\
+        \col.column_default,\ 
+        \col.is_nullable,\ 
+        \col.data_type,\ 
+        \col.character_maximum_length\
+ \FROM  (SELECT table_name,\ 
+               \column_name,\ 
+               \ordinal_position,\
+               \column_default,\
+               \is_nullable,\ 
+               \data_type,\
+               \character_maximum_length\
+        \FROM information_schema.columns\
+        \WHERE table_schema = '?'\
+         \) as col\
   \JOIN\
-        \(SELECT table_name \
-         \FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE') as tab \
-  \ON col.table_name = tab.table_name"
-
+        \(SELECT table_name\
+         \FROM information_schema.tables WHERE table_schema='?' AND table_type='BASE TABLE') as tab\
+  \ON col.table_name = tab.table_name\
+  \ORDER BY table_name, pos"
+  
 checksQ :: Query
 checksQ =
   "SELECT cc.constraint_name, table_name, check_clause \
   \FROM information_schema.check_constraints AS cc \
   \JOIN information_schema.table_constraints AS tc \
-  \ON   cc.constraint_name = tc.constraint_name \
-  \WHERE cc.constraint_schema = 'public'"
+  \ON   cc.constraint_name = tc.constraint_name AND\
+       \cc.constraint_schema = tc.constraint_schema\
+  \WHERE cc.constraint_schema = '?'"
 
 primKeysQ :: Query
 primKeysQ =
-  "SELECT kcu.constraint_name, kcu.table_name, kcu.column_name, kcu.ordinal_position \ 
-   \FROM  information_schema.key_column_usage as kcu \
-   \JOIN  information_schema.table_constraints as tc \
-   \ON    kcu.constraint_name = tc.constraint_name \
-   \WHERE kcu.constraint_schema = 'public' AND constraint_type = 'PRIMARY KEY'"
+ "SELECT kcu.constraint_name as constraint_name, kcu.table_name, kcu.column_name, kcu.ordinal_position\
+ \FROM  (SELECT constraint_name\
+              \, table_name\
+              \, column_name\
+              \, ordinal_position\
+        \FROM information_schema.key_column_usage\
+        \WHERE constraint_schema = '?'\
+       \) as kcu\
+  \JOIN  (SELECT constraint_name\
+              \, table_name\
+         \FROM information_schema.table_constraints\
+         \WHERE constraint_type = 'PRIMARY KEY' AND constraint_schema = '?'\
+        \) as tc\
+  \ON    kcu.constraint_name = tc.constraint_name AND\
+        \kcu.table_name = tc.table_name\
+  \ORDER BY table_name, ordinal_position"
 
 uniqKeysQ :: Query
 uniqKeysQ =
-  "SELECT kcu.constraint_name, kcu.table_name, kcu.column_name, kcu.ordinal_position \
-   \FROM   information_schema.key_column_usage as kcu \
-   \JOIN   information_schema.table_constraints as tc \
-   \ON     kcu.constraint_name = tc.constraint_name \
-   \WHERE  kcu.constraint_schema = 'public' AND constraint_type = 'UNIQUE'"
+ "SELECT kcu.constraint_name as constraint_name, kcu.table_name, kcu.column_name, kcu.ordinal_position\
+ \FROM  (SELECT constraint_name\
+              \, table_name\
+              \, column_name\
+              \, ordinal_position\
+        \FROM information_schema.key_column_usage\
+        \WHERE constraint_schema = '?'\
+       \) as kcu\
+  \JOIN  (SELECT constraint_name\
+              \, table_name\
+         \FROM information_schema.table_constraints\
+         \WHERE constraint_type = 'UNIQUE' AND constraint_schema = '?'\
+        \) as tc\
+  \ON    kcu.constraint_name = tc.constraint_name AND\
+        \kcu.table_name = tc.table_name\
+  \ORDER BY table_name, constraint_name, ordinal_position"
 
 foreignKeysQ :: Query
-foreignKeysQ = "SELECT tc.constraint_name, tc.table_name, kcu.column_name, \
-      \kcu.ordinal_position AS referencing_fk, \
-      \ccu.table_name AS foreign_table_name, \
-      \ccu.column_name AS foreign_column_name, \
-      \kcu.position_in_unique_constraint AS referred_pk \
+foreignKeysQ =
+ "SELECT\
+     \KCU1.CONSTRAINT_NAME AS FK_CONSTRAINT_NAME\
+    \,KCU1.TABLE_NAME AS FK_TABLE_NAME\
+    \,KCU1.COLUMN_NAME AS FK_COLUMN_NAME\
+    \,KCU1.ORDINAL_POSITION AS FK_ORDINAL_POSITION\
+    \,KCU2.CONSTRAINT_NAME AS REFERENCED_CONSTRAINT_NAME\
+    \,KCU2.TABLE_NAME AS REFERENCED_TABLE_NAME\ 
+    \,KCU2.COLUMN_NAME AS REFERENCED_COLUMN_NAME\
+    \,KCU2.ORDINAL_POSITION AS REFERENCED_ORDINAL_POSITION\
+ \FROM (SELECT * FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS\
+               \WHERE CONSTRAINT_SCHEMA = '?') AS RC\
+ \INNER JOIN (SELECT * FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE\
+                     \WHERE CONSTRAINT_SCHEMA = '?'\
+           \) AS KCU1\
+    \ON KCU1.CONSTRAINT_CATALOG = RC.CONSTRAINT_CATALOG\
+    \AND KCU1.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA\
+    \AND KCU1.CONSTRAINT_NAME = RC.CONSTRAINT_NAME\
 
-\FROM \
-    \information_schema.table_constraints AS tc \
-    \JOIN information_schema.key_column_usage AS kcu \
-      \ON tc.constraint_name = kcu.constraint_name \
-    \JOIN information_schema.constraint_column_usage AS ccu \
-      \ON ccu.constraint_name = kcu.constraint_name \
-    \JOIN (SELECT column_name, \
-                 \ordinal_position, \
-                 \col.table_name \
-          \FROM information_schema.columns as col \
-          \JOIN (SELECT * FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE') as tab \
-          \ON col.table_name = tab.table_name \
-         \) AS foreign_col \
-      \ON foreign_col.ordinal_position = position_in_unique_constraint AND foreign_col.column_name = ccu.column_name AND ccu.table_name = foreign_col.table_name \
-\WHERE constraint_type = 'FOREIGN KEY'  AND \
-      \kcu.constraint_schema = 'public'"
-                              
-getSchemaInfo :: Proxy db -> Connection -> IO [PrimDDL]
-getSchemaInfo _ conn = do
-  enumTs <- query_ conn enumQ
+ \INNER JOIN (SELECT * FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE\
+                     \WHERE CONSTRAINT_SCHEMA = '?'\
+           \) AS KCU2\
+    \ON KCU2.CONSTRAINT_CATALOG = RC.UNIQUE_CONSTRAINT_CATALOG\
+    \AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA\
+    \AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME\
+    \AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION"
+  
+type SchemaName = Text
+               
+getDbSchemaInfo :: SchemaName -> Connection -> IO [TableInfo]
+getDbSchemaInfo sn conn = do
+  -- enumTs <- query_ conn enumQ
   tcols <- query_ conn tableColQ
   tchks <- query_ conn checksQ
   prims <- query_ conn primKeysQ
   uniqs <- query_ conn uniqKeysQ
   fks   <- query_ conn foreignKeysQ  
-  pure $ mkMigrations enumTs (toTableInfo (tabColInfo tcols) (checkInfo tchks) (defaultInfo tcols) (primKeyInfo prims) (uniqKeyInfo uniqs) (foreignKeyInfo fks))
+  pure $ (toTableInfo (toTabColInfo tcols) (toCheckInfo tchks) (toDefaultInfo tcols) (toPrimKeyInfo prims) (toUniqKeyInfo uniqs) (toForeignKeyInfo fks))
 
 unsafeParseExpr :: Text -> PQ.PrimExpr
 unsafeParseExpr t = primExprGen . either parsePanic id . parseOnly sqlExpr $ t
   where parsePanic e = error $ "Panic while parsing: " ++ show e ++ " , " ++ "while parsing " ++ show t
 
-mkMigrations :: [EnumInfo] -> [TableInfo] -> [PrimDDL]
-mkMigrations enumInfos tabInfos =
-  mkMigrationTypes enumInfos ++ mkMigrationTables tabInfos
-
 -- conversion to migrations
 
 -- Only enums for now
+{-
 mkMigrationTypes :: [EnumInfo] -> [PrimDDL]
 mkMigrationTypes = map mkMigrationType
   where mkMigrationType e =
@@ -317,6 +327,18 @@ mkMigrationTypes = map mkMigrationType
               vals = map EnumVal (V.toList (enumCons e))
           in CreateEnum tn vals
 
+mkMigrations :: [EnumInfo] -> [TableInfo] -> [PrimDDL]
+mkMigrations enumInfos tabInfos =
+  mkMigrationTypes enumInfos ++ mkMigrationTables tabInfos
+-}
+
+mkHaskName :: Text -> Text
+mkHaskName = id
+
+mkHaskTypeName :: Text -> S.TypeName Text
+mkHaskTypeName = mkTypeName "DBPackage" "DBModule"
+  
+{-
 mkMigrationTables :: [TableInfo] -> [PrimDDL]
 mkMigrationTables =
   concatMap mkMigrationTable
@@ -363,17 +385,18 @@ mkMigrationTable tabInfo =
           let chkName = checkName chkInfo
               chkExpr = check chkInfo
           in case isNotNullExp chkExpr of
-                  (Just col)  -> addNotNull (coerce tabN) (coerce col)
-                  Nothing     -> addCheckExpr (coerce tabN) (coerce chkName) (coerce chkExpr)
+                  (Just col)  -> setNotNull (coerce tabN) (coerce col)
+                  Nothing     -> addCheck (coerce tabN) (coerce chkName) (coerce chkExpr)
 
         defaultExprs = map defaultExpr (defaults tabInfo)
         defaultExpr defInfo =
           let colName = defaultOnColumn defInfo
               defExp  = defaultExp defInfo
-          in addDefaultExpr (coerce tabN) (coerce colName) (coerce defExp)               
+          in addDefault (coerce tabN) (coerce colName) (coerce defExp)               
         tabN = tableName tabInfo        
 
         isNotNullExp exp = case exp of
           PQ.UnExpr PQ.OpIsNotNull (PQ.BaseTableAttrExpr coln) -> Just coln
           _                                                    -> Nothing
                                         
+-}
