@@ -28,6 +28,7 @@ data User = User
   , name  :: Text
   , age   :: Int
   , email :: Text
+  , foo   :: Int
   } deriving (Generic)
 
 data Employee = Employee
@@ -60,7 +61,9 @@ instance Table TestDB Employee where
 instance Table TestDB User where
   type Check TestDB User         = '[ 'CheckOn '["age"] "age_positive"
                                     ]
-  type ColumnNames TestDB User   = '[ '("email", "EMail") ]
+  type ColumnNames TestDB User   = '[ '("email", "EMail")
+                                    , '("foo"      , "bar_id")
+                                    ]
                                    
   type PrimaryKey TestDB User    = '["id", "name"]
   type Unique TestDB User        = '[ 'UniqueOn '["name", "email"] "User_name_email_key"
@@ -71,13 +74,20 @@ instance Table TestDB User where
     :& end
     )
 
-localConnectInfo = ConnectInfo "10.42.0.1" 5432 "sreenidhi" "" "test_dbrecord"
+localConnectInfo = ConnectInfo "127.0.0.1" 5432 "sreenidhi" "password" "test_dbrecord"
 
 testDB :: Proxy TestDB
 testDB = Proxy       
-                   
+
+userTab :: Proxy User
+userTab = Proxy       
+         
 spec = do
    conn <- runIO $ PGS.connect localConnectInfo
    describe "migration" $
      before (validateSchemaInfo testDB conn >> pure ()) $ it "must match the reified information from db" False
-       
+
+migTest :: IO ()
+migTest = do
+  conn <- PGS.connect localConnectInfo  
+  runMigDiff testDB userTab conn

@@ -3,7 +3,6 @@ module DBRecord.Internal.Common where
 
 import Data.Type.Equality
 import Data.Proxy
-import Data.Functor.Identity
 import DBRecord.Internal.Types
 import GHC.Generics
 import GHC.TypeLits
@@ -18,6 +17,7 @@ import Data.Vector (Vector)
 import Data.Aeson
 import Data.Text
 import GHC.Exts
+import Data.Functor.Identity
 
 type family GenTyCon (rep :: * -> *) :: Symbol where
   GenTyCon (D1 ('MetaData tyName _ _ _) _) = tyName
@@ -59,6 +59,11 @@ type family (a :: Bool) && (b :: Bool) :: Bool where
   a     && b     = 'False
 
 data AdtK = EnumTy | SumTy Bool | ProdTy Bool
+
+-- NOTE: l should be <= r 
+type family Range (l :: Nat) (r :: Nat) :: [Nat] where
+  Range l l = '[]
+  Range l r = l ': Range (l + 1) r
 
 type family IsEnumLike (rep :: * -> *) :: Bool where
   IsEnumLike (D1 i f)                    = IsEnumLike f
@@ -383,5 +388,6 @@ newtype Defs tab a = Defs [a]
 
 [] :: Defs tab (Def tab)
 [#foo 1, #bar 2]
-
 -}
+
+

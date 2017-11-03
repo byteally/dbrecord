@@ -89,29 +89,60 @@ column = Column
 createTable :: TabName -> [Column] -> PrimDDL
 createTable = CreateTable
 
-addPrimaryKey :: TabName -> ConstraintName -> [ColName] -> PrimDDL
-addPrimaryKey tn cn cols =
-  AlterTable tn (AddConstraint cn (AddPrimaryKey cols))
+addPrimaryKey :: ConstraintName -> [ColName] -> AlterTable
+addPrimaryKey cn cols =
+  AddConstraint cn (AddPrimaryKey cols)
 
-addUnique :: TabName -> ConstraintName -> [ColName] -> PrimDDL
-addUnique tn cn cols =
-  AlterTable tn (AddConstraint cn (AddUnique cols))
+addUnique :: ConstraintName -> [ColName] -> AlterTable
+addUnique cn cols =
+  AddConstraint cn (AddUnique cols)
 
-addForeignKey :: TabName -> ConstraintName -> [ColName] -> TabName -> [ColName] -> PrimDDL
-addForeignKey tn cn cols reft refcols =
-  AlterTable tn (AddConstraint cn (AddForeignKey cols reft refcols))
+addForeignKey :: ConstraintName -> [ColName] -> TabName -> [ColName] -> AlterTable
+addForeignKey cn cols reft refcols =
+  AddConstraint cn (AddForeignKey cols reft refcols)
 
-addCheckExpr :: TabName -> ConstraintName -> CheckExpr -> PrimDDL
-addCheckExpr tn cn ce =
-  AlterTable tn (AddConstraint cn (AddCheck ce))
+addCheck :: ConstraintName -> CheckExpr -> AlterTable
+addCheck cn ce =
+  AddConstraint cn (AddCheck ce)
 
-addDefaultExpr :: TabName -> ColName -> DefExpr -> PrimDDL
-addDefaultExpr tn col de =
-  AlterTable tn (AlterColumn col (AddDefault de))
+addDefault :: ColName -> DefExpr -> AlterTable
+addDefault col de =
+  AlterColumn col (AddDefault de)
 
-addNotNull :: TabName -> ColName -> PrimDDL
-addNotNull tn col =
-  AlterTable tn (AlterColumn col SetNotNull)
+dropDefault :: ColName -> AlterTable
+dropDefault col =
+  AlterColumn col DropDefault
+
+setNotNull :: ColName -> AlterTable
+setNotNull col =
+  AlterColumn col SetNotNull
+
+dropNotNull :: ColName -> AlterTable
+dropNotNull col =
+  AlterColumn col DropNotNull
+
+renameTab :: TabName -> AlterTable
+renameTab new =
+  RenameTable new
+
+renameColumn :: ColName -> ColName -> AlterTable
+renameColumn old new =
+  RenameColumn old new
+
+dropColumn :: ColName -> AlterTable
+dropColumn cn =
+  DropColumn cn
+
+addColumn :: ColName -> ColType -> AlterTable
+addColumn cn ct =
+  AddColumn (Column cn ct)
+
+changeType :: ColName -> ColType -> AlterTable
+changeType cn ct =
+  AlterColumn cn (ChangeType ct)
+
+altering :: TabName -> [AlterTable] -> [PrimDDL]
+altering = map . AlterTable
 
 single :: a -> [a]
 single a = [a]

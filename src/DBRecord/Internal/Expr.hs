@@ -17,8 +17,8 @@ import GHC.OverloadedLabels
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Text.Read as R
-import Data.Aeson
 import qualified Data.Aeson as A
+import Data.Aeson (ToJSON (..), FromJSON (..))
 import qualified Data.Text.Encoding as STE
 import qualified Data.Text.Lazy.Encoding as LTE
 import qualified Data.ByteString.Lazy as LB
@@ -642,8 +642,8 @@ getParsedVal _ (Right (v, "")) = Right v
 getParsedVal _ _               = exprParseErr
 
 instance ToJSON (Expr sc a) where
-  toEncoding e = pairs ("trusted" .= getExpr e)
-  toJSON     e = object ["trusted" .= getExpr e]
+  toEncoding e = A.pairs ("trusted" A..= getExpr e)
+  toJSON     e = A.object ["trusted" A..= getExpr e]
 
 instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Int) where
   parseJSON = parseJSONExpr
@@ -687,12 +687,12 @@ instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word32) 
 instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word64) where
   parseJSON = parseJSONExpr
 
-parseJSONExpr :: (Typeable a, ToScopeRep sc (Proxy ('[] :: [* -> *]))) => Value -> Parser (Expr sc a)
-parseJSONExpr (Object eobj) = do
-  tst  <- eobj .:? "trusted"
+parseJSONExpr :: (Typeable a, ToScopeRep sc (Proxy ('[] :: [* -> *]))) => A.Value -> Parser (Expr sc a)
+parseJSONExpr (A.Object eobj) = do
+  tst  <- eobj A..:? "trusted"
   case tst of
     Just e -> pure (Expr e)
-    Nothing -> case withText "Expr" go <$> (HM.lookup "untrusted" eobj) of
+    Nothing -> case A.withText "Expr" go <$> (HM.lookup "untrusted" eobj) of
       Just p  -> p
       Nothing -> fail "key not found"    
   where go texpr = case parseExpr texpr of

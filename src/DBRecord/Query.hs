@@ -519,7 +519,7 @@ insert _ row = do
     values = toHList row (\v -> Identity v)
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
     colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnNames (filterColumns tabFlds colIs)
+    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
     cexprs = toDBValues values
     insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) []
   driver <- ask
@@ -550,7 +550,7 @@ insertRet _ row rets = do
     values = toHList row (\v -> Identity v)
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
     colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnNames (filterColumns tabFlds colIs)
+    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
     cexprs = toDBValues values
     insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) (toPrimExprs rets)
   driver <- ask
@@ -583,7 +583,7 @@ insertMany _ rows = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
     colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnNames (filterColumns tabFlds colIs)
+    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
     cexprss = fmap toDBValues values
     
     values = fmap (\row -> toHList row (\v -> Identity v)) rows
@@ -616,7 +616,7 @@ insertManyRet _ rows rets = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
     colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnNames (filterColumns tabFlds colIs)
+    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
     cexprss = fmap toDBValues values
     
     values = fmap (\row -> toHList row (\v -> Identity v)) rows
@@ -645,7 +645,7 @@ insert_ _ row = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
     colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnNames (filterColumns tabFlds colIs)
+    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
     cexprs = toDBValues values
     values = toHList row (\v -> Identity v)
     insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList [cexprs]) []
@@ -674,7 +674,7 @@ insertMany_ _ rows = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
     colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnNames (filterColumns tabFlds colIs)
+    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
     cexprss = fmap toDBValues values    
     values = fmap (\row -> toHList row (\v -> Identity v)) rows
     insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList cexprss) []
@@ -689,13 +689,13 @@ getTableProjections pdb ptab = go (colInfos pdb ptab)
 
         mkProj :: ColumnInfo -> Projection
         mkProj ci =
-          let dbColN = dbColumnName (columnNameInfo ci)
+          let dbColN = dbName (columnNameInfo ci)
           in  (Sym [] dbColN, BaseTableAttrExpr dbColN)
 
 getTableId :: forall db tab. (SingCtx db tab, SingCtxDb db) => Proxy db -> Proxy tab -> TableId
 getTableId pdb ptab =
-  let dbTabName    = dbTableName (tabNameInfo pdb ptab)
-      dbSchemaName = schemaName (databaseInfo pdb)
+  let dbTabName    = dbName (tabNameInfo pdb ptab)
+      dbSchemaName = hsName (databaseInfo pdb)
   in  TableId { PQ.schema    = dbSchemaName
               , PQ.tableName = dbTabName
               }
