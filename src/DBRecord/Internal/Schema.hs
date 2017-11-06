@@ -18,6 +18,7 @@
 {-# LANGUAGE CPP                     #-}
 {-# LANGUAGE RankNTypes              #-}
 {-# LANGUAGE ConstraintKinds         #-}
+{-# LANGUAGE OverloadedStrings       #-}
 
 
 module DBRecord.Internal.Schema where
@@ -38,7 +39,7 @@ import DBRecord.Internal.Common
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.DBTypes
 import qualified Data.List as L
-import DBRecord.Internal.Lens (unsafeFind)
+import DBRecord.Internal.Lens (unsafeFind, (^.))
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
@@ -718,13 +719,13 @@ instance ( ValidateDBFld tab un a
   fromLabel _ v = def @un @tab v
 #endif
 
-data DBDefaults (db :: *) tab = forall xs.(All (DefExpr db tab) xs) => DBDefaults (HList (Def tab) xs)
+data DBDefaults (db :: *) tab = forall xs. (All KnownSymbol xs) => DBDefaults (HList (Def tab) xs)
 
 end :: HList f '[]
 end = Nil
 
 dbDefaults :: forall tab db xs.
-              ( All (DefExpr db tab) xs
+              ( All KnownSymbol xs
               , ValidateDefExprs db tab (HasDefault db tab) xs
               ) => HList (Def tab) xs -> DBDefaults db tab
 dbDefaults = DBDefaults
@@ -736,12 +737,12 @@ type family ValidateDefExprs (db :: *) (tab :: *) (defs :: [Symbol]) (setDefs ::
     )
   ValidateDefExprs db tab '[] _ = ()
 
-data Chk (db :: *) (tab :: *) (chk :: CheckCT) = forall val.(ApCheckOnExpr db tab chk val) => Chk val
+data Chk (db :: *) (tab :: *) (chk :: CheckCT) = forall val.(ApCheckOnExpr chk val) => Chk val
 
-data DBChecks (db :: *) tab = forall chks. (All (CheckExpr db tab) chks) => DBChecks (HList (Chk db tab) chks)
+data DBChecks (db :: *) tab = forall chks. (All CheckExpr chks) => DBChecks (HList (Chk db tab) chks)
 
-type family ApCheckOnExpr db tab chk val where
-  ApCheckOnExpr db tab ('CheckOn cols name) v = ApCheckExpr db tab cols name v
+type family ApCheckOnExpr chk val where
+  ApCheckOnExpr ('CheckOn cols name) v = ApCheckExpr cols name v
 
 type family LookupCheck (chks :: [CheckCT]) (cn :: Symbol) :: Maybe [Symbol] where
   LookupCheck ('CheckOn args cn ': chks) cn  = 'Just args
@@ -759,7 +760,7 @@ type family MkCheckFn (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: 
 instance ( un ~ cn
          , args ~ LookupCheck (Check db tab) cn
          , UnifyCheck tab cn (OriginalTableFields tab) args val
-         , ApCheckExpr db tab (PartialJust args) cn val
+         , ApCheckExpr (PartialJust args) cn val
          , res ~ ('CheckOn (PartialJust args) cn)
          ) => IsLabel un (val -> Chk db tab res) where
 #if __GLASGOW_HASKELL__ > 800
@@ -771,12 +772,12 @@ instance ( un ~ cn
 check :: forall (cn :: Symbol) (db :: *) (tab :: *) val args.
         ( args ~ LookupCheck (Check db tab) cn
         , UnifyCheck tab cn (OriginalTableFields tab) args val
-        , ApCheckExpr db tab (PartialJust args) cn val
+        , ApCheckExpr (PartialJust args) cn val
         ) => val -> Chk db tab ('CheckOn (PartialJust args) cn)
 check = Chk
 
 dbChecks :: forall tab (db :: *) chks.
-            ( All (CheckExpr db tab) chks
+            ( All CheckExpr chks
             , ValidateCheckExpr db tab (Check db tab) chks
             ) => HList (Chk db tab) chks -> DBChecks db tab
 dbChecks = DBChecks
@@ -854,48 +855,39 @@ instance ( SingAttrs db cons
 instance SingAttrs db '[] where
   singAttrs _ _ = Nil
 
-happlyChkExpr :: (All (CheckExpr db tab) chks) => Proxy db -> HList (Chk db tab) chks -> [(String, PQ.PrimExpr)]
-happlyChkExpr p (v :& vs) = checkExpr v : happlyChkExpr p vs
-happlyChkExpr _ Nil       = []
+happlyChkExpr :: (All CheckExpr chks) => [ColumnInfo] -> [(T.Text, T.Text)] -> HList (Chk db tab) chks -> [(T.Text, PQ.PrimExpr)]
+happlyChkExpr cis chkMap (v :& vs) = checkExpr cis chkMap v : happlyChkExpr cis chkMap vs
+happlyChkExpr _cis _chkMap Nil     = []
 
-happlyDefExprs :: (All (DefExpr db tab) xs) => Proxy db -> HList (Def tab) xs -> [(String, PQ.PrimExpr)]
-happlyDefExprs p (v :& vs) = defExpr p v : happlyDefExprs p vs
-happlyDefExprs _  Nil      = []
+happlyDefExprs :: (All KnownSymbol xs) => [ColumnInfo] -> HList (Def tab) xs -> [(T.Text, PQ.PrimExpr)]
+happlyDefExprs cis (v :& vs) = defExpr cis v : happlyDefExprs cis vs
+happlyDefExprs cis Nil       = []
 
-class CheckExpr db tab (chk :: CheckCT) where
-  checkExpr :: Chk db tab chk -> (String, PQ.PrimExpr)
+class CheckExpr (chk :: CheckCT) where
+  checkExpr :: [ColumnInfo] -> [(T.Text, T.Text)] -> Chk db tab chk -> (T.Text, PQ.PrimExpr)
 
-instance CheckExpr db tab ('CheckOn chkOns chkName) where
-  checkExpr (Chk val) = apCheckExpr (Proxy @db) (Proxy @tab) (Proxy @chkOns) (Proxy @chkName) val
+instance CheckExpr ('CheckOn chkOns chkName) where
+  checkExpr cis chkMaps (Chk val) = apCheckExpr (Proxy @chkOns) (Proxy @chkName) cis chkMaps val
 
-class ApCheckExpr db tab (chkOns :: [Symbol]) (chkName :: Symbol) val where
-  apCheckExpr :: Proxy db -> Proxy tab -> Proxy chkOns -> Proxy chkName -> val -> (String, PQ.PrimExpr)
+class ApCheckExpr (chkOns :: [Symbol]) (chkName :: Symbol) val where
+  apCheckExpr :: Proxy chkOns -> Proxy chkName -> [ColumnInfo] -> [(T.Text, T.Text)] -> val -> (T.Text, PQ.PrimExpr)
 
--- TODO: Make holes for renaming to happen later on.
-instance ( ApCheckExpr db tab chkOns chkName b
+instance ( ApCheckExpr chkOns chkName b
          , KnownSymbol chkOn
-         ) => ApCheckExpr db tab (chkOn ': chkOns) chkName (Expr sc a -> b) where
-  apCheckExpr pDb pTab _ pChkN v =
-    let colE = unsafeCol [colN]
+         ) => ApCheckExpr (chkOn ': chkOns) chkName (Expr sc a -> b) where
+  apCheckExpr _ pChkN cis chkMaps v =
+    let colE = unsafeCol [dbColN]
         colN = T.pack (symbolVal (Proxy @chkOn))
-    in  apCheckExpr pDb pTab (Proxy @chkOns) pChkN (v colE)
+        dbColN = getDbColumnName cis colN
+    in  apCheckExpr (Proxy @chkOns) pChkN cis chkMaps (v colE)
 
-instance (KnownSymbol chkName) => ApCheckExpr db tab '[] chkName (Expr sc a) where
-  apCheckExpr _ _ _ _ e = (symbolVal (Proxy @chkName), getExpr e)
+instance (KnownSymbol chkName) => ApCheckExpr '[] chkName (Expr sc a) where
+  apCheckExpr _ _ _ chkMaps e = (dbChkName, getExpr e)
+    where dbChkName = getDbCheckName chkMaps (T.pack (symbolVal (Proxy @chkName)))
 
-class ( KnownSymbol fld
-      , Table db tab
-      ) => DefExpr db tab fld
-
-instance ( KnownSymbol fld
-         , Table db tab
-         ) => DefExpr db tab fld      
-
-defExpr :: forall db tab fld.
-           ( Table db tab
-           , KnownSymbol fld
-           ) => Proxy db -> Def tab fld -> (String, PQ.PrimExpr)
-defExpr _ (Def (Expr e)) = (symbolVal (Proxy @fld), e)
+defExpr :: forall tab fld. (KnownSymbol fld) => [ColumnInfo] -> Def tab fld -> (T.Text, PQ.PrimExpr)
+defExpr cis (Def (Expr e)) = (dbColN, e)
+  where dbColN = getDbColumnName cis (T.pack (symbolVal (Proxy @fld)))
 
 -- Value level counterparts
 type HaskName = Text
@@ -1020,17 +1012,28 @@ data TableInfo = TableInfo { _primaryKeyInfo   :: Maybe PrimaryKeyInfo
 primaryKeyInfo :: Functor f => (Maybe PrimaryKeyInfo -> f (Maybe PrimaryKeyInfo)) -> TableInfo -> f TableInfo
 primaryKeyInfo k t = fmap (\a -> t { _primaryKeyInfo = a }) (k (_primaryKeyInfo t))
 
+foreignKeyInfoAt :: Functor f => HaskName -> (ForeignKeyInfo -> f ForeignKeyInfo) -> TableInfo -> f TableInfo
+foreignKeyInfoAt et = foreignKeyInfo . unsafeFind et (_hsName . _fkeyName)
+
+
 foreignKeyInfo :: Functor f => ([ForeignKeyInfo] -> f [ForeignKeyInfo]) -> TableInfo -> f TableInfo
 foreignKeyInfo k t = fmap (\a -> t { _foreignKeyInfo = a }) (k (_foreignKeyInfo t))
 
 defaultInfo :: Functor f => ([DefaultInfo] -> f [DefaultInfo]) -> TableInfo -> f TableInfo
 defaultInfo k t = fmap (\a -> t { _defaultInfo = a }) (k (_defaultInfo t))
 
+checkInfoAt :: Functor f => HaskName -> (CheckInfo -> f CheckInfo) -> TableInfo -> f TableInfo
+checkInfoAt hsN = checkInfo . unsafeFind hsN (_hsName . _checkName)
+
 checkInfo :: Functor f => ([CheckInfo] -> f [CheckInfo]) -> TableInfo -> f TableInfo
 checkInfo k t = fmap (\a -> t { _checkInfo = a }) (k (_checkInfo t))
 
+
 uniqueInfo :: Functor f => ([UniqueInfo] -> f [UniqueInfo]) -> TableInfo -> f TableInfo
 uniqueInfo k t = fmap (\a -> t { _uniqueInfo = a }) (k (_uniqueInfo t))
+
+uniqueInfoAt :: Functor f => HaskName -> (UniqueInfo -> f UniqueInfo) -> TableInfo -> f TableInfo
+uniqueInfoAt et = uniqueInfo . unsafeFind et (_hsName . _uqName)
 
 sequenceInfo :: Functor f => ([SequenceInfo] -> f [SequenceInfo]) -> TableInfo -> f TableInfo
 sequenceInfo k t = fmap (\a -> t { _sequenceInfo = a }) (k (_sequenceInfo t))
@@ -1065,17 +1068,17 @@ columnNameInfo k t = fmap (\a -> t { _columnNameInfo = a }) (k (_columnNameInfo 
 columnTypeName :: Functor f => (DBType -> f DBType) -> ColumnInfo -> f ColumnInfo
 columnTypeName k t = fmap (\a -> t { _columnTypeName = a }) (k (_columnTypeName t))
 
-mkPrimaryKeyInfo :: Maybe Text -> [HaskName] -> PrimaryKeyInfo
+mkPrimaryKeyInfo :: Text -> [HaskName] -> PrimaryKeyInfo
 mkPrimaryKeyInfo pkn pkcols =
   PrimaryKeyInfo { _pkeyName    = pkn
                  , _pkeyColumns = pkcols
                  }
 
-data PrimaryKeyInfo = PrimaryKeyInfo { _pkeyName    :: Maybe Text
+data PrimaryKeyInfo = PrimaryKeyInfo { _pkeyName    :: Text
                                      , _pkeyColumns :: [HaskName]
                                      } deriving (Eq, Show)
 
-pkeyName :: Functor f => (Maybe Text -> f (Maybe Text)) -> PrimaryKeyInfo -> f PrimaryKeyInfo
+pkeyName :: Functor f => (Text -> f Text) -> PrimaryKeyInfo -> f PrimaryKeyInfo
 pkeyName k t = fmap (\a -> t { _pkeyName = a }) (k (_pkeyName t))
 
 pkeyColumns :: Functor f => ([HaskName] -> f [HaskName]) -> PrimaryKeyInfo -> f PrimaryKeyInfo
@@ -1199,14 +1202,16 @@ headTableInfo :: forall db tab.
              ( SingCtx db tab               
              ) => Proxy db -> Proxy tab -> TableInfo
 headTableInfo db tab =
-  mkTableInfo (headPkInfo db tab)
-              (headFkInfo db tab)
-              (headDefInfo db tab)
-              (headCksInfo db tab)
-              (headUqInfo db tab)
-              (headSeqsInfo db tab)
-              (headTabNameInfo db tab)
-              (headColInfos db tab)
+  let hti = headTabNameInfo db tab 
+      hci = headColInfos db tab
+  in mkTableInfo (headPkInfo db tab hti hci)
+                 (headFkInfo db tab hti hci)
+                 (headDefInfo db tab hti hci)
+                 (headCksInfo db tab hti hci)
+                 (headUqInfo db tab hti hci)
+                 (headSeqsInfo db tab hti hci)
+                 hti
+                 hci
 
 headPkInfo :: forall db tab.
           ( Table db tab
@@ -1214,13 +1219,16 @@ headPkInfo :: forall db tab.
           , SingI (PrimaryKeyName db tab)
           , SingE (PrimaryKey db tab)
           , SingI (PrimaryKey db tab)
-          ) => Proxy db -> Proxy tab -> Maybe PrimaryKeyInfo
-headPkInfo _ _ =
-  let pkCols = fromSing (sing :: Sing (PrimaryKey db tab))
+          ) => Proxy db -> Proxy tab -> EntityNameWithType -> [ColumnInfo] -> Maybe PrimaryKeyInfo
+headPkInfo _ _ et cis =
+  let pkDefN = let dbn    = et ^. dbName
+                   dbcols = getDbColumnNames cis pkCols
+               in  genKeyName (PkNameGen dbn dbcols)
+      pkCols = map T.pack (fromSing (sing :: Sing (PrimaryKey db tab)))
   in  case pkCols of
     [] -> Nothing
-    _  -> Just $ mkPrimaryKeyInfo (fmap T.pack (fromSing (sing :: Sing (PrimaryKeyName db tab))))
-                                  (map T.pack pkCols)
+    _  -> let dbn = maybe pkDefN id (T.pack <$> (fromSing (sing :: Sing (PrimaryKeyName db tab))))
+          in Just $ mkPrimaryKeyInfo dbn pkCols
 
 headFkInfo :: forall db tab.
           ( Table db tab
@@ -1228,23 +1236,25 @@ headFkInfo :: forall db tab.
           , SingI (ForeignKey db tab)
           , SingE (ForeignKeyNames db tab)
           , SingI (ForeignKeyNames db tab)
-          ) => Proxy db -> Proxy tab -> [ForeignKeyInfo]
-headFkInfo _ _ = 
+          ) => Proxy db -> Proxy tab -> EntityNameWithType -> [ColumnInfo] -> [ForeignKeyInfo]
+headFkInfo _ _ et cis = 
   let fkds = fromSing (sing :: Sing (ForeignKey db tab))
       fkNameMappings = fromSing (sing :: Sing (ForeignKeyNames db tab))
   in map (fkInfoOne fkNameMappings) fkds
 
   where fkInfoOne fkMappings (RefByD fkname hsCols refHsTabN hsRefCols) =
-             let etName = mkEntityName (T.pack fkname) (getDbFkName fkname fkMappings)
+             let etName = mkEntityName (T.pack fkname) (getDbFkName hsCols fkname fkMappings)
              in  mkForeignKeyInfo etName (map T.pack hsCols) refHsTabN (map T.pack hsRefCols)
         fkInfoOne fkMappings (RefD fkname hsCol refHsTabN) =
-             let etName = mkEntityName (T.pack fkname) (getDbFkName fkname fkMappings)
-                 hsCols   = map T.pack [hsCol]
+             let etName = mkEntityName (T.pack fkname) (getDbFkName [hsCol] fkname fkMappings)
+                 hsCols = map T.pack [hsCol]
              in  mkForeignKeyInfo etName hsCols refHsTabN hsCols
-        getDbFkName fkname fkMappings = T.pack $ 
+        getDbFkName hsCols fkname fkMappings =
           case L.lookup fkname fkMappings of
-            Just fkmapped -> fkmapped
-            Nothing       -> fkname
+            Just fkmapped -> T.pack fkmapped
+            Nothing       -> let dbn    = et ^. dbName
+                                 dbcols = getDbColumnNames cis (map T.pack hsCols)
+                             in  genKeyName (FkNameGen dbn dbcols "todo_ref_tab")
                                                                          
 headUqInfo :: forall db tab.
           ( Table db tab
@@ -1252,45 +1262,50 @@ headUqInfo :: forall db tab.
           , SingE (UniqueNames db tab)
           , SingI (Unique db tab)
           , SingI (UniqueNames db tab)
-          ) => Proxy db -> Proxy tab -> [UniqueInfo]
-headUqInfo _ _ =
+          ) => Proxy db -> Proxy tab -> EntityNameWithType -> [ColumnInfo] -> [UniqueInfo]
+headUqInfo _ _ et cis =
   let uniqs = fromSing (sing :: Sing (Unique db tab))
       uniqNameMappings = fromSing (sing :: Sing (UniqueNames db tab))
   in  map (uniqWithMapping uniqNameMappings) uniqs
   
   where uniqWithMapping uniqMaps (uniqFlds, uniqHsName) =
-          let etName = mkEntityName (T.pack uniqHsName) (lookupUniqMapping uniqHsName uniqMaps)
+          let etName = mkEntityName (T.pack uniqHsName) (lookupUniqMapping uniqFlds uniqHsName uniqMaps)
           in  mkUniqueInfo etName (map T.pack uniqFlds)
-        lookupUniqMapping uniqHsName uniqMaps = T.pack $ 
+        lookupUniqMapping hsCols uniqHsName uniqMaps = 
           case L.lookup uniqHsName uniqMaps of
-            Just uniqDbName -> uniqDbName
-            _               -> uniqHsName
+            Just uniqDbName -> T.pack uniqDbName
+            _               -> let dbn    = et ^. dbName
+                                   dbcols = getDbColumnNames cis (map T.pack hsCols)
+                               in  genKeyName (UqNameGen dbn dbcols)
 
 headDefInfo :: forall db tab.
            ( Table db tab
-           ) => Proxy db -> Proxy tab -> [DefaultInfo]
-headDefInfo _ _ = case (defaults :: DBDefaults db tab) of
-  DBDefaults hl -> map mkDefInfo ((happlyDefExprs (Proxy :: Proxy db)) hl)
+           ) => Proxy db -> Proxy tab -> EntityNameWithType -> [ColumnInfo] -> [DefaultInfo]
+headDefInfo _ _ _et cis = case (defaults :: DBDefaults db tab) of
+  DBDefaults hl -> map mkDefInfo (happlyDefExprs cis hl)
 
-  where mkDefInfo (n, expr) = mkDefaultInfo (T.pack n) expr
+  where mkDefInfo (n, expr) = mkDefaultInfo n expr
 
 headCksInfo :: forall db tab.
            ( Table db tab
            , SingE (CheckNames db tab)
            , SingI (CheckNames db tab)
-           ) => Proxy db -> Proxy tab -> [CheckInfo]
-headCksInfo _ _ =  case (checks :: DBChecks db tab) of
-  DBChecks hls -> map mkCheckInfo' (happlyChkExpr (Proxy @db) hls)
+           ) => Proxy db -> Proxy tab -> EntityNameWithType -> [ColumnInfo] -> [CheckInfo]
+headCksInfo _ _ et cis =  case (checks :: DBChecks db tab) of
+  DBChecks hls -> map mkCheckInfo' (happlyChkExpr cis chkNameMapsTxt hls)
 
   where mkCheckInfo' (n, expr) =
-          let etName = mkEntityName (T.pack n) (lookupchkMappings n chkNameMaps)
+          let etName = mkEntityName n (lookupchkMappings n chkNameMapsTxt)
           in mkCheckInfo etName expr
 
+        chkNameMapsTxt    = map (\t -> (T.pack (fst t ), T.pack (snd t))) chkNameMaps
         chkNameMaps       = fromSing (sing :: Sing (CheckNames db tab))
-        lookupchkMappings checkHsName chkMaps = T.pack $ 
+        lookupchkMappings checkHsName chkMaps =  
           case L.lookup checkHsName chkMaps of
             Just checkDbName -> checkDbName
-            _                -> checkHsName
+            _                -> let dbn = et ^. dbName
+                                    -- dbcols = getDbColumnNames cis (map T.pack hsCols)
+                                in  genKeyName (CkNameGen dbn "todo_check_name") 
 
 headSeqsInfo :: forall db tab.
             ( Table db tab
@@ -1298,19 +1313,21 @@ headSeqsInfo :: forall db tab.
             , SingE (TableSequence db tab)
             , SingI (SequenceNames db tab)
             , SingE (SequenceNames db tab)
-            ) => Proxy db -> Proxy tab -> [SequenceInfo]
-headSeqsInfo _ _ =
+            ) => Proxy db -> Proxy tab -> EntityNameWithType -> [ColumnInfo] -> [SequenceInfo]
+headSeqsInfo _ _ et cis =
   let seqs = fromSing (sing :: Sing (TableSequence db tab))
       seqNameMappings = fromSing (sing :: Sing (SequenceNames db tab))
   in  map (mkSeqInfo seqNameMappings) seqs
 
   where mkSeqInfo seqNameMaps (seqcol, seqHsn, st) =
-          let etName = mkEntityName (T.pack seqHsn) (lookupSeqMapping seqHsn seqNameMaps)
+          let etName = mkEntityName (T.pack seqHsn) (lookupSeqMapping seqcol seqHsn seqNameMaps)
           in  mkSequenceInfo etName (T.pack seqcol) st
-        lookupSeqMapping seqHsName seqMaps = T.pack $ 
+        lookupSeqMapping hsCol seqHsName seqMaps =  
           case L.lookup seqHsName seqMaps of
-            Just seqDbName -> seqDbName
-            _              -> seqHsName
+            Just seqDbName -> T.pack seqDbName
+            _              -> let dbn    = et ^. dbName
+                                  dbcol  = getDbColumnName cis (T.pack hsCol)
+                             in  genKeyName (SeqNameGen dbn dbcol Nothing)
        
 
 headTabNameInfo :: forall tab db.
@@ -1343,6 +1360,18 @@ headColInfos _ _ =
               etName = mkEntityName (T.pack hsn) (T.pack dbn)
           in mkColumnInfo isNull etName (coerce typN)
 
+getDbColumnName :: [ColumnInfo] -> HaskName -> DBName
+getDbColumnName cis n = (getColumnInfo cis (T.unpack n)) ^. columnNameInfo . dbName
+
+getDbColumnNames :: [ColumnInfo] -> [HaskName] -> [DBName]
+getDbColumnNames cis = map (getDbColumnName cis)
+
+getDbCheckName :: [(T.Text, T.Text)] -> T.Text -> T.Text
+getDbCheckName chkMap k = fromJust (L.lookup k chkMap)
+  where fromJust (Just m) = m
+        fromJust Nothing  = error "Panic: name not found in getDbCheckName"
+
+{-
 getDbColumnName :: TypeName Text -> [TableInfo] -> HaskName -> DBName
 getDbColumnName = undefined
 
@@ -1364,6 +1393,9 @@ filterColumns hsns cis = map (getColumnInfo cis) hsns
 getDbColumnInfoNames :: [ColumnInfo] -> [Text]
 getDbColumnInfoNames = map (_dbName . _columnNameInfo)
 
+
+-}
+
 getNullableColumns :: [ColumnInfo] -> [ColumnInfo]
 getNullableColumns = filter _isNullable
 
@@ -1376,7 +1408,8 @@ getColumnInfo cis hsn =
   in case mci of
        Just ci -> ci
        Nothing  -> error $ "Panic: invalid column name lookup for (hs)column: " ++ show hsn
-             
+
+
 class ( Table db tab
       , KnownSymbol (TableName db tab)
       , KnownSymbol (DefaultTableName tab)
@@ -1500,5 +1533,26 @@ col _ = Expr (PQ.AttrExpr sym)
 insert :: a -> [a] -> [a]
 insert = (:)
 
+deleteErr :: (Eq b) => b -> (a -> b) -> [a] -> [a]
+deleteErr = undefined
+
 delete :: (Eq b) => b -> (a -> b) -> [a] -> [a]
 delete = undefined
+
+data KeyNameGen
+  = PkNameGen T.Text [T.Text]
+  | FkNameGen T.Text [T.Text] T.Text
+  | UqNameGen T.Text [T.Text]
+  | CkNameGen T.Text T.Text
+  | SeqNameGen T.Text T.Text (Maybe T.Text)
+  deriving (Show, Eq)
+
+genKeyName :: KeyNameGen -> T.Text
+genKeyName (PkNameGen tab cols)           = T.intercalate "_" ("pk":tab:cols)
+genKeyName (FkNameGen tab cols reft)      = T.intercalate "_" (("fk":tab:cols) ++ [reft])
+genKeyName (UqNameGen tab cols)           = T.intercalate "_" ("uq":tab:cols)
+genKeyName (CkNameGen tab cn)             = T.intercalate "_" ["ck",tab,cn]
+genKeyName (SeqNameGen tab cn Nothing)    = T.intercalate "_" ["seq",tab,cn]
+genKeyName (SeqNameGen tab cn (Just n))   = T.intercalate "_" ["seq",tab, cn, n]
+
+-- camelToSnake, PascalToSnake 

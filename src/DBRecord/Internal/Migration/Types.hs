@@ -137,6 +137,10 @@ addColumn :: ColName -> ColType -> AlterTable
 addColumn cn ct =
   AddColumn (Column cn ct)
 
+dropConstraint :: ConstraintName -> AlterTable
+dropConstraint cn =
+  DropConstraint cn
+  
 changeType :: ColName -> ColType -> AlterTable
 changeType cn ct =
   AlterColumn cn (ChangeType ct)
