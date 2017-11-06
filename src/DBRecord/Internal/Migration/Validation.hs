@@ -71,7 +71,7 @@ toPrimKeyInfo :: [PrimKey] -> HM.HashMap Text PrimaryKeyInfo
 toPrimKeyInfo = HM.fromList . map toPrimKeyInfo . groupByTableName
   where groupByTableName = L.groupBy (\(PrimKey _ tna _ _) (PrimKey _ tnb _ _) -> tna == tnb)
 
-        toPrimKeyInfo pks@(PrimKey kna tna _ _ : _) = (mkHaskName tna, PrimaryKeyInfo { _pkeyName    = Just kna
+        toPrimKeyInfo pks@(PrimKey kna tna _ _ : _) = (mkHaskName tna, PrimaryKeyInfo { _pkeyName    = kna
                                                                                       , _pkeyColumns = getPKCols pks
                                                                                       }
                                                       )
