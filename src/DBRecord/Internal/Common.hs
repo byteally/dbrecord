@@ -353,6 +353,8 @@ type family ExtractF (f :: k -> *) (xs :: [*]) :: [k] where
   ExtractF f (f x ': xs) = x ': ExtractF f xs
   ExtractF f '[]         = '[]
 
+-- type family ToTableFields (xs :: [(Symbol, 
+
 {-
 
 type family GenTabFields (db :: *) (rep :: * -> *) :: [*] where

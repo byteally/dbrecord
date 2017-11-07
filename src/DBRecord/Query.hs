@@ -19,7 +19,8 @@
 
 -- | 
 
-module DBRecord.Query
+module DBRecord.Query where
+{-       
        ( module DBRecord.Internal.Order
        , module DBRecord.Internal.Expr
        , module DBRecord.Internal.Predicate
@@ -700,3 +701,4 @@ getTableId pdb ptab =
               , PQ.tableName = dbTabName
               }
 
+-}

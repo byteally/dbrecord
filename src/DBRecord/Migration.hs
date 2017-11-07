@@ -15,11 +15,13 @@
 {-# LANGUAGE GADTs                  #-}
 {-# LANGUAGE ConstraintKinds        #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
 
 
 module DBRecord.Migration
        ( -- mkMigration
-         M.renderDDL
+         renderChangeSets
+       , mkAllMigrations
        -- , diffMigration
        , BaseTable (..)
        , module DBRecord.Migration
@@ -42,8 +44,7 @@ import GHC.TypeLits
 import Data.Kind
 import Data.Functor.Const
 import Data.Coerce (coerce)
-import DBRecord.Internal.Migration.Validation -- (getSchemaInfo)
-import qualified DBRecord.Internal.Migration.Validation as DB
+import DBRecord.Internal.Migration.Validation ()-- (getSchemaInfo)
 import Data.Monoid ((<>))
 import qualified Data.List as L
 import qualified Control.Monad.State as M
@@ -65,6 +66,10 @@ class BaseDatabase (db :: *) (ver :: Nat) where
 
 class BaseTable (db :: *) (tab :: TypeName Symbol) (ver :: Nat) where
   type BaseColumns db tab ver :: [(Symbol, DBTypeK)]
+  type BaseColumns db tab ver = '[]
+
+  type BaseColumnNames db tab ver :: [(Symbol, Symbol)]
+  type BaseColumnNames db tab ver = '[]
 
   type BasePrimaryKeyName db tab ver :: Maybe Symbol
   type BasePrimaryKeyName db tab ver = 'Nothing
@@ -74,21 +79,52 @@ class BaseTable (db :: *) (tab :: TypeName Symbol) (ver :: Nat) where
   
   type BaseForeignKey db tab ver :: [ForeignRef (TypeName Symbol)]
   type BaseForeignKey db tab ver = '[]
+
+  type BaseForeignKeyNames db tab ver :: [(Symbol, Symbol)]
+  type BaseForeignKeyNames db tab ver = '[]
   
   type BaseUnique db tab ver :: [UniqueCT]
   type BaseUnique db tab ver = '[]
+
+  type BaseUniqueNames db tab ver :: [(Symbol, Symbol)]
+  type BaseUniqueNames db tab ver = '[]
   
   type BaseDefaultedCols db tab ver :: [Symbol]
   type BaseDefaultedCols db tab ver = '[]
   
   type BaseCheck db tab ver :: [CheckCT]
   type BaseCheck db tab ver = '[]
+
+  type BaseCheckNames db tab ver :: [(Symbol, Symbol)]
+  type BaseCheckNames db tab ver = '[]
   
   type BaseTableSequence db tab ver :: [Sequence]
   type BaseTableSequence db tab ver = '[]
 
-  -- baseDefaults :: () DBDefaults db tab ver 
-  -- baseChecks   :: () DBChecks db tab ver
+  type BaseSequenceNames db tab ver :: [(Symbol, Symbol)]
+  type BaseSequenceNames db tab ver = '[]
+
+  baseDefaults :: BaseDBDefaults db tab ver
+  baseChecks   :: BaseDBChecks db tab ver
+
+  baseDefaults = BaseDBDefaults Nil
+  baseChecks   = BaseDBChecks Nil
+
+data BaseDBDefaults (db :: *) (tab :: TypeName Symbol) (ver :: Nat) =
+  forall xs. (All KnownSymbol xs) => BaseDBDefaults (HList (Def db tab) xs)
+
+baseDbDefaults :: forall tab db ver xs.
+              ( All KnownSymbol xs
+              ) => HList (Def db tab) xs -> BaseDBDefaults db tab ver
+baseDbDefaults = BaseDBDefaults
+
+data BaseDBChecks (db :: *) (tab :: TypeName Symbol) (ver :: Nat) =
+  forall chks. (All CheckExpr chks) => BaseDBChecks (HList (Chk db tab) chks)
+
+baseDbChecks :: forall tab (db :: *) ver chks.
+            ( All CheckExpr chks
+            ) => HList (Chk db tab) chks -> BaseDBChecks db tab ver
+baseDbChecks = BaseDBChecks
 
 class DBMigration (base :: *) (v :: Nat) where
   type CreatedTables base v :: [TypeName Symbol]
@@ -115,15 +151,64 @@ class DBMigration (base :: *) (v :: Nat) where
 
 class TableMigration (base :: *) (tab :: TypeName Symbol) (v :: Nat) where
   type RenamedTable base tab v :: Maybe Symbol
+  type RenamedTable base tab v = 'Nothing
+  
   type AddedColumn base tab v :: [AddColumn]
+  type AddedColumn base tab v = '[]
+  
   type DropedColumn base tab v :: [Symbol]
+  type DropedColumn base tab v = '[]
+  
   type RenamedColumn base tab v :: [(Symbol, Symbol)]
+  type RenamedColumn base tab v = '[]
+  
   type AlteredColumn base tab v :: [AlterColumn]
+  type AlteredColumn base tab v = '[]
+  
   type AddedConstraint base tab v :: [AddConstraint]
+  type AddedConstraint base tab v = '[]
+  
   type DropedConstraint base tab v :: [DropConstraint]
+  type DropedConstraint base tab v = '[]
+  
+  migDefaults :: MigDBDefaults base tab v
+  migChecks   :: MigDBChecks base tab v
 
-  -- migDefaults :: ()
-  -- migChecks   :: ()
+  migDefaults = MigDBDefaults Nil
+  migChecks    = MigDBChecks Nil
+
+data MigDBDefaults (db :: *) (tab :: TypeName Symbol) (ver :: Nat) =
+  forall xs. (All KnownSymbol xs) => MigDBDefaults (HList (Def db tab) xs)
+
+migDbDefaults :: forall tab db ver xs.
+              ( All KnownSymbol xs
+              ) => HList (Def db tab) xs -> MigDBDefaults db tab ver
+migDbDefaults = MigDBDefaults
+
+data MigDBChecks (db :: *) (tab :: TypeName Symbol) (ver :: Nat) =
+  forall chks. (All CheckExpr chks) => MigDBChecks (HList (Chk db tab) chks)
+
+migDbChecks :: forall tab (db :: *) ver chks.
+            ( All CheckExpr chks
+            ) => HList (Chk db tab) chks -> MigDBChecks db tab ver
+migDbChecks = MigDBChecks
+
+{-
+instance ( ValidateBaseDBFld db tab un a
+         , un ~ fn
+         , v ~ Expr '[] a
+         ) => IsLabel un (v -> Def (db :: *) (tab :: (TypeName Symbol, Nat)) fn) where
+#if __GLASGOW_HASKELL__ > 800
+  fromLabel v = def @un @tab v
+#else
+  fromLabel _ v = def @un @tab v
+#endif
+
+type family ValidateBaseDBFld (db :: *) (tab :: (TypeName Symbol, Nat)) (fn :: Symbol) a where
+  ValidateBaseDBFld db '(tab, ver) fn t =
+    UnifyField (BaseColumns db tab ver) (fn ::: t) 
+-}
+
 data instance Sing (t :: RenameTable) where
   SRenameTable :: Sing (dcn :: Maybe Symbol) -> Sing ('RenameTable dcn)
 
@@ -227,8 +312,8 @@ instance (RenameTableCtx t) => SingE (t :: RenameTable) where
       Nothing    -> pure Nothing
       (Just dbN) -> do
         curTab <- view currentTable
-        dbInfo . tableInfoAt curTab . tableName . dbName .= (T.pack dbN)
-        pure (Just $ M.renameTab (coerce (T.pack dbN)))
+        dbInfo . tableInfoAt curTab . tableName . dbName .= dbN
+        pure (Just $ M.renameTab (coerce dbN))
 
 type family AddColumnCtx (t :: AddColumn) :: Constraint where
   AddColumnCtx ('AddColumn cn dbTyp) =
@@ -237,7 +322,7 @@ type family AddColumnCtx (t :: AddColumn) :: Constraint where
 instance (AddColumnCtx t) => SingE (t :: AddColumn) where
   type Demote t = ChangeSetM M.AlterTable
   fromSing (SAddColumn scoln scolt) = do
-    let coln = T.pack (fromSing scoln)
+    let coln = fromSing scoln
         colt = fromSing scolt
         isn  = fromSing (isNullableSing scolt)
         cni  = mkEntityName coln coln 
@@ -255,7 +340,7 @@ type family DropColumnCtx (t :: DropColumn) :: Constraint where
 instance SingE (t :: DropColumn) where
   type Demote t = ChangeSetM M.AlterTable
   fromSing (SDropColumn scoln) = do
-    let coln = T.pack (fromSing scoln)
+    let coln = fromSing scoln
     curTab <- view currentTable
     dbInfo . tableInfoAt curTab . columnInfo %=
          delete coln (\ci -> ci ^. columnNameInfo . hsName)
@@ -264,8 +349,8 @@ instance SingE (t :: DropColumn) where
 instance SingE (t :: RenameColumn) where
   type Demote t = ChangeSetM M.AlterTable
   fromSing (SRenameColumn scoln sdcoln) = do
-    let coln   = T.pack (fromSing scoln)
-        dbColn = T.pack (fromSing sdcoln)
+    let coln   = fromSing scoln
+        dbColn = fromSing sdcoln
     curTab <- view currentTable
     prevDbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt coln . columnNameInfo . dbName)   
     dbInfo . tableInfoAt curTab . columnInfoAt coln . columnNameInfo . dbName .= dbColn
@@ -281,19 +366,19 @@ type family AlterColumnCtx (t :: AlterColumn) :: Constraint where
 instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
   type Demote t = ChangeSetM M.AlterTable
   fromSing (SSetNotNull scoln) = do
-    let hsColn = T.pack (fromSing scoln)
+    let hsColn = fromSing scoln
     curTab <- view currentTable    
     dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . isNullable .= False
     pure $ M.setNotNull (coerce dbColn)
   fromSing (SDropNotNull scoln) = do
-    let hsColn = T.pack (fromSing scoln)
+    let hsColn = fromSing scoln
     curTab <- view currentTable    
     dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . isNullable .= True    
     pure $ M.dropNotNull (coerce dbColn)
   fromSing (SChangeType scoln scolt) = do
-    let hsColn = T.pack (fromSing scoln)
+    let hsColn = fromSing scoln
         colt   = fromSing scolt
     curTab <- view currentTable    
     dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
@@ -302,18 +387,18 @@ instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
   fromSing (SAddDefault scoln) =
     undefined
     {-
-    let hsColn = T.pack (fromSing scoln)
+    let hsColn = (fromSing scoln)
     curTab <- view currentTable
     dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)    
-    pure $ M.addDefault (coerce (T.pack (fromSing scoln))) undefined
+    pure $ M.addDefault (coerce (fromSing scoln)) undefined
     -}
   fromSing (SDropDefault scoln) = do
-    let hsColn = T.pack (fromSing scoln)    
+    let hsColn = fromSing scoln
     curTab <- view currentTable    
     dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     dbInfo . tableInfoAt curTab . defaultInfo %=
-              delete (T.pack (fromSing scoln)) (\di -> di ^. defaultOn)
-    pure $ M.dropDefault (coerce (T.pack (fromSing scoln)))
+              delete (fromSing scoln) (\di -> di ^. defaultOn)
+    pure $ M.dropDefault (coerce (fromSing scoln))
 
 type family AddConstraintCtx (t :: AddConstraint) :: Constraint where
   AddConstraintCtx ('AddPrimaryKey cols ctxn) =
@@ -325,39 +410,39 @@ type family AddConstraintCtx (t :: AddConstraint) :: Constraint where
 instance (AddConstraintCtx t) => SingE (t :: AddConstraint) where
   type Demote t = ChangeSetM M.AlterTable
   fromSing (SAddPrimaryKey scols sctxn) = do
-    let cols = coerce $ map T.pack (fromSing scols)
-        ctxn = T.pack (fromSing sctxn)
+    let cols = coerce $ fromSing scols
+        ctxn = fromSing sctxn
         pki  = mkPrimaryKeyInfo ctxn (coerce cols)
     curTab <- view currentTable
     dbInfo . tableInfoAt curTab . primaryKeyInfo .= Just pki
     pure (M.addPrimaryKey (coerce ctxn) cols)
   fromSing (SAddUnique suq) = do
     let (cols, ctxn) = fromSing suq
-        ctxn' = (T.pack ctxn)
+        ctxn' = ctxn
         uniqEt = mkEntityName ctxn' ctxn'
     curTab <- view currentTable
     dbInfo . tableInfoAt curTab . uniqueInfo %=
-         insert (mkUniqueInfo uniqEt (map T.pack cols))
-    pure (M.addUnique (coerce ctxn') (coerce (map T.pack cols)))
+         insert (mkUniqueInfo uniqEt cols)
+    pure (M.addUnique (coerce ctxn') (coerce cols))
   fromSing (SAddCheck sck)  = undefined
   fromSing (SAddForeignKey (sfkref :: Sing (fkref :: ForeignRef (TypeName Symbol)))) = do
     let fkref = fromSing sfkref
     curTab <- view currentTable
     case fkref of
       RefByD ctxn cols reft refcols -> do
-         let fk = mkForeignKeyInfo fkEt (map T.pack cols) reft (map T.pack refcols)
-             ctxn' = T.pack ctxn
+         let fk = mkForeignKeyInfo fkEt cols reft refcols
+             ctxn' = ctxn
              fkEt = mkEntityName ctxn' ctxn'
          dbInfo . tableInfoAt curTab . foreignKeyInfo %= insert fk
          dbTabN <- view (dbInfo . tableInfoAt reft . tableName . dbName)
-         pure $ M.addForeignKey (coerce ctxn') (coerce (map T.pack cols)) (coerce dbTabN) (coerce (map T.pack refcols))
+         pure $ M.addForeignKey (coerce ctxn') (coerce cols) (coerce dbTabN) (coerce refcols)
       RefD ctxn col reft -> do
-        let fk = mkForeignKeyInfo fkEt (map T.pack [col]) reft (map T.pack [col])
-            ctxn' = T.pack ctxn
+        let fk = mkForeignKeyInfo fkEt ([col]) reft ([col])
+            ctxn' = ctxn
             fkEt = mkEntityName ctxn' ctxn'
         dbInfo . tableInfoAt curTab . foreignKeyInfo %= insert fk
         dbTabN <- view (dbInfo . tableInfoAt reft . tableName . dbName)        
-        pure $ M.addForeignKey (coerce ctxn') (coerce (map T.pack [col])) (coerce dbTabN) (coerce (map T.pack [col]))
+        pure $ M.addForeignKey (coerce ctxn') (coerce [col]) (coerce dbTabN) (coerce [col])
 
 instance SingE (t :: DropConstraint) where
   type Demote t = ChangeSetM M.AlterTable
@@ -371,21 +456,21 @@ instance SingE (t :: DropConstraint) where
       Nothing  -> error "Panic: non existant primary key"
   fromSing (SDropCheck schkn) = do
     curTab <- view currentTable    
-    let hsChkn = T.pack (fromSing schkn)
+    let hsChkn = (fromSing schkn)
     dbChkn <- view (dbInfo . tableInfoAt curTab . checkInfoAt hsChkn . checkName . dbName)
     dbInfo . tableInfoAt curTab . checkInfo %=
       delete hsChkn (\ck -> ck ^. checkName . hsName)
     pure $ M.dropConstraint (coerce dbChkn)
   fromSing (SDropUnique suqn) = do
     curTab <- view currentTable    
-    let hsUqn = T.pack (fromSing suqn)
+    let hsUqn = (fromSing suqn)
     dbUqn <- view (dbInfo . tableInfoAt curTab . uniqueInfoAt hsUqn . uqName . dbName)    
     dbInfo . tableInfoAt curTab . uniqueInfo %=
          delete hsUqn (\uq -> uq ^. uqName . hsName)
     pure $ M.dropConstraint (coerce dbUqn)
   fromSing (SDropForeignKey sfkn) = do
     curTab <- view currentTable    
-    let hsFkn = T.pack (fromSing sfkn)
+    let hsFkn = (fromSing sfkn)
     dbFkn <- view (dbInfo . tableInfoAt curTab . foreignKeyInfoAt hsFkn . fkeyName . dbName)    
     dbInfo . tableInfoAt curTab . foreignKeyInfo %=
          delete hsFkn (\fk -> fk ^. fkeyName . hsName)
@@ -544,27 +629,6 @@ currentTable k t = fmap (\a -> t { _currentTable = Just a }) (k (fromJust (_curr
 newtype ChangeSetM a = ChangeSetM { runChangeSet :: M.StateT ChangeSetState I.Identity a }
                      deriving (Functor, Applicative, Monad, M.MonadState ChangeSetState)
 
-{-
-mkDbMigration :: ( DBMigration db ver
-                  , AllTableMig db ver (AlteredTables db ver)
-                  , AllTableMig db ver (CreatedTables db ver)
-                  ) => Sing (db :: *) -> Sing (ver :: Nat) -> DatabaseInfo -> (DatabaseInfo, ChangeSet)
-mkDbMigration = undefined
-
-mkTableMigration :: Sing (db :: TypeName Symbol) -> Sing (tab :: TypeName Symbol) -> Sing (ver :: Nat) -> ChangeSetM [M.PrimDDL]
-mkTableMigration sdb stab sver =
-  undefined
-
-mkAddedColumn :: Sing (db :: TypeName Symbol) -> Sing (tab :: TypeName Symbol) -> Sing (ver :: Nat) -> Sing (addedCol :: AddColumn) ->  ChangeSetM [M.PrimDDL]
-mkAddedColumn = undefined
-
-mkTableMigrations :: Sing (db :: TypeName Symbol) -> Sing (tabs :: [TypeName Symbol]) -> Sing (ver :: Nat) -> DatabaseInfo -> (DatabaseInfo, [M.PrimDDL])
-mkTableMigrations sdb (SCons stab stabs) sver di =
-  let (di', ddls)   = mkTableMigration sdb stab sver di
-      (di'', ddlss) = mkTableMigrations sdb stabs sver di'
-  in  (di'', ddls ++ ddlss)
--}
-
 type family AllTableMig (db :: *) (ver :: Nat) (tabs :: [TypeName Symbol]) :: Constraint where
   AllTableMig db ver (tab ': tabs) = (TableMigration db tab ver, AllTableMig db ver tabs)
   AllTableMig db ver '[]           = ()
@@ -575,9 +639,6 @@ data TypeDiff
 data ColumnDiff
 data ConstraintDiff
 
-
--- type family DiffDB (db :: *) (bl :: *) (currver :: *) where
---   DiffDB db bl currver = DiffDB' db bl currver (BaseVersion bl)
 
 type family DiffDB' (db :: *) (bl :: *) (currver :: *) (basever :: *) where
   DiffDB' db bl currver curver = ()
@@ -599,44 +660,62 @@ toMColumn (S.Column n t) = M.Column (M.ColName n) (M.ColType (coerce t))
 dbInfoChangeSet :: DatabaseInfo -> ChangeSet
 dbInfoChangeSet di = coerce (go di :: [M.PrimDDL])
   where go dbInfo = let tis = (dbInfo ^. tableInfos)
-                    in concatMap (flip (tabInfoChangeSet dbInfo) tis) tis
-        tabInfoChangeSet dbi tabInfo allTis =          
-          let tabNDb  = tabInfo ^. tableName . dbName
-              toMColumn colInfo = M.Column (coerce (colInfo ^. columnNameInfo . dbName))
-                                           (coerce (colInfo ^. columnTypeName))
-              createTab = M.CreateTable (coerce tabNDb) (coerce (map toMColumn (tabInfo ^. columnInfo)))
-              addPks  = let mpkInfo  = tabInfo ^. primaryKeyInfo                             
-                        in  case mpkInfo of
-                              Nothing -> []
-                              Just pkInfo -> let pkNameDb = pkInfo ^. pkeyName
-                                                 pkColsDb = getDbColumnNames (tabInfo ^. columnInfo) (pkInfo ^. pkeyColumns)
-                                             in  [M.addPrimaryKey (coerce pkNameDb) (coerce pkColsDb)]                            
-              addUqs  = let uqInfos         = tabInfo ^. uniqueInfo
-                            uqColsDb uqInfo = getDbColumnNames (tabInfo ^. columnInfo) (uqInfo ^. uqColumns)                    
-                            addUniq uqInfo  = M.addUnique (coerce (uqInfo ^. uqName . dbName))
-                                                          (coerce (uqColsDb uqInfo))
-                        in  map addUniq uqInfos                            
-              addFks  = let fkInfos = tabInfo ^. foreignKeyInfo
-                            fkColsDb fkInfo = getDbColumnNames (tabInfo ^. columnInfo) (fkInfo ^. fkeyColumns)
-                            fkRefColsDb fkInfo = getDbColumnNames (dbi ^. tableInfoAt (fkInfo ^. fkeyRefTable) . columnInfo)
-                                                                  (fkInfo ^. fkeyRefColumns)
-                            addFk fkInfo = M.addForeignKey (coerce (fkInfo ^. fkeyName . dbName))
-                                                           (coerce (fkColsDb fkInfo))                            
-                                                           (coerce (dbi ^. tableInfoAt (fkInfo ^. fkeyRefTable) . tableName . dbName))
-                                                           (coerce (fkRefColsDb fkInfo))
-                        in  map addFk fkInfos
-                            
-              addChks  = let ckInfos = tabInfo ^. checkInfo
-                             addCk ckInfo = M.addCheck (coerce (ckInfo ^. checkName . dbName))
-                                                       (coerce (ckInfo ^. checkExp))
-                         in  map addCk ckInfos
-              addDefs = let defInfos = tabInfo ^. defaultInfo
-                            addDef defInfo = M.addDefault (coerce (getDbColumnName (tabInfo ^. columnInfo) (defInfo ^. defaultOn)))
-                                                          (coerce (defInfo ^. defaultExp))
-                        in map addDef defInfos                           
-              addNotNullChks = let notNullCols              = getNonNullableColumns (tabInfo ^. columnInfo)
-                                   addNotNullCtx notNullCol = M.setNotNull (coerce (notNullCol ^. columnNameInfo . dbName))
-                               in map addNotNullCtx notNullCols
+                    in concatMap (tabInfoChangeSet dbInfo) tis
+
+pkeyInfoChangeSet :: TableInfo -> PrimaryKeyInfo -> M.AlterTable
+pkeyInfoChangeSet tabInfo pkInfo = 
+  let pkNameDb = pkInfo ^. pkeyName
+      pkColsDb = getDbColumnNames (tabInfo ^. columnInfo) (pkInfo ^. pkeyColumns)
+  in  M.addPrimaryKey (coerce pkNameDb) (coerce pkColsDb)
+
+uniqueInfoChangeSet :: TableInfo -> [UniqueInfo] -> [M.AlterTable]
+uniqueInfoChangeSet tabInfo uqInfos = 
+  let uqColsDb uqInfo = getDbColumnNames (tabInfo ^. columnInfo) (uqInfo ^. uqColumns)                    
+      addUniq uqInfo  = M.addUnique (coerce (uqInfo ^. uqName . dbName))
+                                    (coerce (uqColsDb uqInfo))
+  in  map addUniq uqInfos
+
+fkeyInfoChangeSet :: DatabaseInfo -> TableInfo -> [ForeignKeyInfo] -> [M.AlterTable]
+fkeyInfoChangeSet dbInfo tabInfo fkInfos = 
+  let fkColsDb fkInfo = getDbColumnNames (tabInfo ^. columnInfo) (fkInfo ^. fkeyColumns)
+      fkRefColsDb fkInfo = getDbColumnNames (dbInfo ^. tableInfoAt (fkInfo ^. fkeyRefTable) . columnInfo)
+                                            (fkInfo ^. fkeyRefColumns)
+      addFk fkInfo = M.addForeignKey (coerce (fkInfo ^. fkeyName . dbName))
+                                     (coerce (fkColsDb fkInfo))                            
+                                     (coerce (dbInfo ^. tableInfoAt (fkInfo ^. fkeyRefTable) . tableName . dbName))
+                                     (coerce (fkRefColsDb fkInfo))
+  in  map addFk fkInfos
+
+checkInfoChangeSet :: [CheckInfo] -> [M.AlterTable]
+checkInfoChangeSet ckInfos = 
+  let addCk ckInfo = M.addCheck (coerce (ckInfo ^. checkName . dbName))
+                                (coerce (ckInfo ^. checkExp))
+  in  map addCk ckInfos
+
+defaultInfoChangeSet ::  TableInfo -> [DefaultInfo] -> [M.AlterTable]
+defaultInfoChangeSet tabInfo defInfos =
+  let addDef defInfo = M.addDefault (coerce (getDbColumnName (tabInfo ^. columnInfo) (defInfo ^. defaultOn)))
+                                    (coerce (defInfo ^. defaultExp))
+  in map addDef defInfos
+
+notNullChangeSet :: [ColumnInfo] -> [M.AlterTable]
+notNullChangeSet notNullCols =
+  let addNotNullCtx notNullCol = M.setNotNull (coerce (notNullCol ^. columnNameInfo . dbName))
+  in map addNotNullCtx notNullCols
+
+tabInfoChangeSet :: DatabaseInfo -> TableInfo -> [M.PrimDDL]
+tabInfoChangeSet dbi tabInfo =          
+  let tabNDb  = tabInfo ^. tableName . dbName
+      toMColumn colInfo = M.Column (coerce (colInfo ^. columnNameInfo . dbName))
+                                   (coerce (colInfo ^. columnTypeName))
+      createTab = M.CreateTable (coerce tabNDb) (coerce (map toMColumn (tabInfo ^. columnInfo)))
+      addPks  = let mpkInfo  = tabInfo ^. primaryKeyInfo                             
+                in  maybe [] M.single (fmap (pkeyInfoChangeSet tabInfo) mpkInfo)
+      addUqs  = uniqueInfoChangeSet tabInfo (tabInfo ^. uniqueInfo)
+      addFks  = fkeyInfoChangeSet dbi tabInfo (tabInfo ^. foreignKeyInfo)
+      addChks = checkInfoChangeSet (tabInfo ^. checkInfo)
+      addDefs = defaultInfoChangeSet tabInfo (tabInfo ^. defaultInfo)                        
+      addNotNullChks = notNullChangeSet (getNonNullableColumns (tabInfo ^. columnInfo))
 {-                                  
               cTabSeqs = let createSeq colInfo seqn = let coln = colInfo ^. columnNameInfo . dbName
                                                           seqKey = 
@@ -658,8 +737,8 @@ dbInfoChangeSet di = coerce (go di :: [M.PrimDDL])
                                              in  Just (AlterTable (coerce tabNDb) $ AlterColumn (ColName coln) $ AddDefault (DefExpr $ nextValE coln))
                         in catMaybes $ map (\si -> defSeq (seqOn si) (seqName si) (seqType si)) (sequenceInfo tabInfo)                     
 -}
-          in (:) createTab $
-             M.altering (coerce tabNDb) $ concat [ -- cTabSeqs
+  in (:) createTab $
+         M.altering (coerce tabNDb) $ concat [ -- cTabSeqs
                                                -- , oTabSeqs
                                                  addPks  
                                                , addUqs
@@ -750,6 +829,15 @@ pairTables hsTabs dbTabs =
   where eqByDbName hsTab dbTab = tableName hsTab `eqByDb` tableName dbTab
 -}
 
+diffDatabaseInfo :: DatabaseInfo -> DatabaseInfo -> ChangeSet
+diffDatabaseInfo di1 di2 =
+  let (missed, extra, paired) = pairTables (di1 ^. tableInfos)
+                                           (di2 ^. tableInfos)
+  in  undefined
+
+pairTables :: [TableInfo] -> [TableInfo] -> ([TableInfo], [TableInfo], [(TableInfo, TableInfo)])
+pairTables = undefined
+
 doubleQuoteT :: T.Text -> T.Text
 doubleQuoteT t = "\"" <> t <> "\""
 
@@ -773,15 +861,30 @@ class ( BaseTable db tab ver
       , SingE (BaseUnique db tab ver)
       , SingI (BaseUnique db tab ver)
 
+      , SingE (BaseUniqueNames db tab ver)
+      , SingI (BaseUniqueNames db tab ver)
+        
       , SingE (BaseForeignKey db tab ver)
       , SingI (BaseForeignKey db tab ver)
 
+      , SingE (BaseForeignKeyNames db tab ver)
+      , SingI (BaseForeignKeyNames db tab ver)
+        
       , SingI (BaseTableSequence db tab ver)
       , SingE (BaseTableSequence db tab ver)
 
+      , SingI (BaseCheckNames db tab ver)
+      , SingE (BaseCheckNames db tab ver)
+
+      , SingI (BaseSequenceNames db tab ver)
+      , SingE (BaseSequenceNames db tab ver)
+
+      , SingI (BaseColumnNames db tab ver)
+      , SingE (BaseColumnNames db tab ver)
+        
       , SingI tab
       , SingE tab
-      ) => SingCtxBase db tab ver where
+      ) => SingCtxBase db ver tab where
 
 instance ( BaseTable db tab ver
          , Database db
@@ -792,69 +895,88 @@ instance ( BaseTable db tab ver
          , SingI (BasePrimaryKeyName db tab ver)
          , SingE (BasePrimaryKeyName db tab ver)
            
-         , SingE (BaseColumns db tab ver)
-         , SingI (BaseColumns db tab ver)
-
          , SingE (BasePrimaryKey db tab ver)
          , SingI (BasePrimaryKey db tab ver)
 
          , SingE (BaseUnique db tab ver)
          , SingI (BaseUnique db tab ver)
 
+         , SingE (BaseUniqueNames db tab ver)
+         , SingI (BaseUniqueNames db tab ver)
+                      
          , SingE (BaseForeignKey db tab ver)
          , SingI (BaseForeignKey db tab ver)
 
+         , SingE (BaseForeignKeyNames db tab ver)
+         , SingI (BaseForeignKeyNames db tab ver)
+                      
          , SingI (BaseTableSequence db tab ver)
          , SingE (BaseTableSequence db tab ver)
 
+         , SingI (BaseCheckNames db tab ver)
+         , SingE (BaseCheckNames db tab ver)
+
+         , SingI (BaseSequenceNames db tab ver)
+         , SingE (BaseSequenceNames db tab ver)
+
+         , SingI (BaseColumnNames db tab ver)
+         , SingE (BaseColumnNames db tab ver)
+           
          , SingI tab
          , SingE tab           
-         ) => SingCtxBase db tab ver
+         ) => SingCtxBase db ver tab
 
 class ( BaseDatabase db ver
       , SingE (BaseSchema db ver)
       , SingI (BaseSchema db ver)
-        
-      , SingI db
-      , SingE db
+      , SingI (BaseTables db ver)        
       , Database db
 
       , SingI (GetPMT (Rep db))
-      , SingE (GetPMT (Rep db))        
+      , SingE (GetPMT (Rep db))
+      , All (SingCtxBase db ver) (BaseTables db ver)
       ) => SingCtxBaseDb db ver where
 
 instance ( BaseDatabase db ver
          , SingE (BaseSchema db ver)
          , SingI (BaseSchema db ver)
+         , SingI (BaseTables db ver)
            
-         , SingI db
-         , SingE db
+           
          , Database db
            
          , SingI (GetPMT (Rep db))
-         , SingE (GetPMT (Rep db))           
+         , SingE (GetPMT (Rep db))
+         , All (SingCtxBase db ver) (BaseTables db ver)           
          ) => SingCtxBaseDb db ver where  
 
 baseDatabaseInfo :: forall db ver.
                 ( SingCtxBaseDb db ver
+                , All (SingCtxBase db ver) (BaseTables db ver)
                 ) => Proxy (db :: *) -> Proxy ver -> DatabaseInfo
-baseDatabaseInfo _ _ =
+baseDatabaseInfo pdb pver =
   mkDatabaseInfo (mkEntityName (coerce (fromSing (sing :: Sing (GetPMT (Rep db)))))
-                               (T.pack (fromSing (sing :: Sing (BaseSchema db ver))))
-                 ) [] 0 0 []
+                                       (fromSing (sing :: Sing (BaseSchema db ver)))
+                 ) [] 0 0 (baseTableInfos pdb pver (sing :: Sing (BaseTables db ver)))
 
+baseTableInfos :: (All (SingCtxBase db ver) xs) => Proxy (db :: *) -> Proxy (ver :: Nat) -> Sing (xs :: [TypeName Symbol]) -> [TableInfo]
+baseTableInfos pdb pver (SCons st@(STypeName {}) sxs) =
+  baseTableInfo pdb st pver : baseTableInfos pdb pver sxs
+baseTableInfos _ _ _ = []  
+                           
 baseTableInfo :: forall db tab ver.
-             ( SingCtxBase db tab ver             
-             ) => Proxy db -> Proxy tab -> Proxy ver -> TableInfo
-baseTableInfo db tab ver =
+             ( SingCtxBase db ver tab
+             ) => Proxy db -> Sing tab -> Proxy ver -> TableInfo
+baseTableInfo db stab ver =
   let btn = baseTabNameInfo db tab ver
       bcn = baseColInfos db tab ver
-  in mkTableInfo (basePkInfo db tab ver btn bcn)
-                 (baseFkInfo db tab ver btn bcn)
+      tab = Proxy :: Proxy tab
+  in mkTableInfo (basePkInfo db tab ver btn)
+                 (baseFkInfo db tab ver btn)
                  (baseDefInfo db tab ver btn bcn)
                  (baseCksInfo db tab ver btn bcn)
-                 (baseUqInfo db tab ver btn bcn)
-                 (baseSeqsInfo db tab ver btn bcn)
+                 (baseUqInfo db tab ver btn)
+                 (baseSeqsInfo db tab ver btn)
                  btn
                  bcn
 
@@ -864,81 +986,70 @@ basePkInfo :: forall db tab ver.
           , SingI (BasePrimaryKeyName db tab ver)
           , SingE (BasePrimaryKey db tab ver)
           , SingI (BasePrimaryKey db tab ver)
-          ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType -> [ColumnInfo] -> Maybe PrimaryKeyInfo
-basePkInfo _ _ _ et cis =
-  let pkCols = map T.pack (fromSing (sing :: Sing (BasePrimaryKey db tab ver)))
-      pkDefN = let dbn    = et ^. dbName
-                   dbcols = getDbColumnNames cis pkCols
-               in  genKeyName (PkNameGen dbn dbcols)      
+          ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType -> Maybe PrimaryKeyInfo
+basePkInfo _ _ _ et =
+  let pkCols = fromSing (sing :: Sing (BasePrimaryKey db tab ver))
+      pkDefN = let hsn    = genTabName (et ^. hsName)
+               in  genKeyName (PkNameGen hsn pkCols)      
   in  case pkCols of
     [] -> Nothing
-    _  -> let dbn = maybe pkDefN id (T.pack <$> (fromSing (sing :: Sing (BasePrimaryKeyName db tab ver))))
+    _  -> let dbn = maybe pkDefN id (fromSing (sing :: Sing (BasePrimaryKeyName db tab ver)))
           in Just $ mkPrimaryKeyInfo dbn pkCols
 
 baseFkInfo :: forall db tab ver.
           ( BaseTable db tab ver
           , SingE (BaseForeignKey db tab ver)
           , SingI (BaseForeignKey db tab ver)
-          ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType -> [ColumnInfo] -> [ForeignKeyInfo]
-baseFkInfo _ _ _ et cis = 
-  let fkds = fromSing (sing :: Sing (BaseForeignKey db tab ver))
-  in map fkInfoOne fkds
 
-  where fkInfoOne (RefByD fkname hsCols refHsTabN hsRefCols) =
-             let etName = mkEntityName (T.pack fkname) (getDbFkName hsCols)                
-             in  mkForeignKeyInfo etName (map T.pack hsCols) refHsTabN (map T.pack hsRefCols)
-        fkInfoOne (RefD fkname hsCol refHsTabN) =
-             let etName = mkEntityName (T.pack fkname) (getDbFkName [hsCol])
-                 hsCols = map T.pack [hsCol]
-             in  mkForeignKeyInfo etName hsCols refHsTabN hsCols
-        getDbFkName hsCols =
-          let dbn    = et ^. dbName
-              dbcols = getDbColumnNames cis (map T.pack hsCols)
-          in  genKeyName (FkNameGen dbn dbcols "todo_ref_tab")
+          , SingE (BaseForeignKeyNames db tab ver)
+          , SingI (BaseForeignKeyNames db tab ver)
+          ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType -> [ForeignKeyInfo]
+baseFkInfo _ _ _ et = 
+  let fkds = fromSing (sing :: Sing (BaseForeignKey db tab ver))
+      fkNameMappings = fromSing (sing :: Sing (BaseForeignKeyNames db tab ver))
+  in map (fkInfoOne et fkNameMappings) fkds     
         
 baseUqInfo :: forall db tab ver.
           ( BaseTable db tab ver
           , SingE (BaseUnique db tab ver)
           , SingI (BaseUnique db tab ver)
-          ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType -> [ColumnInfo] -> [UniqueInfo]
-baseUqInfo _ _ _ et cis =
+          , SingE (BaseUniqueNames db tab ver)
+          , SingI (BaseUniqueNames db tab ver)
+          ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType -> [UniqueInfo]
+baseUqInfo _ _ _ et =
   let uniqs = fromSing (sing :: Sing (BaseUnique db tab ver))
-  in  map uniqWithMapping uniqs
-  
-  where uniqWithMapping (uniqFlds, uniqHsName) =
-          let etName = mkEntityName (T.pack uniqHsName) (uniqName uniqFlds)
-          in  mkUniqueInfo etName (map T.pack uniqFlds)
-        uniqName hsCols = 
-          let dbn    = et ^. dbName
-              dbcols = getDbColumnNames cis (map T.pack hsCols)
-          in  genKeyName (UqNameGen dbn dbcols)
+      uniqNameMappings = fromSing (sing :: Sing (BaseUniqueNames db tab ver))      
+  in  map (uniqWithMapping et uniqNameMappings) uniqs
 
 baseDefInfo :: forall db tab ver.
            ( BaseTable db tab ver
            ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType -> [ColumnInfo] -> [DefaultInfo]
-baseDefInfo _ _ _ et cis = undefined
+baseDefInfo _ _ _ _et cis = case (baseDefaults :: BaseDBDefaults db tab ver) of
+  BaseDBDefaults hl -> map mkDefInfo (happlyDefExprs cis hl)
+
+  where mkDefInfo (n, expr) = mkDefaultInfo n expr
 
 baseCksInfo :: forall db tab ver.
            ( BaseTable db tab ver
+           , SingI (BaseCheckNames db tab ver)
+           , SingE (BaseCheckNames db tab ver)
            ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType -> [ColumnInfo] -> [CheckInfo]
-baseCksInfo _ _ _ et cis = undefined
+baseCksInfo _ _ _ et cis = case (baseChecks :: BaseDBChecks db tab ver) of
+  BaseDBChecks hls -> map (checkInfoOne et chkNameMaps) (happlyChkExpr cis chkNameMaps hls)
+  where chkNameMaps = fromSing (sing :: Sing (BaseCheckNames db tab ver))
 
 baseSeqsInfo :: forall db tab ver.
             ( BaseTable db tab ver
             , SingI (BaseTableSequence db tab ver)
             , SingE (BaseTableSequence db tab ver)
-            ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType -> [ColumnInfo] -> [SequenceInfo]
-baseSeqsInfo _ _ _ et cis =
+
+            , SingI (BaseSequenceNames db tab ver)
+            , SingE (BaseSequenceNames db tab ver)
+            ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType -> [SequenceInfo]
+baseSeqsInfo _ _ _ et =
   let seqs = fromSing (sing :: Sing (BaseTableSequence db tab ver))
-  in  map mkSeqInfo seqs
-
-  where mkSeqInfo (seqcol, seqHsn, st) =
-          let etName = mkEntityName (T.pack seqHsn) (seqName seqcol)
-          in  mkSequenceInfo etName (T.pack seqcol) st
-        seqName hsCol = let dbn    = et ^. dbName
-                            dbcol  = getDbColumnName cis (T.pack hsCol)
-                        in  genKeyName (SeqNameGen dbn dbcol Nothing)
-
+      seqNameMappings = fromSing (sing :: Sing (BaseSequenceNames db tab ver))
+  in  map (mkSeqInfoOne et seqNameMappings) seqs
 
 baseTabNameInfo :: forall tab db ver.
                ( BaseTable db tab ver
@@ -946,27 +1057,33 @@ baseTabNameInfo :: forall tab db ver.
                , SingE tab
                ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType
 baseTabNameInfo _ _ _ =
-  mkEntityName (coerce (fromSing (sing :: Sing tab)))
-               undefined
-
+  let tabTN = fromSing (sing :: Sing tab)
+      dbTabN = genTabName tabTN
+  in mkEntityName (coerce tabTN) (coerce dbTabN)
+               
 baseColInfos :: forall tab db ver.
             ( BaseTable db tab ver
             , Database db
             , SingE (GetBaseColumnInfo (DB db) (BaseColumns db tab ver))
             , SingI (GetBaseColumnInfo (DB db) (BaseColumns db tab ver))
+            , SingI (BaseColumnNames db tab ver)
+            , SingE (BaseColumnNames db tab ver)
             ) => Proxy db -> Proxy tab -> Proxy ver -> [ColumnInfo]
 baseColInfos _ _ _ =
   let hsns = fromSing (sing :: Sing (GetBaseColumnInfo (DB db) (BaseColumns db tab ver)))
-  in  map go hsns
-                         
-  where go :: ((T.Text, Bool), String) -> ColumnInfo
-        go ((typN, isNull), hsn) =
-          let dbn = hsn
-              etName = mkEntityName (T.pack hsn) (T.pack dbn)
-          in mkColumnInfo isNull etName (coerce typN)
+      colMap = fromSing (sing :: Sing (BaseColumnNames db tab ver))      
+  in  map (colInfoOne colMap) hsns
 
 type family GetBaseColumnInfo (db :: DbK) (xs :: [(Symbol, DBTypeK)]) where
   GetBaseColumnInfo db ('(fld, x) ': xs) = 
     '(TagTypeInfo db x, fld) ': GetBaseColumnInfo db xs
   GetBaseColumnInfo db '[] =
     '[]
+
+renderChangeSets :: [ChangeSet] -> String
+renderChangeSets =
+  unlines . map renderChangeSet 
+
+renderChangeSet :: ChangeSet -> String
+renderChangeSet =
+  unlines . map M.renderDDL . statements
