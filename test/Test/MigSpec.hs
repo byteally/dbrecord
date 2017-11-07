@@ -5,8 +5,10 @@ import DBRecord.Schema
 import DBRecord.Migration
 import DBRecord.Query
 import DBRecord.Internal.Types
+import DBRecord.Internal.Expr
 import DBRecord.Internal.PrimQuery
 import Data.Text (Text)
+import DBRecord.Internal.DBTypes (GetDBTypeRep)
 import qualified Data.Text as T
 import Data.Proxy
 import GHC.Generics
@@ -38,11 +40,48 @@ data Employee = Employee
   , designation  :: Text
   } deriving (Generic)
 
+instance BaseDatabase TestDB 0 where
+  type BaseTables TestDB 0 =
+    '[ 'TypeName "dbrecord" "Test.MigSpec" "User"
+     ]
+
+instance BaseTable TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 where
+  type BaseColumns TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
+    = '[ '( "id",    GetDBTypeRep 'Postgres Int)
+       , '( "name",  GetDBTypeRep 'Postgres Text)
+       , '( "age",   GetDBTypeRep 'Postgres Int)
+       , '( "email", GetDBTypeRep 'Postgres Text)
+       , '( "foo",   GetDBTypeRep 'Postgres Int)
+       ]
+  type BaseColumnNames TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 = '[ '("id", "ID")
+      , '("name", "NaME")
+      , '("age", "AGE")
+      ]
+  type BasePrimaryKey TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
+    = '[ "id", "email"
+       ]
+  -- type BasePrimaryKeyName TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 = 'Just "user_id_pkey"
+  type BaseUnique TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
+    = '[ UniqueOn '[ "name", "age" ] "name_age_is_unique" ]
+  -- type BaseUniqueNames TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
+  --   = '[ '("name_age_is_unique", "uq_name_age!_!") ]
+  -- type BaseTableSequence TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 = '[
+  --type BaseDefaultedCols TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
+  --  = '[ "foo" ]
+{-
+  baseDefaults = baseDbDefaults
+    (  #foo "foo_value"
+    :& end
+    )
+-}
+
 instance Database TestDB where
   type DB     TestDB = 'Postgres
   type Tables TestDB = '[ User
                         , Employee
                         ]
+  type Baseline TestDB = 0
+  type Version TestDB  = 0
 
 instance Table TestDB Employee where
   type TableName TestDB Employee = "EMPloyee"
@@ -74,6 +113,8 @@ instance Table TestDB User where
     :& end
     )
 
+
+
 localConnectInfo = ConnectInfo "127.0.0.1" 5432 "sreenidhi" "password" "test_dbrecord"
 
 testDB :: Proxy TestDB
@@ -81,7 +122,8 @@ testDB = Proxy
 
 userTab :: Proxy User
 userTab = Proxy       
-         
+
+{-
 spec = do
    conn <- runIO $ PGS.connect localConnectInfo
    describe "migration" $
@@ -91,3 +133,9 @@ migTest :: IO ()
 migTest = do
   conn <- PGS.connect localConnectInfo  
   runMigDiff testDB userTab conn
+-}
+
+migTest2 :: IO ()
+migTest2 = do
+  let stms = renderChangeSets $ mkAllMigrations (Proxy :: Proxy TestDB)
+  putStrLn stms
