@@ -39,7 +39,7 @@ import DBRecord.Internal.Common
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.DBTypes
 import qualified Data.List as L
-import DBRecord.Internal.Lens (unsafeFind, (^.))
+import DBRecord.Internal.Lens (unsafeFind, (^.), Lens')
 import Data.Monoid ((<>))
 
 data Col (a :: Symbol) = Col
@@ -796,7 +796,7 @@ type family ElemCheck (chkName :: Symbol) (setChks :: [CheckCT]) where
   ElemCheck _  '[]                       = 'False
 
 type family ValidateDBFld tab (fn :: Symbol) t :: Constraint where
-  ValidateDBFld tab fn t = UnifyField (OriginalTableFields tab) (fn ::: t) ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
+  ValidateDBFld tab fn t = UnifyField (OriginalTableFields tab) fn t ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
 
 type DefaultTableName t    = DefaultTypeName t
 type DefaultDatabaseName t = DefaultTypeName t
@@ -944,11 +944,16 @@ dbName k t = fmap (\a -> t { _dbName = a }) (k (_dbName t))
 type EntityNameWithHask = EntityName HaskName
 type EntityNameWithType = EntityName (TypeName Text)
 
+{-
 eqByHs :: (Eq a) => EntityName a -> EntityName a -> Bool
 eqByHs a b = _hsName a == _hsName b
 
 eqByDb :: EntityName a -> EntityName a -> Bool
 eqByDb a b = _dbName a == _dbName b
+-}
+
+eqBy :: (Eq a) => Lens' s a -> s -> s -> Bool
+eqBy l old new = (old ^. l) == (new ^. l)
 
 mkDatabaseInfo :: EntityNameWithType -> [TypeName Text] -> Step -> Step -> [TableInfo] -> DatabaseInfo
 mkDatabaseInfo n tns b v tis =
@@ -1194,17 +1199,23 @@ data ForeignRefD = RefByD Text   -- ^ fk name
 headDatabaseInfo :: forall db.
                 ( SingCtxDb db
                 ) => Proxy db -> DatabaseInfo
-headDatabaseInfo _ =
+headDatabaseInfo pdb =
   mkDatabaseInfo (mkEntityName (coerce (fromSing (sing :: Sing (GetPMT (Rep db)))))
                                (fromSing (sing :: Sing (Schema db)))
-                 ) [] 0 0 []
+                 ) [] 0 0 (headTableInfos pdb (sing :: Sing (Tables db)))
+
+headTableInfos :: (All (SingCtx db) xs) => Proxy (db :: *) -> Sing (xs :: [*]) -> [TableInfo]
+headTableInfos pdb (SCons st sxs) =
+  headTableInfo pdb st : headTableInfos pdb sxs
+headTableInfos _ _ = []  
 
 headTableInfo :: forall db tab.
              ( SingCtx db tab               
-             ) => Proxy db -> Proxy tab -> TableInfo
-headTableInfo db tab =
+             ) => Proxy db -> Sing tab -> TableInfo
+headTableInfo db stab =
   let hti = headTabNameInfo db tab 
       hci = headColInfos db tab
+      tab = Proxy :: Proxy tab
   in mkTableInfo (headPkInfo db tab hti)
                  (headFkInfo db tab hti)
                  (headDefInfo db tab hti hci)
@@ -1373,7 +1384,7 @@ getDbColumnNames cis = map (getDbColumnName cis)
 getDbCheckName :: [(T.Text, T.Text)] -> T.Text -> T.Text
 getDbCheckName chkMap k = fromJust (L.lookup k chkMap)
   where fromJust (Just m) = m
-        fromJust Nothing  = error "Panic: name not found in getDbCheckName"
+        fromJust Nothing  = k
 
 {-
 getDbColumnName :: TypeName Text -> [TableInfo] -> HaskName -> DBName
@@ -1491,6 +1502,8 @@ class ( Database db
       , SingI (Schema db)
       , SingI (GetPMT (Rep db))
       , SingE (GetPMT (Rep db))
+      , All (SingCtx db) (Tables db)
+      , SingI (Tables db)
       ) => SingCtxDb db where
 
 instance ( Database db
@@ -1500,6 +1513,8 @@ instance ( Database db
          , SingI (Schema db)
          , SingI (GetPMT (Rep db))
          , SingE (GetPMT (Rep db))
+         , All (SingCtx db) (Tables db)
+         , SingI (Tables db)
          ) => SingCtxDb db where  
   
 type family OriginalTableFieldInfo (db :: *) (tab :: *) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where
@@ -1521,7 +1536,7 @@ reproxy _ = Proxy
 
 col :: forall (db :: *) (tab :: *) (col :: Symbol) (a :: *) sc.
   ( KnownSymbol col
-  , UnifyField sc (col ::: a) ('Text "Unable to find column " ':<>: 'ShowType col)
+  , UnifyField sc col a ('Text "Unable to find column " ':<>: 'ShowType col)
   , Table db tab
   , Database db
   , SingE (ColumnNames db tab)
@@ -1563,3 +1578,10 @@ genKeyName (SeqNameGen tab cn (Just n))   = T.intercalate "_" ["seq",tab, cn, n]
 
 genTabName :: TypeName T.Text -> T.Text
 genTabName tn = tn ^. typeName
+
+{-
+ppDatabaseInfo :: DatabaseInfo -> String
+ppDatabaseInfo di =
+  "Database Name: " <> ppEntityName (di ^. databaseName) <>
+  "Tables 
+-}  

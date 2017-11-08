@@ -161,10 +161,10 @@ type family AssertCxt (c :: Bool) (a :: ErrorMessage) :: Constraint where
   AssertCxt 'True msg  = ()
   AssertCxt 'False msg = TypeError msg
 
-type family UnifyField (flds :: [*]) (f :: *) (nfMsg :: ErrorMessage) :: Constraint where
-  UnifyField ((fn ::: ft') ': fs) (fn ::: ft) nfMsg  = (ft ~ ft')
-  UnifyField ((fn' ::: ft') ': fs) (fn ::: ft) nfMsg = UnifyField fs (fn ::: ft) nfMsg
-  UnifyField '[] (fn ::: ft) nfMsg                   = TypeError nfMsg
+type family UnifyField (flds :: [*]) (fn :: Symbol) (match :: *) (nfMsg :: ErrorMessage) :: Constraint where
+  UnifyField ((fn ::: ft') ': fs) fn ft nfMsg  = (ft ~ ft')
+  UnifyField ((fn' ::: ft') ': fs) fn ft nfMsg = UnifyField fs fn ft nfMsg
+  UnifyField '[] _ _ nfMsg                     = TypeError nfMsg
 
 type family Concat (xss :: [[k]]) :: [k] where
   Concat (xs ': xss) = xs   -- TODO:

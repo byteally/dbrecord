@@ -101,7 +101,7 @@ instance Table TestDB User where
   type Check TestDB User         = '[ 'CheckOn '["age"] "age_positive"
                                     ]
   type ColumnNames TestDB User   = '[ '("email", "EMail")
-                                    , '("foo"      , "bar_id")
+                                    , '("foo"  , "bar_id")
                                     ]
                                    
   type PrimaryKey TestDB User    = '["id", "name"]

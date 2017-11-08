@@ -29,6 +29,7 @@ data PrimDDL
   = CreateTable TabName [Column]
   | CreateType TypeName [Column]
   | CreateSeq  SeqName
+  | DropSeq SeqName
   | CreateEnum TypeName [EnumVal]
   | DropTable TabName
   | DropType TypeName
@@ -133,9 +134,9 @@ dropColumn :: ColName -> AlterTable
 dropColumn cn =
   DropColumn cn
 
-addColumn :: ColName -> ColType -> AlterTable
-addColumn cn ct =
-  AddColumn (Column cn ct)
+addColumn :: Column -> AlterTable
+addColumn =
+  AddColumn 
 
 dropConstraint :: ConstraintName -> AlterTable
 dropConstraint cn =
@@ -147,6 +148,21 @@ changeType cn ct =
 
 altering :: TabName -> [AlterTable] -> [PrimDDL]
 altering = map . AlterTable
+
+createSequence :: SeqName -> PrimDDL
+createSequence = CreateSeq
+
+addOwnerToSequence :: TabName -> ColName -> SeqName -> PrimDDL
+addOwnerToSequence tn cn sn =
+  AlterSeq sn (AddOwner tn cn)
+
+dropSequence :: SeqName -> PrimDDL
+dropSequence sn =
+  DropSeq sn
+
+dropTable :: TabName -> PrimDDL
+dropTable =
+  DropTable
 
 single :: a -> [a]
 single a = [a]
