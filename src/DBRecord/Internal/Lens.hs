@@ -6,6 +6,7 @@ import Data.Functor.Identity
 import qualified Control.Monad.State as State
 import qualified Control.Monad.Reader as Reader
 import qualified Data.List as L
+import GHC.Stack
 
 infixr 4 %~, .~, ^.
 infix  4 .=, %=
@@ -52,17 +53,17 @@ lens sa sbt afb s = sbt s <$> afb (sa s)
 type Lens s t a b = forall f. Functor f => (a -> f b) -> s -> f t
 type Lens' s a    = Lens s s a a
 
-unsafeFind :: (Eq v) => v -> (a -> v) -> Lens' [a] a
+unsafeFind :: (Eq v, Show v, Show a, HasCallStack) => v -> (a -> v) -> Lens' [a] a
 unsafeFind eqv f = lens gt st
   where gt as = case L.find (\ti -> f ti == eqv) as of
             Just ti -> ti
-            _       -> error "Panic: Invariant violated @unsafeFind"
+            _       -> error $ "Panic: Invariant violated @unsafeFind in: " ++ show as ++ "\nwhile looking for value: " ++ show eqv
         st as b =
           let (done', t) = L.mapAccumL (\done x -> case eqv == f x of
                                   True  -> (True, b)
                                   False -> (done, x)
                                      ) False as
           in  case done' of
-                False -> error "Panic: Invariant violated @unsafeFind"
+                False -> error $ "Panic: Invariant violated @unsafeFind in: " ++ show as ++ "\nwhile looking for value: " ++ show eqv
                 True  -> t
                               

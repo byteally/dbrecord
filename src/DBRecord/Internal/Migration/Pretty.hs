@@ -81,7 +81,11 @@ ppPrimDDL (CreateType ty cols) =
 ppPrimDDL (CreateSeq seqN) =
       text "CREATE SEQUENCE"
   <+> ppSeqName seqN
-  <+> semi  
+  <+> semi
+ppPrimDDL (DropSeq seqN) =
+      text "DROP SEQUENCE"
+  <+> ppSeqName seqN
+  <+> semi    
 ppPrimDDL (CreateEnum ty cols) =
       text "CREATE TYPE"
   <+> ppTypeName ty

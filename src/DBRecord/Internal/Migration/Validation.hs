@@ -12,15 +12,9 @@ import qualified Data.List as L
 
 import Data.Attoparsec.Text (parseOnly)
 import Data.Either (either)
--- POSTGRES only info
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.Postgres.Parser
 import DBRecord.Internal.Postgres.SqlGen (primExprGen)
-import DBRecord.Internal.Migration.Types ( PrimDDL (..), TypeName (..), EnumVal (..)
-                                         , ColName (..), ColType (..), Column (..), TabName (..)
-                                         , AlterTable (..), AddConstraint (..), ConstraintName (..)
-                                         , AlterColumn (..), DefExpr (..)
-                                         )
 import DBRecord.Internal.Migration.Types ( createTable
                                          , addPrimaryKey
                                          , addUnique
@@ -62,7 +56,7 @@ data PrimKey = PrimKey Text Text Text Int
 data UniqKey = UniqKey Text Text Text Int
              deriving (Show, Eq, Ord)
 
-data FKey = FKey Text Text Text Int Text Text Int
+data FKey = FKey Text Text Text Int Text Text Text Int
           deriving (Show, Eq, Ord)
 
 type TableContent a = HM.HashMap Text [a]
@@ -97,27 +91,28 @@ toUniqKeyInfo = HM.fromListWith (++) . concatMap (map toUniqKeyInfo . groupByKey
         getUQCol (UniqKey _ _ col i) = (i, col)
         cmpByFst a b = compare (fst a) (fst b)
 
-toTableInfo :: TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> [TableInfo]
-toTableInfo cols chks defs pk uqs fks =
+toDatabaseInfo :: TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> DatabaseInfo
+toDatabaseInfo cols chks defs pk uqs fks =
   let tabNs = HM.keys cols
-  in  L.map (\haskTN ->
-              let tUqs = HM.lookupDefault [] haskTN uqs
-                  tPk  = HM.lookup haskTN pk
-                  tFks = HM.lookupDefault [] haskTN fks
-                  tDefs = HM.lookupDefault [] haskTN defs
-                  tChks = HM.lookupDefault [] haskTN chks
-                  tCols = HM.lookupDefault [] haskTN cols
-              in TableInfo { _primaryKeyInfo = tPk
-                           , _foreignKeyInfo = tFks
-                           , _uniqueInfo     = tUqs
-                           , _defaultInfo    = tDefs
-                           , _checkInfo      = tChks
-                           , _sequenceInfo   = undefined
-                           , _tableName      = mkEntityName (mkHaskTypeName haskTN) haskTN
-                           , _columnInfo     = tCols
-                           , _ignoredCols    = ()
-                           }
-             ) tabNs
+      tabInfos = L.map (\haskTN ->
+                         let tUqs = HM.lookupDefault [] haskTN uqs
+                             tPk  = HM.lookup haskTN pk
+                             tFks = HM.lookupDefault [] haskTN fks
+                             tDefs = HM.lookupDefault [] haskTN defs
+                             tChks = HM.lookupDefault [] haskTN chks
+                             tCols = HM.lookupDefault [] haskTN cols
+                         in TableInfo { _primaryKeyInfo = tPk
+                                      , _foreignKeyInfo = tFks
+                                      , _uniqueInfo     = tUqs
+                                      , _defaultInfo    = tDefs
+                                      , _checkInfo      = tChks
+                                      , _sequenceInfo   = [] -- TODO: fill in
+                                      , _tableName      = mkEntityName (mkHaskTypeName haskTN) haskTN
+                                      , _columnInfo     = tCols
+                                      , _ignoredCols    = ()
+                                      }
+                       ) tabNs
+  in mkDatabaseInfo undefined [] 0 0 tabInfos
 
 toCheckInfo :: [CheckCtx] -> TableContent CheckInfo
 toCheckInfo = HM.fromListWith (++) . map chkInfo
@@ -141,10 +136,10 @@ toDefaultInfo = HM.fromListWith (++) . map defaultInfo
 
 toForeignKeyInfo :: [FKey] -> TableContent ForeignKeyInfo
 toForeignKeyInfo = HM.fromListWith (++) . concatMap (map toForeignKeyInfo . groupByKeyName) . groupByTableName
-  where groupByTableName = L.groupBy (\(FKey _ tna _ _ _ _ _) (FKey _ tnb _ _ _ _ _) -> tna == tnb)
-        groupByKeyName   = L.groupBy (\(FKey kna _ _ _ _ _ _) (FKey knb _ _ _ _ _ _) -> kna == knb)
+  where groupByTableName = L.groupBy (\(FKey _ tna _ _ _ _ _ _) (FKey _ tnb _ _ _ _ _ _) -> tna == tnb)
+        groupByKeyName   = L.groupBy (\(FKey kna _ _ _ _ _ _ _) (FKey knb _ _ _ _ _ _ _) -> kna == knb)
 
-        toForeignKeyInfo fks@(FKey kna tna _ _ rtna _ _ : _) =
+        toForeignKeyInfo fks@(FKey kna tna _ _ _ rtna _ _ : _) =
           let fki = mkForeignKeyInfo (mkEntityName (mkHaskName kna) kna)
                                      (getFKCols fks)
                                      (mkHaskTypeName rtna)
@@ -153,10 +148,10 @@ toForeignKeyInfo = HM.fromListWith (++) . concatMap (map toForeignKeyInfo . grou
         toForeignKeyInfo []                                        = error "impossible: empty group"
 
         getFKCols = map snd . L.sortBy cmpByFst . map getFKCol
-        getFKCol (FKey _ _ col i _ _ _) = (i, col)
+        getFKCol (FKey _ _ col i _ _ _ _) = (i, col)
 
         getFKRefCols = map snd . L.sortBy cmpByFst . map getFKRefCol
-        getFKRefCol (FKey _ _ _ _ _ col i) = (i, col)
+        getFKRefCol (FKey _ _ _ _ _ _ col i) = (i, col)
         
         cmpByFst a b = compare (fst a) (fst b)
 
@@ -190,7 +185,7 @@ instance FromRow UniqKey where
   fromRow = UniqKey <$> field <*> field <*> field <*> field
 
 instance FromRow FKey where
-  fromRow = FKey <$> field <*> field <*> field <*> field <*> field <*> field <*> field
+  fromRow = FKey <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
 
 enumQ :: Query
 enumQ =
@@ -202,27 +197,27 @@ enumQ =
 
 tableColQ :: Query
 tableColQ =
- "SELECT col.table_name as table_name,\
-        \col.column_name,\ 
-        \col.ordinal_position as pos,\
-        \col.column_default,\ 
-        \col.is_nullable,\ 
-        \col.data_type,\ 
-        \col.character_maximum_length\
- \FROM  (SELECT table_name,\ 
+ "SELECT col.table_name as table_name, \
+        \col.column_name, \ 
+        \col.ordinal_position as pos, \
+        \col.column_default, \ 
+        \col.is_nullable, \ 
+        \col.data_type, \ 
+        \col.character_maximum_length \
+ \FROM  (SELECT table_name, \ 
                \column_name,\ 
-               \ordinal_position,\
-               \column_default,\
-               \is_nullable,\ 
-               \data_type,\
-               \character_maximum_length\
-        \FROM information_schema.columns\
-        \WHERE table_schema = '?'\
-         \) as col\
-  \JOIN\
-        \(SELECT table_name\
-         \FROM information_schema.tables WHERE table_schema='?' AND table_type='BASE TABLE') as tab\
-  \ON col.table_name = tab.table_name\
+               \ordinal_position, \
+               \column_default, \
+               \is_nullable, \ 
+               \data_type, \
+               \character_maximum_length \
+        \FROM information_schema.columns \
+        \WHERE table_schema = 'public' \
+         \) as col \
+  \JOIN \
+        \(SELECT table_name \
+         \FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE') as tab \
+  \ON col.table_name = tab.table_name \
   \ORDER BY table_name, pos"
   
 checksQ :: Query
@@ -230,87 +225,87 @@ checksQ =
   "SELECT cc.constraint_name, table_name, check_clause \
   \FROM information_schema.check_constraints AS cc \
   \JOIN information_schema.table_constraints AS tc \
-  \ON   cc.constraint_name = tc.constraint_name AND\
-       \cc.constraint_schema = tc.constraint_schema\
-  \WHERE cc.constraint_schema = '?'"
+  \ON   cc.constraint_name = tc.constraint_name AND \
+       \cc.constraint_schema = tc.constraint_schema \
+  \WHERE cc.constraint_schema = 'public'"
 
 primKeysQ :: Query
 primKeysQ =
- "SELECT kcu.constraint_name as constraint_name, kcu.table_name, kcu.column_name, kcu.ordinal_position\
- \FROM  (SELECT constraint_name\
-              \, table_name\
-              \, column_name\
-              \, ordinal_position\
-        \FROM information_schema.key_column_usage\
-        \WHERE constraint_schema = '?'\
-       \) as kcu\
-  \JOIN  (SELECT constraint_name\
-              \, table_name\
-         \FROM information_schema.table_constraints\
-         \WHERE constraint_type = 'PRIMARY KEY' AND constraint_schema = '?'\
-        \) as tc\
-  \ON    kcu.constraint_name = tc.constraint_name AND\
-        \kcu.table_name = tc.table_name\
+ "SELECT kcu.constraint_name as constraint_name, kcu.table_name, kcu.column_name, kcu.ordinal_position \
+ \FROM  (SELECT constraint_name \
+              \, table_name \
+              \, column_name \
+              \, ordinal_position \
+        \FROM information_schema.key_column_usage \
+        \WHERE constraint_schema = 'public' \
+       \) as kcu \
+  \JOIN  (SELECT constraint_name \
+              \, table_name \
+         \FROM information_schema.table_constraints \
+         \WHERE constraint_type = 'PRIMARY KEY' AND constraint_schema = 'public' \
+        \) as tc \
+  \ON    kcu.constraint_name = tc.constraint_name AND \
+        \kcu.table_name = tc.table_name \
   \ORDER BY table_name, ordinal_position"
 
 uniqKeysQ :: Query
 uniqKeysQ =
- "SELECT kcu.constraint_name as constraint_name, kcu.table_name, kcu.column_name, kcu.ordinal_position\
- \FROM  (SELECT constraint_name\
-              \, table_name\
-              \, column_name\
-              \, ordinal_position\
-        \FROM information_schema.key_column_usage\
-        \WHERE constraint_schema = '?'\
-       \) as kcu\
-  \JOIN  (SELECT constraint_name\
-              \, table_name\
-         \FROM information_schema.table_constraints\
-         \WHERE constraint_type = 'UNIQUE' AND constraint_schema = '?'\
-        \) as tc\
-  \ON    kcu.constraint_name = tc.constraint_name AND\
-        \kcu.table_name = tc.table_name\
+ "SELECT kcu.constraint_name as constraint_name, kcu.table_name, kcu.column_name, kcu.ordinal_position \
+ \FROM  (SELECT constraint_name \
+              \, table_name \
+              \, column_name \
+              \, ordinal_position \
+        \FROM information_schema.key_column_usage \
+        \WHERE constraint_schema = 'public' \
+       \) as kcu \
+  \JOIN  (SELECT constraint_name \
+              \, table_name \
+         \FROM information_schema.table_constraints \
+         \WHERE constraint_type = 'UNIQUE' AND constraint_schema = 'public' \
+        \) as tc \
+  \ON    kcu.constraint_name = tc.constraint_name AND \
+        \kcu.table_name = tc.table_name \
   \ORDER BY table_name, constraint_name, ordinal_position"
 
 foreignKeysQ :: Query
 foreignKeysQ =
- "SELECT\
-     \KCU1.CONSTRAINT_NAME AS FK_CONSTRAINT_NAME\
-    \,KCU1.TABLE_NAME AS FK_TABLE_NAME\
-    \,KCU1.COLUMN_NAME AS FK_COLUMN_NAME\
-    \,KCU1.ORDINAL_POSITION AS FK_ORDINAL_POSITION\
-    \,KCU2.CONSTRAINT_NAME AS REFERENCED_CONSTRAINT_NAME\
-    \,KCU2.TABLE_NAME AS REFERENCED_TABLE_NAME\ 
-    \,KCU2.COLUMN_NAME AS REFERENCED_COLUMN_NAME\
-    \,KCU2.ORDINAL_POSITION AS REFERENCED_ORDINAL_POSITION\
- \FROM (SELECT * FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS\
-               \WHERE CONSTRAINT_SCHEMA = '?') AS RC\
- \INNER JOIN (SELECT * FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE\
-                     \WHERE CONSTRAINT_SCHEMA = '?'\
-           \) AS KCU1\
-    \ON KCU1.CONSTRAINT_CATALOG = RC.CONSTRAINT_CATALOG\
-    \AND KCU1.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA\
-    \AND KCU1.CONSTRAINT_NAME = RC.CONSTRAINT_NAME\
+ "SELECT \
+    \KCU1.CONSTRAINT_NAME AS FK_CONSTRAINT_NAME \
+    \,KCU1.TABLE_NAME AS FK_TABLE_NAME \
+    \,KCU1.COLUMN_NAME AS FK_COLUMN_NAME \
+    \,KCU1.ORDINAL_POSITION AS FK_ORDINAL_POSITION \
+    \,KCU2.CONSTRAINT_NAME AS REFERENCED_CONSTRAINT_NAME \
+    \,KCU2.TABLE_NAME AS REFERENCED_TABLE_NAME \ 
+    \,KCU2.COLUMN_NAME AS REFERENCED_COLUMN_NAME \
+    \,KCU2.ORDINAL_POSITION AS REFERENCED_ORDINAL_POSITION \
+ \FROM (SELECT * FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS \
+               \WHERE CONSTRAINT_SCHEMA = 'public') AS RC \
+ \INNER JOIN (SELECT * FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
+                     \WHERE CONSTRAINT_SCHEMA = 'public' \
+           \) AS KCU1 \
+    \ON KCU1.CONSTRAINT_CATALOG = RC.CONSTRAINT_CATALOG \
+    \AND KCU1.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA \
+    \AND KCU1.CONSTRAINT_NAME = RC.CONSTRAINT_NAME \
 
- \INNER JOIN (SELECT * FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE\
-                     \WHERE CONSTRAINT_SCHEMA = '?'\
-           \) AS KCU2\
-    \ON KCU2.CONSTRAINT_CATALOG = RC.UNIQUE_CONSTRAINT_CATALOG\
-    \AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA\
-    \AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME\
+ \INNER JOIN (SELECT * FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
+                     \WHERE CONSTRAINT_SCHEMA = 'public' \
+           \) AS KCU2 \
+    \ON KCU2.CONSTRAINT_CATALOG = RC.UNIQUE_CONSTRAINT_CATALOG \
+    \AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA \
+    \AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME \
     \AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION"
   
 type SchemaName = Text
                
-getDbSchemaInfo :: SchemaName -> Connection -> IO [TableInfo]
+getDbSchemaInfo :: SchemaName -> Connection -> IO DatabaseInfo
 getDbSchemaInfo sn conn = do
   -- enumTs <- query_ conn enumQ
   tcols <- query_ conn tableColQ
   tchks <- query_ conn checksQ
   prims <- query_ conn primKeysQ
   uniqs <- query_ conn uniqKeysQ
-  fks   <- query_ conn foreignKeysQ  
-  pure $ (toTableInfo (toTabColInfo tcols) (toCheckInfo tchks) (toDefaultInfo tcols) (toPrimKeyInfo prims) (toUniqKeyInfo uniqs) (toForeignKeyInfo fks))
+  fks   <- query_ conn foreignKeysQ
+  pure $ (toDatabaseInfo (toTabColInfo tcols) (toCheckInfo tchks) (toDefaultInfo tcols) (toPrimKeyInfo prims) (toUniqKeyInfo uniqs) (toForeignKeyInfo fks))
 
 unsafeParseExpr :: Text -> PQ.PrimExpr
 unsafeParseExpr t = primExprGen . either parsePanic id . parseOnly sqlExpr $ t

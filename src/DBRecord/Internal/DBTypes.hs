@@ -44,6 +44,9 @@ data DBTypeK
   | DBCustomType Type DBTypeK Bool
   | DBTypeName Symbol
 
+-- newtype DBType a = DBType a
+--                  deriving (Show, Eq)
+
 class ShowDBType (db :: DbK) (dbTy :: DBTypeK) where
   showDBType :: Proxy db -> Proxy dbTy -> Text
 
