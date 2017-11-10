@@ -146,7 +146,16 @@ ppAlterTable (AddConstraint cname con) =
       text "ADD CONSTRAINT"
   <+> ppConstraintName cname
   <+> ppAddConstraint con
-ppAlterTable (DropConstraint cname) =
+ppAlterTable (DropConstraint (DropPrimaryKey cname)) =
+      text "DROP CONSTRAINT"
+  <+> ppConstraintName cname
+ppAlterTable (DropConstraint (DropUnique cname)) =
+      text "DROP CONSTRAINT"
+  <+> ppConstraintName cname
+ppAlterTable (DropConstraint (DropCheck cname)) =
+      text "DROP CONSTRAINT"
+  <+> ppConstraintName cname
+ppAlterTable (DropConstraint (DropForeignKey cname)) =
       text "DROP CONSTRAINT"
   <+> ppConstraintName cname
 

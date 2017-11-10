@@ -25,6 +25,9 @@ import Test.Hspec
 
 data TestDB deriving Generic
 
+data EnumTest = EVal1 | EVal2
+              deriving (Show, Eq, Generic)
+
 data User = User
   { id    :: Int
   , name  :: Text
@@ -60,11 +63,11 @@ instance BaseTable TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 where
   type BasePrimaryKey TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
     = '[ "id", "email"
        ]
-  -- type BasePrimaryKeyName TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 = 'Just "user_id_pkey"
+  type BasePrimaryKeyName TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 = 'Just "user_id_pkey"
   type BaseUnique TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
     = '[ UniqueOn '[ "name", "age" ] "name_age_is_unique" ]
-  -- type BaseUniqueNames TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
-  --   = '[ '("name_age_is_unique", "uq_name_age!_!") ]
+  type BaseUniqueNames TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
+    = '[ '("name_age_is_unique", "uq_name_age!_!") ]
   -- type BaseTableSequence TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 = '[
   --type BaseDefaultedCols TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
   --  = '[ "foo" ]
@@ -75,13 +78,44 @@ instance BaseTable TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 where
     )
 -}
 
+instance DBMigration TestDB 0 where
+  type AlteredTables TestDB 0 =
+    '[ 'TypeName "dbrecord" "Test.MigSpec" "User" ]
+  type DropedTables TestDB 0 =
+    '[]
+  type CreatedTables TestDB 0 =
+    '[]
+  type CreatedTypes TestDB 0 = '[ ('TypeName "dbrecord" "Test.MigSpec" "EnumTest1") ]
+
+instance TypeMigration TestDB 0 ('TypeName "dbrecord" "Test.MigSpec" "EnumTest1") where
+  type TypeMigrations TestDB 0 ('TypeName "dbrecord" "Test.MigSpec" "EnumTest1") =
+    '[ AddEnum (EnumType "EnumTestALIAS" ["EVal1", "EVal2"])
+     , DropEnum
+     ]
+
+instance TableMigration TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 where
+  -- type RenamedTable TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
+  --  = 'Just "user"
+  type AddedColumn TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
+    = '[ 'AddColumn "bar" ('Tag 'Postgres ( GetDBTypeRep 'Postgres Int))
+       , 'AddColumn "baz" ('Tag 'Postgres (GetDBTypeRep 'Postgres Bool))
+       ]
+  type RenamedColumn TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
+    = '[ '("age", "AGes") ]
+  type DropedConstraint TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
+    = '[ DropPrimaryKey, DropUnique "name_age_is_unique" ]
+
+instance UDType TestDB EnumTest where
+  type TypeMappings TestDB EnumTest = EnumType "EnumTest" ["EVal1", "EVal2"]
+      
 instance Database TestDB where
   type DB     TestDB = 'Postgres
+  type Types  TestDB = '[ EnumTest ]
   type Tables TestDB = '[ User
                         , Employee
                         ]
   type Baseline TestDB = 0
-  type Version TestDB  = 0
+  type Version TestDB  = 1
 
 instance Table TestDB Employee where
   type TableName TestDB Employee = "EMPloyee"

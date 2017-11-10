@@ -45,7 +45,14 @@ data AlterTable
   | AlterColumn ColName AlterColumn
   | RenameTable TabName
   | AddConstraint ConstraintName AddConstraint
-  | DropConstraint ConstraintName
+  | DropConstraint DropConstraint
+  deriving (Show)
+
+data DropConstraint
+  = DropPrimaryKey ConstraintName
+  | DropUnique     ConstraintName
+  | DropCheck      ConstraintName
+  | DropForeignKey ConstraintName
   deriving (Show)
 
 data AlterSeq
@@ -73,6 +80,8 @@ data AlterType
   | DropAttribute ColName
   | AlterAttribute ColName AlterAttribute
   | AddAfterEnumVal EnumVal EnumVal
+  | AddBeforeEnumVal EnumVal EnumVal
+  | AddEnumVal EnumVal
   deriving (Show)
 
 data AlterAttribute
@@ -84,11 +93,21 @@ data TypeAttr
   | ProdAttr [Column]
   | EnumAttr [ColName]
 
+createEnum :: TypeName -> [EnumVal] -> PrimDDL
+createEnum tn cons =
+  CreateEnum tn cons
+
+dropType :: TypeName -> PrimDDL
+dropType =
+  DropType
+
 column :: ColName -> ColType -> Column
-column = Column
+column =
+  Column
 
 createTable :: TabName -> [Column] -> PrimDDL
-createTable = CreateTable
+createTable =
+  CreateTable
 
 addPrimaryKey :: ConstraintName -> [ColName] -> AlterTable
 addPrimaryKey cn cols =
@@ -138,10 +157,22 @@ addColumn :: Column -> AlterTable
 addColumn =
   AddColumn 
 
-dropConstraint :: ConstraintName -> AlterTable
-dropConstraint cn =
-  DropConstraint cn
-  
+dropPrimaryKey :: ConstraintName -> AlterTable
+dropPrimaryKey cn =
+  DropConstraint (DropPrimaryKey cn)
+
+dropUnique :: ConstraintName -> AlterTable
+dropUnique cn =
+  DropConstraint (DropUnique cn)
+
+dropCheck :: ConstraintName -> AlterTable
+dropCheck cn =
+  DropConstraint (DropCheck cn)
+
+dropForeignKey :: ConstraintName -> AlterTable
+dropForeignKey cn =
+  DropConstraint (DropForeignKey cn)
+
 changeType :: ColName -> ColType -> AlterTable
 changeType cn ct =
   AlterColumn cn (ChangeType ct)

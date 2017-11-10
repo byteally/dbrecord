@@ -19,15 +19,14 @@
 
 -- | 
 
-module DBRecord.Query where
-{-       
+module DBRecord.Query
        ( module DBRecord.Internal.Order
        , module DBRecord.Internal.Expr
        , module DBRecord.Internal.Predicate
        , get, getBy, getAll
-       -- , update, update_
        , delete
        , insert, insert_, insertMany, insertMany_, insertRet, insertManyRet
+       , update, update_
        , count
        , (.~) , (%~)
        , DBM
@@ -45,7 +44,7 @@ import DBRecord.Internal.Order
 import DBRecord.Internal.Expr
 import DBRecord.Internal.Predicate
 import DBRecord.Internal.Common
-import DBRecord.Internal.Schema
+import DBRecord.Internal.Schema hiding (insert, delete)
 import DBRecord.Internal.PrimQuery  hiding (insertQ, updateQ, deleteQ)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.Types
@@ -66,6 +65,7 @@ import Control.Monad.Reader
 import Database.PostgreSQL.Simple as PGS
 import Database.PostgreSQL.Simple.FromRow as PGS
 import Data.Pool (withResource)
+import DBRecord.Internal.Lens ((^.))
 
 import GHC.Generics
 
@@ -104,7 +104,7 @@ pattern EmptyUpdate <- (HM.null . getUpdateMap -> True) where
 
 
 (.~) :: forall fn sc val tab.
-        ( UnifyField sc (fn ::: val) ('Text "Unable to find column " ':<>: 'ShowType fn)
+        ( UnifyField sc fn val ('Text "Unable to find column " ':<>: 'ShowType fn)
         , sc ~ (OriginalTableFields tab)
         , KnownSymbol fn
         ) => Col fn -> Expr sc val -> Updated tab sc -> Updated tab sc
@@ -114,7 +114,7 @@ infixr 4 .~
 
 
 (%~) :: forall fn sc val db tab.
-        ( UnifyField sc (fn ::: val) ('Text "Unable to find column " ':<>: 'ShowType fn)
+        ( UnifyField sc fn val ('Text "Unable to find column " ':<>: 'ShowType fn)
         , sc ~ (OriginalTableFields tab)
         , KnownSymbol fn
         , Table db tab
@@ -217,7 +217,7 @@ class HasCol db tab sc (t :: *) where
 
 instance ( KnownSymbol fld
          , Table db tab
-         , UnifyField sc (fld ::: t) ('Text "Unable to find column " ':<>: 'ShowType fld)
+         , UnifyField sc fld t ('Text "Unable to find column " ':<>: 'ShowType fld)
          , All SingE (ColumnNames db tab)
          , All SingE (GetFieldInfo (DB db) (GenTabFields (Rep tab)))
          , SingI (GetFieldInfo (DB db) (GenTabFields (Rep tab)))
@@ -390,22 +390,22 @@ runQuery tabId cls = do
   driver <- ask
   liftIO $ dbQuery driver primQ
 
-{-
-update :: forall tab db keys driver cfg.
+update :: forall tab db keys driver cfg sc rets.
   ( Table db tab
   , MonadIO (DBM db)
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey db tab)))
   , driver ~ Driver (DBM db)
   , MonadReader (driver cfg) (DBM db)
   , HasUpdateRet driver
-  , FromDBRow driver keys
+  , FromDBRow driver (HListToTuple keys)
   , SingCtx db tab
   , SingCtxDb db
+  , sc ~ OriginalTableFields tab
   ) => Expr (OriginalTableFields tab) Bool
   -> (Updated tab (OriginalTableFields tab) -> Updated tab (OriginalTableFields tab))
-  -> DBM db [keys]
-update filt updateFn =
-  runUpdateRet (Proxy @tab) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) undefined
+  -> HList (Expr sc) rets -> DBM db [HListToTuple keys]  
+update filt updateFn rets =
+  runUpdateRet (Proxy @tab) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) (toPrimExprs rets)
   
 update_ :: forall tab db cfg driver.
   ( Table db tab
@@ -422,7 +422,6 @@ update_ :: forall tab db cfg driver.
   -> DBM db ()
 update_ filt updateFn =
   runUpdate (Proxy @tab) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate)
--}
 
 runUpdate :: forall tab db cfg driver.
              ( Table db tab
@@ -519,8 +518,8 @@ insert _ row = do
     tabId = getTableId (Proxy @db) (Proxy @tab)
     values = toHList row (\v -> Identity v)
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
-    colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
+    colIs = headColInfos (Proxy @db) (Proxy @tab)
+    cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprs = toDBValues values
     insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) []
   driver <- ask
@@ -550,8 +549,8 @@ insertRet _ row rets = do
     tabId = getTableId (Proxy @db) (Proxy @tab)
     values = toHList row (\v -> Identity v)
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
-    colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
+    colIs = headColInfos (Proxy @db) (Proxy @tab)
+    cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprs = toDBValues values
     insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) (toPrimExprs rets)
   driver <- ask
@@ -583,8 +582,8 @@ insertMany :: forall tab db row defs reqCols driver keys cfg.
 insertMany _ rows = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
-    colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
+    colIs = headColInfos (Proxy @db) (Proxy @tab)
+    cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap toDBValues values
     
     values = fmap (\row -> toHList row (\v -> Identity v)) rows
@@ -616,10 +615,9 @@ insertManyRet :: forall tab db row rets sc defs reqCols driver keys cfg.
 insertManyRet _ rows rets = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
-    colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
+    colIs = headColInfos (Proxy @db) (Proxy @tab)
+    cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap toDBValues values
-    
     values = fmap (\row -> toHList row (\v -> Identity v)) rows
     insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList cexprss) (toPrimExprs rets)
   driver <- ask
@@ -645,8 +643,8 @@ insert_ :: forall tab db row defs reqCols driver cfg.
 insert_ _ row = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
-    colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
+    colIs = headColInfos (Proxy @db) (Proxy @tab)
+    cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprs = toDBValues values
     values = toHList row (\v -> Identity v)
     insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList [cexprs]) []
@@ -674,8 +672,8 @@ insertMany_ :: forall tab db row defs reqCols driver cfg.
 insertMany_ _ rows = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
-    colIs = colInfos (Proxy @db) (Proxy @tab)
-    cnames = getDbColumnInfoNames (filterColumns tabFlds colIs)
+    colIs = headColInfos (Proxy @db) (Proxy @tab)
+    cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap toDBValues values    
     values = fmap (\row -> toHList row (\v -> Identity v)) rows
     insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList cexprss) []
@@ -684,21 +682,20 @@ insertMany_ _ rows = do
   pure ()
   
 getTableProjections :: forall db tab. (SingCtx db tab) => Proxy db -> Proxy tab -> [Projection]
-getTableProjections pdb ptab = go (colInfos pdb ptab)
+getTableProjections pdb ptab = go (headColInfos pdb ptab)
   where go :: [ColumnInfo] -> [Projection]
         go = map mkProj
 
         mkProj :: ColumnInfo -> Projection
         mkProj ci =
-          let dbColN = dbName (columnNameInfo ci)
+          let dbColN = ci ^. columnNameInfo . dbName
           in  (Sym [] dbColN, BaseTableAttrExpr dbColN)
 
 getTableId :: forall db tab. (SingCtx db tab, SingCtxDb db) => Proxy db -> Proxy tab -> TableId
 getTableId pdb ptab =
-  let dbTabName    = dbName (tabNameInfo pdb ptab)
-      dbSchemaName = hsName (databaseInfo pdb)
+  let dbTabName    = headTabNameInfo pdb ptab ^. dbName
+      dbSchemaName = headDbNameInfo pdb ^. dbName
   in  TableId { PQ.schema    = dbSchemaName
               , PQ.tableName = dbTabName
               }
 
--}
