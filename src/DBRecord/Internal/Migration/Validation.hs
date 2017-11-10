@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedStrings, DuplicateRecordFields, ScopedTypeVariables #-}
 module DBRecord.Internal.Migration.Validation where
 
 -- import DBRecord.Internal.Migration.Types hiding (CheckExpr)
@@ -28,9 +28,11 @@ import DBRecord.Internal.Migration.Types ( createTable
 import qualified DBRecord.Internal.Migration.Types as MT
 import Data.Coerce
 import Data.Maybe
-import DBRecord.Internal.Schema
+import DBRecord.Internal.Schema hiding (Sequence, dbTypeName)
 import qualified DBRecord.Internal.Schema as S
 import qualified Data.HashMap.Strict as HM
+import DBRecord.Internal.Lens
+import Data.Int
 
 data EnumInfo = EnumInfo { enumTypeName :: Text
                          , enumCons     :: Vector Text
@@ -44,7 +46,7 @@ data TableColInfo = TableColInfo { dbTableName  :: Text
                                  , dbTypeName :: Text
                                  , dbLength :: Maybe Int
                                  } deriving (Show, Eq)
-                                            
+
 data CheckCtx = CheckCtx Text Text Text
                deriving (Show, Eq)
 
@@ -58,6 +60,9 @@ data UniqKey = UniqKey Text Text Text Int
 
 data FKey = FKey Text Text Text Int Text Text Text Int
           deriving (Show, Eq, Ord)
+
+data Seq = Seq Text Text Text Text Text Text Text (Maybe Text) (Maybe Text)
+         deriving (Show, Eq, Ord)
 
 type TableContent a = HM.HashMap Text [a]
 
@@ -91,9 +96,12 @@ toUniqKeyInfo = HM.fromListWith (++) . concatMap (map toUniqKeyInfo . groupByKey
         getUQCol (UniqKey _ _ col i) = (i, col)
         cmpByFst a b = compare (fst a) (fst b)
 
-toDatabaseInfo :: TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> DatabaseInfo
-toDatabaseInfo cols chks defs pk uqs fks =
+toDatabaseInfo :: [EnumInfo] -> TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> DatabaseInfo
+toDatabaseInfo eis cols chks defs pk uqs fks =
   let tabNs = HM.keys cols
+      types = map (\ei ->
+                    mkTypeNameInfo (mkHaskTypeName (enumTypeName ei)) (EnumTypeNM (enumTypeName ei) (V.toList (enumCons ei)))
+                  ) eis
       tabInfos = L.map (\haskTN ->
                          let tUqs = HM.lookupDefault [] haskTN uqs
                              tPk  = HM.lookup haskTN pk
@@ -112,17 +120,27 @@ toDatabaseInfo cols chks defs pk uqs fks =
                                       , _ignoredCols    = ()
                                       }
                        ) tabNs
-  in mkDatabaseInfo undefined [] 0 0 tabInfos
+  in mkDatabaseInfo undefined types 0 0 (coerce tabInfos)
 
-toCheckInfo :: [CheckCtx] -> TableContent CheckInfo
-toCheckInfo = HM.fromListWith (++) . map chkInfo
-  where chkInfo (CheckCtx chkName chkOn chkExp) =
-          ( mkHaskName chkOn
-          , [CheckInfo { _checkExp  = unsafeParseExpr chkExp
-                       , _checkName = mkEntityName chkName chkName
-                      }
-            ]
-          )
+toCheckInfo :: TableContent ColumnInfo -> [CheckCtx] -> TableContent CheckInfo
+toCheckInfo tcis = HM.fromListWith (++) . catMaybes . map chkInfo
+  where chkInfo (CheckCtx chkName chkOn chkVal) =
+          let ckExp = unsafeParseExpr chkVal
+          in  case isNotNullCk tcis chkOn ckExp of
+                True -> Nothing
+                False -> Just ( mkHaskName chkOn
+                              , [CheckInfo { _checkExp  = ckExp
+                                           , _checkName = mkEntityName chkName chkName
+                                           }
+                                ]
+                              )
+
+        -- NOTE: Not null also comes up as constraints
+        isNotNullCk tcis chkOn (PQ.UnExpr PQ.OpIsNotNull (PQ.BaseTableAttrExpr coln)) =
+          maybe False (const True) $ do
+            tcis' <- HM.lookup chkOn tcis
+            L.find (\tci -> (tci ^. columnNameInfo . dbName) == coln) tcis'          
+        isNotNullCk _ _ _ = True
 
 toDefaultInfo :: [TableColInfo] -> TableContent DefaultInfo
 toDefaultInfo = HM.fromListWith (++) . map defaultInfo
@@ -186,6 +204,11 @@ instance FromRow UniqKey where
 
 instance FromRow FKey where
   fromRow = FKey <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
+
+instance FromRow Seq where
+  fromRow = Seq <$> field <*> field <*> field <*> field
+                     <*> field <*> field <*> field <*> field
+                     <*> field
 
 enumQ :: Query
 enumQ =
@@ -294,18 +317,43 @@ foreignKeysQ =
     \AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA \
     \AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME \
     \AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION"
-  
+
+seqsQ :: Query
+seqsQ =
+  "SELECT sequence_schema.sequence_name as seq_name \
+        \, sequence_schema.start_value as start_value \
+        \, sequence_schema.minimum_value as min_value \ 
+        \, sequence_schema.maximum_value as max_value \
+        \, sequence_schema.increment as inc \
+        \, sequence_schema.cycle_option as cycle_opt \
+        \, sequence_schema.data_type as data_type \
+        \, pg_seq_info.tab as seq_on_tab \
+        \, pg_seq_info.col as seq_on_col FROM \
+   \(SELECT * FROM information_schema.sequences where sequence_schema = 'public') as sequence_schema \
+   \LEFT JOIN \
+   \(select s.relname as seq, n.nspname as sch, t.relname as tab, a.attname as col \
+   \from pg_class s \
+     \join pg_depend d on d.objid=s.oid and d.classid='pg_class'::regclass and d.refclassid='pg_class'::regclass \
+     \join pg_class t on t.oid=d.refobjid \
+     \join pg_namespace n on n.oid=t.relnamespace \
+     \join pg_attribute a on a.attrelid=t.oid and a.attnum=d.refobjsubid \
+   \where s.relkind='S' and d.deptype='a' and n.nspname = 'public') as pg_seq_info \
+   \ON pg_seq_info.seq = sequence_schema.sequence_name"
+   
+ 
 type SchemaName = Text
                
 getDbSchemaInfo :: SchemaName -> Connection -> IO DatabaseInfo
 getDbSchemaInfo sn conn = do
-  -- enumTs <- query_ conn enumQ
+  enumTs <- query_ conn enumQ
   tcols <- query_ conn tableColQ
   tchks <- query_ conn checksQ
   prims <- query_ conn primKeysQ
   uniqs <- query_ conn uniqKeysQ
   fks   <- query_ conn foreignKeysQ
-  pure $ (toDatabaseInfo (toTabColInfo tcols) (toCheckInfo tchks) (toDefaultInfo tcols) (toPrimKeyInfo prims) (toUniqKeyInfo uniqs) (toForeignKeyInfo fks))
+  (seqs :: [Seq])  <- query_ conn seqsQ
+  let tcis = (toTabColInfo tcols)
+  pure $ (toDatabaseInfo enumTs tcis (toCheckInfo tcis tchks) (toDefaultInfo tcols) (toPrimKeyInfo prims) (toUniqKeyInfo uniqs) (toForeignKeyInfo fks))
 
 unsafeParseExpr :: Text -> PQ.PrimExpr
 unsafeParseExpr t = primExprGen . either parsePanic id . parseOnly sqlExpr $ t
@@ -333,65 +381,3 @@ mkHaskName = id
 mkHaskTypeName :: Text -> S.TypeName Text
 mkHaskTypeName = mkTypeName "DBPackage" "DBModule"
   
-{-
-mkMigrationTables :: [TableInfo] -> [PrimDDL]
-mkMigrationTables =
-  concatMap mkMigrationTable
-
-mkMigrationTable :: TableInfo -> [PrimDDL]
-mkMigrationTable tabInfo =
-  concat $ 
-    [ single createTab
-    , alterPKs
-    , alterUqs
-    , alterFKs
-    , checkExprs
-    , defaultExprs
-    ]
-    
-  where createTab =
-          let cols = map colInfo (columns tabInfo)
-              colInfo c = column (coerce (columnName c)) (coerce (typeN c))
-          in  createTable (coerce tabN) cols
-          
-        alterPKs = map alterPK (primaryKeys tabInfo)
-        alterPK pk =
-          let pkCols = primKeyColumns pk
-              pkName = primKeyName pk
-          in addPrimaryKey (coerce tabN) (coerce pkName) (coerce pkCols)
-
-        alterUqs = map alterUq (uniqueKeys tabInfo)
-        alterUq uq =
-          let uqCols = uniqKeyColumns uq
-              uqName = uniqKeyName uq
-          in  addUnique (coerce tabN) (coerce uqName) (coerce uqCols)
-
-        alterFKs = map alterFK (foreignKeys tabInfo)
-        alterFK fk =
-          let fkCols  = fkOnCols fk
-              refCols = fkRefCols fk
-              fkN     = fkName fk
-              fkRefN  = fkRefTab fk
-          in addForeignKey (coerce tabN) (coerce fkN) (coerce fkCols)
-                           (coerce fkRefN) (coerce refCols)
-
-        checkExprs = map checkExpr (checks tabInfo)
-        checkExpr chkInfo =
-          let chkName = checkName chkInfo
-              chkExpr = check chkInfo
-          in case isNotNullExp chkExpr of
-                  (Just col)  -> setNotNull (coerce tabN) (coerce col)
-                  Nothing     -> addCheck (coerce tabN) (coerce chkName) (coerce chkExpr)
-
-        defaultExprs = map defaultExpr (defaults tabInfo)
-        defaultExpr defInfo =
-          let colName = defaultOnColumn defInfo
-              defExp  = defaultExp defInfo
-          in addDefault (coerce tabN) (coerce colName) (coerce defExp)               
-        tabN = tableName tabInfo        
-
-        isNotNullExp exp = case exp of
-          PQ.UnExpr PQ.OpIsNotNull (PQ.BaseTableAttrExpr coln) -> Just coln
-          _                                                    -> Nothing
-                                        
--}

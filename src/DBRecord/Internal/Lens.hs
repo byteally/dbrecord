@@ -7,6 +7,7 @@ import qualified Control.Monad.State as State
 import qualified Control.Monad.Reader as Reader
 import qualified Data.List as L
 import GHC.Stack
+import Data.Coerce
 
 infixr 4 %~, .~, ^.
 infix  4 .=, %=
@@ -50,6 +51,9 @@ lens :: (s -> a) -> (s -> b -> t) -> Lens s t a b
 lens sa sbt afb s = sbt s <$> afb (sa s)
 {-# INLINE lens #-}
 
+coerceL :: (Coercible a s) => Lens' a s
+coerceL k t = fmap coerce (k (coerce t))
+
 type Lens s t a b = forall f. Functor f => (a -> f b) -> s -> f t
 type Lens' s a    = Lens s s a a
 
@@ -67,3 +71,11 @@ unsafeFind eqv f = lens gt st
                 False -> error $ "Panic: Invariant violated @unsafeFind in: " ++ show as ++ "\nwhile looking for value: " ++ show eqv
                 True  -> t
                               
+{-
+
+(<<%~) :: LensLike ((,)a) s t a b -> (a -> b) -> s -> (a, t)
+(<<%~) l = l . lmap (\a -> (a, a)) . second'
+{-# INLINE (<<%~) #-}
+
+-}
+
