@@ -14,6 +14,7 @@
 {-# LANGUAGE PolyKinds              #-}
 {-# LANGUAGE GADTs                  #-}
 {-# LANGUAGE ConstraintKinds        #-}
+{-# LANGUAGE CPP                    #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
@@ -53,6 +54,7 @@ import qualified Data.Functor.Identity as I
 import DBRecord.Internal.Lens
 import GHC.Generics
 import Data.Typeable (Typeable)
+import GHC.OverloadedLabels
 
 class BaseDatabase (db :: *) (ver :: Nat) where
   type BaseSchema db ver :: Symbol
@@ -218,13 +220,12 @@ instance ( ValidateBaseDBFld db tab un a
 
 type family ValidateBaseDBFld (db :: *) (tab :: (TypeName Symbol, Nat)) (fn :: Symbol) a where
   ValidateBaseDBFld db '(tab, ver) fn t =
-    UnifyField (GenBaseTabFields (BaseColumns db tab ver)) (fn ::: t) 
+    UnifyField (BaseColumns db tab ver) fn ft ('Text "err message ")
 
 type family UnifyDBField (flds :: [(Symbol, DBTypeK)]) (fn :: Symbol) (match :: *) (nfMsg :: ErrorMessage) :: Constraint where
-  UnifyField ('(fn, ft') ': fs) fn ft nfMsg  = (ft ~ ft')
-  UnifyField ('(fn', ft') ': fs) fn ft nfMsg = UnifyField fs (fn ::: ft) nfMsg
-  UnifyField '[] fn ft nfMsg                 = TypeError nfMsg
-
+  UnifyDBField ('(fn, ft') ': fs) fn ft nfMsg  = (ft ~ ft')
+  UnifyDBField ('(fn', ft') ': fs) fn ft nfMsg = UnifyDBField fs fn ft nfMsg
+  UnifyDBField '[] fn ft nfMsg                 = TypeError nfMsg
 -}
 
 data instance Sing (t :: RenameTable) where
@@ -520,22 +521,26 @@ type family UDTOpCtx (t :: TagHK (TypeName Symbol) UDTypeOP) where
 
 instance (UDTOpCtx t) => SingE (t :: TagHK (TypeName Symbol) UDTypeOP) where
   type Demote t = ChangeSetM M.PrimDDL
-
-{-  
-  fromSing (STag stypN (SAddEnum sUdMap)) = do
+  fromSing (STag stypN (SAddEnumValAfter sEnVal sEnAfter)) = do
     let typN   = fromSing stypN
-        udMap = fromSing sUdMap
-        typNI = mkTypeNameInfo typN udMap
-    dbInfo . typeNameInfos %=
-      insert typNI
-    pure $ createType typNI
-  fromSing (STag stypN SDropEnum) = do
+        enVal  = fromSing sEnVal
+        enAft  = fromSing sEnAfter
+    dbInfo . typeNameInfoAt typN . typeNameMap %=
+      addEnumValAfter enVal enAft
+    pure (M.alterAddEnumAfter (coerce $ genTabName typN) (coerce enVal) (coerce enAft))
+  fromSing (STag stypN (SAddEnumValBefore sEnVal sEnBef)) = do
     let typN   = fromSing stypN
-    tni <- view (dbInfo . typeNameInfoAt typN)
-    dbInfo . typeNameInfos %=
-      delete typN (^. typeNameVal)
-    pure $ dropType tni
--}
+        enVal  = fromSing sEnVal
+        enBef  = fromSing sEnBef
+    dbInfo . typeNameInfoAt typN . typeNameMap %=
+      addEnumValBefore enVal enBef
+    pure (M.alterAddEnumBefore (coerce $ genTabName typN) (coerce enVal) (coerce enBef))
+  fromSing (STag stypN (SAddEnumVal sEnVal)) = do
+    let typN   = fromSing stypN
+        enVal  = fromSing sEnVal
+    dbInfo . typeNameInfoAt typN . typeNameMap %=
+      addEnumVal enVal
+    pure (M.alterAddEnum (coerce $ genTabName typN) (coerce enVal))
   
 data AddTable = AddTable (TypeName Symbol)         -- ^ Table name
 data RenameTable = RenameTable (Maybe Symbol)      -- ^ To tablename

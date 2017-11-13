@@ -742,7 +742,7 @@ def = Def
 instance ( ValidateDBFld tab un a
          , un ~ fn
          , v ~ Expr '[] a
-         ) => IsLabel un (v -> Def db tab fn) where
+         ) => IsLabel un (v -> Def db (tab :: *) fn) where
 #if __GLASGOW_HASKELL__ > 800
   fromLabel v = def @un @tab v
 #else
@@ -983,7 +983,7 @@ mkTypeNameInfo et tnm =
                }
 
 data TypeNameInfo = TypeNameInfo { _typeNameVal   :: TypeName Text
-                                 , _typeNameMap  :: TypeNameMap
+                                 , _typeNameMap   :: TypeNameMap
                                  } deriving (Show, Eq)
 
 data TypeNameMap = EnumTypeNM Text [Text]
@@ -992,6 +992,15 @@ data TypeNameMap = EnumTypeNM Text [Text]
                  -- | EnumTextNM [Text]
                  -- | SumNM [(Text, [(Text, DBTypeK)])]
                  deriving (Show, Eq)
+
+addEnumValAfter :: Text -> Text -> TypeNameMap -> TypeNameMap
+addEnumValAfter eVal eAfter = undefined
+
+addEnumValBefore :: Text -> Text -> TypeNameMap -> TypeNameMap
+addEnumValBefore eVal eBefore = undefined
+
+addEnumVal :: Text -> TypeNameMap -> TypeNameMap
+addEnumVal eVal = undefined
 
 typeNameVal :: Functor f => (TypeName Text -> f (TypeName Text)) -> TypeNameInfo -> f TypeNameInfo
 typeNameVal k t = fmap (\a -> t { _typeNameVal = a }) (k (_typeNameVal t))

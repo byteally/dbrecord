@@ -93,6 +93,18 @@ data TypeAttr
   | ProdAttr [Column]
   | EnumAttr [ColName]
 
+alterAddEnumBefore :: TypeName -> EnumVal -> EnumVal -> PrimDDL
+alterAddEnumBefore tn eVal eValBef =
+  AlterType tn (AddBeforeEnumVal eVal eValBef)
+
+alterAddEnumAfter :: TypeName -> EnumVal -> EnumVal -> PrimDDL
+alterAddEnumAfter tn eVal eValAft =
+  AlterType tn (AddAfterEnumVal eVal eValAft)
+
+alterAddEnum :: TypeName -> EnumVal -> PrimDDL
+alterAddEnum tn eVal =
+  AlterType tn (AddEnumVal eVal)
+
 createEnum :: TypeName -> [EnumVal] -> PrimDDL
 createEnum tn cons =
   CreateEnum tn cons
