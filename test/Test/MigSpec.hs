@@ -89,8 +89,7 @@ instance DBMigration TestDB 0 where
 
 instance TypeMigration TestDB 0 ('TypeName "dbrecord" "Test.MigSpec" "EnumTest1") where
   type TypeMigrations TestDB 0 ('TypeName "dbrecord" "Test.MigSpec" "EnumTest1") =
-    '[ AddEnum (EnumType "EnumTestALIAS" ["EVal1", "EVal2"])
-     , DropEnum
+    '[ 
      ]
 
 instance TableMigration TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 where
