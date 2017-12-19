@@ -8,6 +8,7 @@ import qualified Data.Foldable as F
 import Data.String
 import qualified Data.Text as T
 import Data.Functor.Identity
+import qualified Data.Functor.Identity as I
 import Data.Typeable
 import GHC.TypeLits
 import GHC.OverloadedLabels
@@ -28,7 +29,7 @@ import Data.Time
 import Data.Text (Text)
 import DBRecord.Internal.Common
 import DBRecord.Internal.Types
-import Data.Coerce (coerce)
+import Data.Coerce (coerce, Coercible)
 import DBRecord.Internal.DBTypes
 import Data.Time.Calendar (Day)
 import Data.UUID (UUID)
@@ -71,19 +72,19 @@ instance ConstExpr Text where
 instance ConstExpr t => ConstExpr (fn ::: t) where
   constExpr (Field v) = coerce $ constExpr v
 
-instance E.ConstExpr Double where
-  constExpr = E.literalExpr . PQ.Double
+instance ConstExpr Double where
+  constExpr = literalExpr . PQ.Double
 
-instance E.ConstExpr Int where
-  constExpr = E.literalExpr . PQ.Integer . fromIntegral
+instance ConstExpr Int where
+  constExpr = literalExpr . PQ.Integer . fromIntegral
 
-instance (E.ConstExpr a) => E.ConstExpr (Identity a) where
-  constExpr = E.toIdentity . E.constExpr . runIdentity
+instance (ConstExpr a) => ConstExpr (Identity a) where
+  constExpr = toIdentity . constExpr . I.runIdentity
 
 instance ( ShowDBType 'Postgres (GetPGTypeRep a)
-         , E.ConstExpr a
-         ) => E.ConstExpr [a] where
-  constExpr = E.array . map E.constExpr
+         , ConstExpr a
+         ) => ConstExpr [a] where
+  constExpr = array . map constExpr
 
 class HasInsertValues t where
   insertValues :: t -> PQ.Assoc
@@ -224,6 +225,9 @@ infix 4 ./=
 instance EqExpr UTCTime where
   a .== b = binOp PQ.OpEq a b
 
+instance EqExpr Day where
+  a .== b = binOp PQ.OpEq a b
+
 class (EqExpr a) => OrdExpr a where
   (.>) :: Expr sc a -> Expr sc a -> Expr sc Bool
   (.<)  :: Expr sc a -> Expr sc a -> Expr sc Bool
@@ -333,8 +337,8 @@ false = Expr $ PQ.ConstExpr $ PQ.Bool False
 array :: (ShowDBType 'Postgres (GetPGTypeRep a)) => [Expr sc a] -> Expr sc [a]
 array = annotateType . Expr . PQ.ArrayExpr . coerce
 
-nil :: (ShowDBType 'Postgres (GetPGTypeRep a)) => E.Expr sc [a]
-nil = E.array []
+nil :: (ShowDBType 'Postgres (GetPGTypeRep a)) => Expr sc [a]
+nil = array []
 
 isContainedBy :: Expr sc [a] -> Expr sc [a] -> Expr sc Bool
 isContainedBy a b = binOp (PQ.OpOther "<@") a b
