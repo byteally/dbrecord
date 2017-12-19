@@ -70,7 +70,21 @@ instance ConstExpr Text where
 
 instance ConstExpr t => ConstExpr (fn ::: t) where
   constExpr (Field v) = coerce $ constExpr v
-  
+
+instance E.ConstExpr Double where
+  constExpr = E.literalExpr . PQ.Double
+
+instance E.ConstExpr Int where
+  constExpr = E.literalExpr . PQ.Integer . fromIntegral
+
+instance (E.ConstExpr a) => E.ConstExpr (Identity a) where
+  constExpr = E.toIdentity . E.constExpr . runIdentity
+
+instance ( ShowDBType 'Postgres (GetPGTypeRep a)
+         , E.ConstExpr a
+         ) => E.ConstExpr [a] where
+  constExpr = E.array . map E.constExpr
+
 class HasInsertValues t where
   insertValues :: t -> PQ.Assoc
 
@@ -245,6 +259,9 @@ instance (OrdExpr a) => OrdExpr (Maybe a) where
 instance OrdExpr UTCTime where
   a .<= b = binOp PQ.OpLtEq a b
 
+instance OrdExpr Day where
+  a .<= b = binOp PQ.OpLtEq a b
+
 infixr 3 .&&
 (.&&) :: Expr sc Bool -> Expr sc Bool -> Expr sc Bool
 (.&&) a b = binOp PQ.OpAnd a b
@@ -315,6 +332,9 @@ false = Expr $ PQ.ConstExpr $ PQ.Bool False
 
 array :: (ShowDBType 'Postgres (GetPGTypeRep a)) => [Expr sc a] -> Expr sc [a]
 array = annotateType . Expr . PQ.ArrayExpr . coerce
+
+nil :: (ShowDBType 'Postgres (GetPGTypeRep a)) => E.Expr sc [a]
+nil = E.array []
 
 isContainedBy :: Expr sc [a] -> Expr sc [a] -> Expr sc Bool
 isContainedBy a b = binOp (PQ.OpOther "<@") a b
@@ -730,3 +750,10 @@ runIdentity = unsafeCoerceExpr
 toIdentity :: Expr sc a -> Expr sc (Identity a)
 toIdentity = unsafeCoerceExpr
 
+now :: Expr sc UTCTime
+now = 
+  let now = PQ.FunExpr "now" []
+  in Expr now
+
+coerceExpr :: forall a b sc. (Coercible a b) => Expr sc a -> Expr sc b
+coerceExpr = unsafeCoerceExpr  
