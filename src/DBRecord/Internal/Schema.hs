@@ -994,13 +994,25 @@ data TypeNameMap = EnumTypeNM Text [Text]
                  deriving (Show, Eq)
 
 addEnumValAfter :: Text -> Text -> TypeNameMap -> TypeNameMap
-addEnumValAfter eVal eAfter = undefined
+addEnumValAfter eVal eAfter (EnumTypeNM et evs) =
+  EnumTypeNM et (go eVal eAfter evs)
+
+  where go eVal' eAfter' (ev : evs) = case ev == eAfter' of
+          True  -> ev : eVal' : evs
+          False -> ev : go eVal' eAfter' evs
+  
 
 addEnumValBefore :: Text -> Text -> TypeNameMap -> TypeNameMap
-addEnumValBefore eVal eBefore = undefined
+addEnumValBefore eVal eBefore (EnumTypeNM et evs) =
+  EnumTypeNM et (go eVal eBefore evs)
+
+  where go eVal' eBefore' (ev : evs) = case ev == eBefore' of
+          True  -> eVal' : ev : evs
+          False -> ev : go eVal' eBefore' evs
 
 addEnumVal :: Text -> TypeNameMap -> TypeNameMap
-addEnumVal eVal = undefined
+addEnumVal eVal (EnumTypeNM et evs) =
+  EnumTypeNM et (evs ++ [eVal])
 
 typeNameVal :: Functor f => (TypeName Text -> f (TypeName Text)) -> TypeNameInfo -> f TypeNameInfo
 typeNameVal k t = fmap (\a -> t { _typeNameVal = a }) (k (_typeNameVal t))

@@ -228,6 +228,15 @@ type family UnifyDBField (flds :: [(Symbol, DBTypeK)]) (fn :: Symbol) (match :: 
   UnifyDBField '[] fn ft nfMsg                 = TypeError nfMsg
 -}
 
+data instance Sing (t :: CreateType) where
+  SCreateType :: Sing 'CreateType
+
+data instance Sing (t :: DropType) where
+  SDropType :: Sing 'DropType
+
+data instance Sing (t :: AlterType) where
+  SAlterType :: Sing 'AlterType
+
 data instance Sing (t :: RenameTable) where
   SRenameTable :: Sing (dcn :: Maybe Symbol) -> Sing ('RenameTable dcn)
 
@@ -541,10 +550,14 @@ instance (UDTOpCtx t) => SingE (t :: TagHK (TypeName Symbol) UDTypeOP) where
     dbInfo . typeNameInfoAt typN . typeNameMap %=
       addEnumVal enVal
     pure (M.alterAddEnum (coerce $ genTabName typN) (coerce enVal))
+
+data CreateType = CreateType
+data DropType   = DropType
+data AlterType  = AlterType
   
-data AddTable = AddTable (TypeName Symbol)         -- ^ Table name
+data AddTable = AddTable
 data RenameTable = RenameTable (Maybe Symbol)      -- ^ To tablename
-data DropTable = DropTable (TypeName Symbol)       -- ^ Table name
+data DropTable = DropTable
 
 
 data AddColumn = AddColumn Symbol                  -- ^ Column ref
@@ -636,25 +649,26 @@ type MigDbCtx db ver = ( DBMigration db ver
                        , SingI (TagEach '(db, ver) (CreatedTables db ver))
                        , AllMigTableCtx (TagEach '(db, ver) (AlteredTables db ver))
                        , AllMigTableCtx (TagEach '(db, ver) (DropedTables db ver))
-                       , AllMigTableCtx (TagEach '(db, ver) (CreatedTables db ver))
-                         
-                       , AllMigTypeCtx (TagEach '(db, ver) (DropedTypes db ver))
+                       , AllMigTableCtx (TagEach '(db, ver) (CreatedTables db ver))                         
                        , AllMigTypeCtx (TagEach '(db, ver) (CreatedTypes db ver))
+                       , AllMigTypeCtx (TagEach '(db, ver) (AlteredTypes db ver))
 
                        , SingI (TagEach '(db, ver) (CreatedTypes db ver))
                        , SingI (TagEach '(db, ver) (DropedTypes db ver))
+                       , SingI (TagEach '(db, ver) (AlteredTypes db ver))
                        )
 
 mkMigrationDb :: forall db ver.
                   ( MigDbCtx db ver
                   ) => Sing ('Tag db ver) -> ChangeSetM ChangeSet
 mkMigrationDb _ = do
-  crtys <- mkMigrationTypes (sing :: Sing (TagEach '(db, ver) (CreatedTypes db ver)))
-  drtys <- mkMigrationTypes (sing :: Sing (TagEach '(db, ver) (DropedTypes db ver)))  
+  -- crtys <- mkMigrationTypes (sing :: Sing (TagEach '(db, ver) (CreatedTypes db ver)))
+  -- drtys <- dropMigrationTypes (sing :: Sing (TagEach '(db, ver) (DropedTypes db ver)))  
+  altys <- mkMigrationTypes (sing :: Sing (TagEach '(db, ver) (AlteredTypes db ver)))  
   crs <- mkMigrationTables (sing :: Sing (TagEach '(db, ver) (CreatedTables db ver)))
   dls <- mkMigrationTables (sing :: Sing (TagEach '(db, ver) (DropedTables db ver)))
   alts <- mkMigrationTables (sing :: Sing (TagEach '(db, ver) (AlteredTables db ver)))    
-  pure $ coerce (crtys ++ drtys ++ crs ++ dls ++ alts)
+  pure $ coerce ({-crtys ++ drtys ++-} altys ++ crs ++ dls ++ alts)
 
 type family AllMigTypeCtx (tagHks :: [TagHK (*, Nat) (TypeName Symbol)]) :: Constraint where
   AllMigTypeCtx ('Tag '(db, ver) tab ': tagHks) = (MigTypeCtx db ver tab, AllMigTypeCtx tagHks)
@@ -663,7 +677,19 @@ type family AllMigTypeCtx (tagHks :: [TagHK (*, Nat) (TypeName Symbol)]) :: Cons
 type MigTypeCtx db ver ty = ( SingI (TagEach ty (TypeMigrations db ver ty))
                             , SingE (TagEach ty (TypeMigrations db ver ty))
                             )
-  
+
+-- dropMigrationTypes :: forall tagHks. (AllMigTypeCtx tagHks) => Sing (tagHks :: [TagHK (*, Nat) (TypeName Symbol)]) -> ChangeSetM [M.PrimDDL]
+-- dropMigrationTypes (SCons tagHK@(STag (STuple {}) (STypeName {})) tagHKs) = do
+--   (++) <$> dropMigrationType tagHK <*> dropMigrationTypes tagHKs
+-- dropMigrationTypes SNil = pure []
+
+-- dropMigrationType :: forall db ver ty.
+--                      ( 
+--                      ) => Sing ('Tag '(db, ver) ty) -> ChangeSetM [M.PrimDDL]
+-- dropMigrationType _ =
+--   -- crts <- sequence $ fromSing (sing :: Sing (TagEach ty (AddedColumn db ver ty)))
+--   sequence $ fromSing (sing :: Sing (TagEach ty (TypeMigrations db ver ty)))
+
 mkMigrationTypes :: forall tagHks. (AllMigTypeCtx tagHks) => Sing (tagHks :: [TagHK (*, Nat) (TypeName Symbol)]) -> ChangeSetM [M.PrimDDL]
 mkMigrationTypes (SCons tagHK@(STag (STuple {}) (STypeName {})) tagHKs) = do
   (++) <$> mkMigrationType tagHK <*> mkMigrationTypes tagHKs
@@ -672,7 +698,9 @@ mkMigrationTypes SNil = pure []
 mkMigrationType :: forall db ver ty.
                      ( MigTypeCtx db ver ty
                      ) => Sing ('Tag '(db, ver) ty) -> ChangeSetM [M.PrimDDL]
-mkMigrationType _ = sequence $ fromSing (sing :: Sing (TagEach ty (TypeMigrations db ver ty)))
+mkMigrationType _ =
+  -- crts <- sequence $ fromSing (sing :: Sing (TagEach ty (AddedColumn db ver ty)))
+  sequence $ fromSing (sing :: Sing (TagEach ty (TypeMigrations db ver ty)))
 
 
 type family AllMigTableCtx (tagHks :: [TagHK (*, Nat) (TypeName Symbol)]) :: Constraint where
