@@ -139,18 +139,6 @@ type family Serial (cname :: Symbol) (seqname :: Symbol) where
 type family Owned (cname :: Symbol) (seqname :: Symbol) where
   Owned cname seqname = 'PGOwned cname seqname
 
-class ( Generic ty
-      ) => UDType (db :: *) (ty :: *) where
-  type TypeMappings db ty :: UDTypeMappings
-  -- type TypeMappings db ty = 'Flat '[]
-
--- TODO: Support other type mappings as well
-data UDTypeMappings = EnumType Symbol [Symbol]
-                    -- | Composite Symbol [(Symbol, DBTypeK)]
-                    -- | Flat [(Symbol, DBTypeK)]
-                    -- | EnumText [Symbol]
-                    -- | Sum [(Symbol, [(Symbol, DBTypeK)])]
-
 type family GetTypeMappings (db :: *) where
   GetTypeMappings db = GetTypeMappings' db (Types db)
 
@@ -437,6 +425,9 @@ type family MaybeCtx (ctx :: k -> Constraint) (m :: Maybe k) :: Constraint where
 type family UqCtx (ctx :: Symbol -> Constraint) (uq :: UniqueCT) :: Constraint where
   UqCtx ctx ('UniqueOn uniqFlds uniqOn) = (All ctx uniqFlds, ctx uniqOn)
 
+type family CkCtx (ctx :: Symbol -> Constraint) (uq :: CheckCT) :: Constraint where
+  CkCtx ctx ('CheckOn ckFlds ckn) = (All ctx ckFlds, ctx ckn)
+
 type family FKCtxTy (ctx :: Symbol -> Constraint) (fk :: ForeignRef Type) :: Constraint where
   FKCtxTy ctx ('RefBy cols reft refcols name) = (All ctx cols, All ctx refcols, ctx name, SingE (GetPMT (Rep reft)), Generic reft
                                                 , SingI (GetPMT (Rep reft))
@@ -490,6 +481,10 @@ showDBTypeSing dbK dbT = showDBType (reproxy dbK) (reproxy dbT)
 instance (UqCtx SingE uq) => SingE (uq :: UniqueCT) where
   type Demote (uq :: UniqueCT)         = (Demote (Any :: [Symbol]), Demote (Any :: Symbol))
   fromSing (SUniqueOn uniqFlds uniqOn) = (fromSing uniqFlds, fromSing uniqOn)
+
+instance (CkCtx SingE uq) => SingE (uq :: CheckCT) where
+  type Demote (ck :: CheckCT)         = (Demote (Any :: [Symbol]), Demote (Any :: Symbol))
+  fromSing (SCheck chkFlds chkn) = (fromSing chkFlds, fromSing chkn)
 
 instance ( FKCtxTy SingE fk
          ) => SingE (fk :: ForeignRef Type) where
@@ -1282,17 +1277,44 @@ headDatabaseInfo :: forall db.
                 ( SingCtxDb db
                 ) => Proxy db -> DatabaseInfo
 headDatabaseInfo pdb =
-  mkDatabaseInfo (headDbNameInfo pdb) (headTypeNameInfo pdb) 0 0 (coerce (headTableInfos pdb (sing :: Sing (Tables db))))
+  mkDatabaseInfo (headDbNameInfo pdb) (headTypeInfo pdb) 0 0 (coerce (headTableInfos pdb (sing :: Sing (Tables db))))
 
-headTypeNameInfo :: forall db.
-  ( SingI (GetTypeMappings db)
-  , SingE (GetTypeMappings db)
-  , All (UDType db) (Types db)
-  , All Generic     (Types db)
+headTypeInfo :: forall db.
+  ( AllUDCtx db (Types db)
+  , SingI (Types db)
   ) => Proxy db -> [TypeNameInfo]
-headTypeNameInfo pdb =
-  let typMappings = fromSing (sing :: Sing (GetTypeMappings db))
-  in  map (uncurry mkTypeNameInfo) typMappings
+headTypeInfo pdb = headTypeNameInfos pdb (sing :: Sing (Types db))
+
+headTypeNameInfos :: (AllUDCtx db xs) => Proxy db -> Sing (xs :: [*]) -> [TypeNameInfo]
+headTypeNameInfos pdb (SCons x xs) =
+  headTypeNameInfo pdb x : headTypeNameInfos pdb xs
+headTypeNameInfos _ SNil =
+  []
+
+headTypeNameInfo :: forall db ty.
+                      ( UDType db ty
+                      , SingI (TypeMappings db ty)
+                      , UDTCtx (TypeMappings db ty)
+                      , SingE (GetPMT (Rep ty))
+                      , SingI (GetPMT (Rep ty))
+                      , Generic ty
+                      ) => Proxy db -> Sing (ty :: *) -> TypeNameInfo
+headTypeNameInfo _ _ =
+  let tnm = fromSing (sing :: Sing (TypeMappings db ty))
+      tnv = fromSing (sing :: Sing (GetPMT (Rep ty)))
+  in  mkTypeNameInfo tnv tnm
+
+type family AllUDCtx db tys :: Constraint where
+  AllUDCtx db (ty ': tys) = ( UDType db ty
+                            , SingI (TypeMappings db ty)
+                            , UDTCtx (TypeMappings db ty)
+                            , AllUDCtx db tys
+                            , SingE (GetPMT (Rep ty))
+                            , SingI (GetPMT (Rep ty))
+                            , Generic ty
+                            )
+  AllUDCtx db '[]         = ()                                  
+
 
 dbTypeName :: TypeNameMap -> Text
 dbTypeName tyMap =
@@ -1493,28 +1515,6 @@ getDbCheckName chkMap k = fromJust (L.lookup k chkMap)
   where fromJust (Just m) = m
         fromJust Nothing  = k
 
-{-
-getDbColumnName :: TypeName Text -> [TableInfo] -> HaskName -> DBName
-getDbColumnName = undefined
-
-getDbColumnNames :: TypeName Text -> [TableInfo] -> [HaskName] -> [DBName]
-getDbColumnNames tn tis = map (getDbColumnName tn tis)
-
-getHaskTypeName :: Text -> [TableInfo] -> TypeName Text
-getHaskTypeName = undefined
-
-getHaskColumnName :: TypeName Text -> [TableInfo] -> DBName -> HaskName
-getHaskColumnName = undefined
-
-getHaskColumnNames :: TypeName Text -> [TableInfo] -> [DBName] -> [HaskName]
-getHaskColumnNames = undefined
-
-getDbColumnInfoNames :: [ColumnInfo] -> [Text]
-getDbColumnInfoNames = map (_dbName . _columnNameInfo)
-
-
--}
-
 filterColumns :: [Text] -> [ColumnInfo] -> [ColumnInfo]
 filterColumns hsns cis = map (getColumnInfo cis) hsns
 
@@ -1611,10 +1611,8 @@ class ( Database db
       , SingE (GetPMT (Rep db))
       , All (SingCtx db) (Tables db)
       , SingI (Tables db)
-      , SingI (GetTypeMappings db)
-      , SingE (GetTypeMappings db)
-      , All (UDType db) (Types db)
-      , All Generic     (Types db)
+      , AllUDCtx db (Types db)
+      , SingI (Types db)
       ) => SingCtxDb db where
 
 instance ( Database db
@@ -1626,10 +1624,8 @@ instance ( Database db
          , SingE (GetPMT (Rep db))
          , All (SingCtx db) (Tables db)
          , SingI (Tables db)
-         , SingI (GetTypeMappings db)
-         , SingE (GetTypeMappings db)
-         , All (UDType db) (Types db)
-         , All Generic     (Types db)
+         , AllUDCtx db (Types db)
+         , SingI (Types db)
          ) => SingCtxDb db where  
   
 type family OriginalTableFieldInfo (db :: *) (tab :: *) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where

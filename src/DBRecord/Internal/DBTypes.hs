@@ -159,3 +159,15 @@ quoteBy ch esc s = T.pack $ ch : go esc (T.unpack s) ++ (ch:[])
     go (Just esch) (ch':xs)
       | ch' == esch          = esch : ch': go esc xs
     go esc' (x:xs)          = x : go esc' xs
+
+class ( Generic ty
+      ) => UDType (db :: *) (ty :: *) where
+  type TypeMappings db ty :: UDTypeMappings
+  -- type TypeMappings db ty = 'Flat '[]
+
+-- TODO: Support other type mappings as well
+data UDTypeMappings = EnumType Symbol [Symbol]
+                    -- | Composite Symbol [(Symbol, DBTypeK)]
+                    -- | Flat [(Symbol, DBTypeK)]
+                    -- | EnumText [Symbol]
+                    -- | Sum [(Symbol, [(Symbol, DBTypeK)])]
