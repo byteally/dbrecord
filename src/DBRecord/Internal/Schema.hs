@@ -1663,11 +1663,12 @@ col _ = Expr (PQ.AttrExpr sym)
 insert :: a -> [a] -> [a]
 insert = (:)
 
-deleteErr :: (Eq b) => b -> (a -> b) -> [a] -> [a]
-deleteErr = undefined
-
+-- NOTE : fail delete if element not found?
 delete :: (Eq b) => b -> (a -> b) -> [a] -> [a]
-delete = undefined
+delete b f (x : xs)
+ | f x == b  = delete b f xs
+ | otherwise = x : delete b f xs
+delete b f [] = []
 
 data KeyNameGen
   = PkNameGen T.Text [T.Text]
