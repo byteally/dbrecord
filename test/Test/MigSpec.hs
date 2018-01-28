@@ -107,7 +107,12 @@ instance TableMigration TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 wh
     = '[ '("age", "AGes") ]
   type DropedConstraint TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
     = '[ DropPrimaryKey, DropUnique "name_age_is_unique" ]
-
+  type AddedConstraint TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
+    = '[ AddCheck (CheckOn '["age"] "age_gt_20") ]
+  migChecks = migDbChecks $
+              (  (Chk (\a -> a .> (20 :: Expr '[] Int)) :: (Chk TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") (CheckOn '["age"] "age_gt_20")))
+              :& end
+              )
 instance DBMigration TestDB 1 where
   type AlteredTables TestDB 1 =
     '[ 'TypeName "dbrecord" "Test.MigSpec" "User" ]  
