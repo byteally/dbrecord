@@ -420,7 +420,7 @@ instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
     pure $ M.setNotNull (coerce dbColn)
   fromSing (SDropNotNull scoln) = do
     let hsColn = fromSing scoln
-    curTab <- view currentTable    
+    curTab <- view currentTable 
     dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . isNullable .= True    
     pure $ M.dropNotNull (coerce dbColn)
@@ -431,21 +431,25 @@ instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
     dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnTypeName .= (coerce colt)
     pure $ M.addColumn (M.column (coerce dbColn) (coerce colt))
-  fromSing (SAddDefault scoln) =
-    undefined
-    {-
+  fromSing (SAddDefault scoln) = do
     let hsColn = (fromSing scoln)
     curTab <- view currentTable
-    dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)    
-    pure $ M.addDefault (coerce (fromSing scoln)) undefined
-    -}
+    cksAndDefs <- view currentChecksAndDefs
+    tabInfo <- view (dbInfo . tableInfoAt curTab)
+    let dbColn     = tabInfo ^. columnInfoAt hsColn . columnNameInfo . dbName
+        cols       = tabInfo ^. columnInfo
+        curTabName = tabInfo ^. tableName
+        defVal = migDefInfo cksAndDefs hsColn curTabName cols
+    dbInfo . tableInfoAt curTab . defaultInfo %=
+              insert defVal
+    pure $ M.addDefault (coerce dbColn) (coerce (defVal ^. defaultExp))
   fromSing (SDropDefault scoln) = do
     let hsColn = fromSing scoln
     curTab <- view currentTable    
     dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     dbInfo . tableInfoAt curTab . defaultInfo %=
-              delete (fromSing scoln) (\di -> di ^. defaultOn)
-    pure $ M.dropDefault (coerce (fromSing scoln))
+              delete hsColn (\di -> di ^. defaultOn)
+    pure $ M.dropDefault (coerce hsColn)
 
 type family AddConstraintCtx (t :: AddConstraint) :: Constraint where
   AddConstraintCtx ('AddPrimaryKey cols ctxn) =
@@ -471,7 +475,19 @@ instance (AddConstraintCtx t) => SingE (t :: AddConstraint) where
     dbInfo . tableInfoAt curTab . uniqueInfo %=
          insert (mkUniqueInfo uniqEt cols)
     pure (M.addUnique (coerce ctxn') (coerce cols))
-  fromSing (SAddCheck sck)  = undefined
+  fromSing (SAddCheck sck)  = do
+    let (scols, hsCname) = fromSing sck
+        chkEt = mkEntityName hsCname hsCname
+    curTab <- view currentTable
+    tabInfo <- view (dbInfo . tableInfoAt curTab)
+    let cols       = tabInfo ^. columnInfo
+        curTabName = tabInfo ^. tableName    
+    cksAndDefs <- view currentChecksAndDefs    
+    let ckInfo = migCksInfo cksAndDefs hsCname curTabName cols
+    dbInfo . tableInfoAt curTab . checkInfo %=
+         insert ckInfo
+    pure (M.addCheck (coerce (ckInfo ^. checkName . dbName))
+                     (coerce (ckInfo ^. checkExp)))
   fromSing (SAddForeignKey (sfkref :: Sing (fkref :: ForeignRef (TypeName Symbol)))) = do
     let fkref = fromSing sfkref
     curTab <- view currentTable
@@ -733,8 +749,8 @@ mkMigrationTable :: forall db ver tab.
                      ( MigTableCtx db ver tab
                      ) => Sing ('Tag '(db, ver) tab) -> ChangeSetM [M.PrimDDL]
 mkMigrationTable _ = do
+  setTabCtx (Proxy :: Proxy db) (Proxy :: Proxy tab) (Proxy :: Proxy ver)
   let curTab = fromSing (sing :: Sing (tab :: TypeName Symbol))
-  currentTable .= curTab
   acs <- sequence $ fromSing (sing :: Sing (AddedColumn db tab ver))
   dcs <- sequence $ fromSing (sing :: Sing (MkDroppedColumn (DropedColumn db tab ver)))
   rcs <- sequence $ fromSing (sing :: Sing (MkRenamedColumn (RenamedColumn db tab ver)))
@@ -752,21 +768,36 @@ type family MkRenamedColumn (rns :: [(Symbol, Symbol)]) :: [RenameColumn] where
   MkRenamedColumn ('(cn, dcn) ': rns) = 'RenameColumn cn dcn ': MkRenamedColumn rns
   MkRenamedColumn '[]                 = '[]
 
-data ChangeSetState = ChangeSetState { _dbInfo       :: DatabaseInfo
-                                     , _currentTable :: Maybe (TypeName T.Text)
-                                     } deriving (Show, Eq)
+data ChangeSetState = ChangeSetState { _dbInfo               :: DatabaseInfo
+                                     , _currentTable         :: Maybe (TypeName T.Text)
+                                     , _currentChecksAndDefs :: Maybe ChecksAndDefs
+                                     } 
+
+data ChecksAndDefs = forall db tab ver. ChecksAndDefs { _curChecks :: MigDBChecks db tab ver
+                                                      , _curDefs   :: MigDBDefaults db tab ver
+                                                      } 
 
 mkChangeSetState :: DatabaseInfo -> ChangeSetState
 mkChangeSetState dbi =
   ChangeSetState { _dbInfo = dbi
                  , _currentTable = Nothing
+                 , _currentChecksAndDefs = Nothing
                  }
 
+mkCurrentChecksAndDefs :: MigDBDefaults base tab ver -> MigDBChecks base tab ver -> ChecksAndDefs
+mkCurrentChecksAndDefs mDefs mCks =
+  ChecksAndDefs { _curChecks = mCks
+                , _curDefs   = mDefs
+                }
+  
 dbInfo :: Functor f => (DatabaseInfo -> f DatabaseInfo) -> ChangeSetState -> f ChangeSetState
 dbInfo k t = fmap (\a -> t { _dbInfo = a }) (k (_dbInfo t))
 
 currentTable :: Functor f => (TypeName T.Text -> f (TypeName T.Text)) -> ChangeSetState -> f ChangeSetState
 currentTable k t = fmap (\a -> t { _currentTable = Just a }) (k (fromJust (_currentTable t)))
+
+currentChecksAndDefs :: Functor f => (ChecksAndDefs -> f ChecksAndDefs) -> ChangeSetState -> f ChangeSetState
+currentChecksAndDefs k t = fmap (\a -> t { _currentChecksAndDefs = Just a }) (k (fromJust (_currentChecksAndDefs t)))
 
 newtype ChangeSetM a = ChangeSetM { runChangeSet :: M.StateT ChangeSetState I.Identity a }
                      deriving (Functor, Applicative, Monad, M.MonadState ChangeSetState)
@@ -1227,6 +1258,8 @@ class ( BaseDatabase db ver
       , SingI (GetPMT (Rep db))
       , SingE (GetPMT (Rep db))
       , All (SingCtxBase db ver) (BaseTables db ver)
+      , AllBaseUDCtx db ver (BaseTypes db ver)
+      , SingI (BaseTypes db ver)        
       ) => SingCtxBaseDb db ver where
 
 instance ( BaseDatabase db ver
@@ -1239,8 +1272,41 @@ instance ( BaseDatabase db ver
            
          , SingI (GetPMT (Rep db))
          , SingE (GetPMT (Rep db))
-         , All (SingCtxBase db ver) (BaseTables db ver)           
+         , All (SingCtxBase db ver) (BaseTables db ver)
+
+         , AllBaseUDCtx db ver (BaseTypes db ver)
+         , SingI (BaseTypes db ver)
          ) => SingCtxBaseDb db ver where  
+
+type family AllBaseUDCtx db ver tys :: Constraint where
+  AllBaseUDCtx db ver (ty ': tys) = ( BaseUDType db ver ty
+                                    , SingI (BaseTypeMappings db ver ty)
+                                    , UDTCtx (BaseTypeMappings db ver ty)
+                                    , AllBaseUDCtx db ver tys
+                                    )
+  AllBaseUDCtx db ver '[]         = ()                                  
+  
+baseTypeInfo :: forall db ver.
+                 ( AllBaseUDCtx db ver (BaseTypes db ver)
+                 , SingI (BaseTypes db ver)
+                 ) => Proxy db -> Proxy ver -> [TypeNameInfo]
+baseTypeInfo pdb pver = baseTypeNameInfos pdb pver (sing :: Sing (BaseTypes db ver))
+
+baseTypeNameInfos :: (AllBaseUDCtx db ver xs) => Proxy db -> Proxy ver -> Sing (xs :: [TypeName Symbol]) -> [TypeNameInfo]
+baseTypeNameInfos pdb pver (SCons x xs) =
+  baseTypeNameInfo pdb pver x : baseTypeNameInfos pdb pver xs
+baseTypeNameInfos _ _ SNil =
+  []
+
+baseTypeNameInfo :: forall db ver ty.
+                      ( BaseUDType db ver ty
+                      , SingI (BaseTypeMappings db ver ty)
+                      , UDTCtx (BaseTypeMappings db ver ty)
+                      ) => Proxy db -> Proxy ver -> Sing (ty :: TypeName Symbol) -> TypeNameInfo
+baseTypeNameInfo _ _ sty =
+  let tnm = fromSing (sing :: Sing (BaseTypeMappings db ver ty))
+      tnv = fromSing sty
+  in  mkTypeNameInfo tnv tnm
 
 {-  
 baseTypeNameInfo :: forall db ver.
@@ -1264,9 +1330,10 @@ baseDatabaseInfo :: forall db ver.
                 ( SingCtxBaseDb db ver
                 ) => Proxy (db :: *) -> Proxy ver -> DatabaseInfo
 baseDatabaseInfo pdb pver =
-  mkDatabaseInfo (mkEntityName (coerce (fromSing (sing :: Sing (GetPMT (Rep db)))))
+  let btys = baseTypeInfo pdb pver
+  in mkDatabaseInfo (mkEntityName (coerce (fromSing (sing :: Sing (GetPMT (Rep db)))))
                                        (fromSing (sing :: Sing (BaseSchema db ver)))
-                 ) [] 0 0 (coerce (baseTableInfos pdb pver (sing :: Sing (BaseTables db ver))))
+                 ) btys 0 0 (coerce (baseTableInfos pdb pver (sing :: Sing (BaseTables db ver))))
 
 baseTableInfos :: (All (SingCtxBase db ver) xs) => Proxy (db :: *) -> Proxy (ver :: Nat) -> Sing (xs :: [TypeName Symbol]) -> [TableInfo]
 baseTableInfos pdb pver (SCons st@(STypeName {}) sxs) =
@@ -1388,6 +1455,29 @@ type family GetBaseColumnInfo (db :: DbK) (xs :: [(Symbol, DBTypeK)]) where
     '(TagTypeInfo db x, fld) ': GetBaseColumnInfo db xs
   GetBaseColumnInfo db '[] =
     '[]
+
+setTabCtx :: forall db tab ver.
+             ( TableMigration db tab ver
+             , SingI tab
+             ) => Proxy db -> Proxy (tab :: TypeName Symbol) -> Proxy ver -> ChangeSetM ()
+setTabCtx _ _ _ = do
+  let curTab = fromSing (sing :: Sing (tab :: TypeName Symbol))
+  currentTable .= curTab
+  currentChecksAndDefs .=
+    mkCurrentChecksAndDefs (migDefaults :: MigDBDefaults db tab ver)
+                           (migChecks :: MigDBChecks db tab ver)  
+  pure ()
+
+migDefInfo :: ChecksAndDefs -> HaskName -> EntityNameWithType -> [ColumnInfo] -> DefaultInfo
+migDefInfo (ChecksAndDefs _ defs) hsColn _et cis = case defs of
+  MigDBDefaults hl -> mkDefInfo (fromJust (L.find (\x -> fst x == hsColn) (happlyDefExprs cis hl)))
+
+  where mkDefInfo (n, expr) = mkDefaultInfo n expr
+
+migCksInfo :: ChecksAndDefs -> HaskName -> EntityNameWithType -> [ColumnInfo] -> CheckInfo
+migCksInfo (ChecksAndDefs cks _) hsCkn et cis = case cks of
+  MigDBChecks hls -> checkInfoOne et [] (fromJust (L.find (\x -> fst x == hsCkn) (happlyChkExpr cis [] hls)))
+  where chkNameMaps = []
 
 renderChangeSets :: [ChangeSet] -> String
 renderChangeSets =
