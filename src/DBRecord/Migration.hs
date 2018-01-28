@@ -1051,7 +1051,7 @@ diffDefault oldTi newTi oldDfi newDfi =
   where isSameDefAs oldDfi newDfi =
           (oldDfi ^. defaultExp) == (newDfi ^. defaultExp)
 
--- TODO: Fill in
+-- TODO: 
 diffSequence :: TableInfo -> TableInfo -> SequenceInfo -> SequenceInfo -> [M.PrimDDL]
 diffSequence = undefined
 

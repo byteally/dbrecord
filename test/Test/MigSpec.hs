@@ -2,6 +2,7 @@
 module Test.MigSpec {-( spec )-} where
 
 import DBRecord.Schema hiding (delete, insert)
+import DBRecord.Internal.DBTypes
 import DBRecord.Migration
 import DBRecord.Query
 import DBRecord.Internal.Types
@@ -47,7 +48,10 @@ instance BaseDatabase TestDB 0 where
   type BaseTables TestDB 0 =
     '[ 'TypeName "dbrecord" "Test.MigSpec" "User"
      ]
-
+  type BaseTypes TestDB 0 =
+    '[ 'TypeName "dbrecord" "Test.MigSpec" "EnumTest"
+     ]
+    
 instance BaseTable TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0 where
   type BaseColumns TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 0
     = '[ '( "id",    GetDBTypeRep 'Postgres Int)
@@ -85,7 +89,7 @@ instance DBMigration TestDB 0 where
      '[]
   type CreatedTables TestDB 0 =
     '[]
-  type CreatedTypes TestDB 0 = '[ ('TypeName "dbrecord" "Test.MigSpec" "EnumTest1") ]
+  -- type CreatedTypes TestDB 0 = '[ ('TypeName "dbrecord" "Test.MigSpec" "EnumTest1") ]
 
 instance TypeMigration TestDB 0 ('TypeName "dbrecord" "Test.MigSpec" "EnumTest1") where
   type TypeMigrations TestDB 0 ('TypeName "dbrecord" "Test.MigSpec" "EnumTest1") =
@@ -109,7 +113,6 @@ instance DBMigration TestDB 1 where
     '[ 'TypeName "dbrecord" "Test.MigSpec" "User" ]  
   type CreatedTables TestDB 1 =
     '[]
-  type CreatedTypes TestDB 1 = '[ ('TypeName "dbrecord" "Test.MigSpec" "EnumTest1") ]
 
 instance TableMigration TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 1 where
   -- type RenamedTable TestDB ('TypeName "dbrecord" "Test.MigSpec" "User") 1
@@ -125,10 +128,12 @@ instance TypeMigration TestDB 1 ('TypeName "dbrecord" "Test.MigSpec" "EnumTest1"
     '[ 
      ]
 
+instance BaseUDType TestDB 0 ('TypeName "dbrecord" "Test.MigSpec" "EnumTest") where
+  type BaseTypeMappings TestDB 0 ('TypeName "dbrecord" "Test.MigSpec" "EnumTest") = EnumType "EnumTest" ["EVal1", "EVal2"]
 
 instance UDType TestDB EnumTest where
   type TypeMappings TestDB EnumTest = EnumType "EnumTest" ["EVal1", "EVal2"]
-      
+                                          
 instance Database TestDB where
   type DB     TestDB = 'Postgres
   type Types  TestDB = '[ EnumTest ]
