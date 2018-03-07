@@ -1,7 +1,4 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-<<<<<<< HEAD
-{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving #-}
-=======
 {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, OverloadedStrings #-}
 >>>>>>> 4f3ac5e... custom fromfield instance interval
 module DBRecord.Internal.Types where
