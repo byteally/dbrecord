@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor #-}
+{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, OverloadedStrings #-}
 module DBRecord.Internal.Types where
 
 import GHC.Generics
@@ -7,10 +7,11 @@ import GHC.TypeLits
 import GHC.OverloadedLabels
 import Data.Aeson
 import Database.PostgreSQL.Simple.FromField
+import Database.PostgreSQL.Simple.Types as PSQL
 import Data.Typeable
 import qualified Data.Text as T
 import qualified DBRecord.Internal.PrimQuery as PQ
-
+import qualified Data.Text.Encoding as T
 
 data DBTag (db :: *) (tab :: *) (v :: k)
 
@@ -55,7 +56,18 @@ instance (FromJSON a, Typeable a) => FromField (Json a) where
   fromField f dat = Json <$> fromJSONField f dat
 
 newtype Interval = Interval T.Text
-                 deriving (Show, Generic, FromJSON, ToJSON, FromField)
+                 deriving (Show, Generic, FromJSON, ToJSON)
+
+-- parseOnly val
+instance FromField Interval where                                                                                                                    
+  fromField f Nothing   = returnError UnexpectedNull f ""
+  fromField f (Just val) = do                                                 
+    tName <- typename f
+    if tName == "interval"
+      then case T.decodeUtf8' val  of
+        Left err -> returnError ConversionFailed f (show err)
+        Right a -> return (Interval a)
+      else returnError Incompatible f ("Wrong database type for Interval, saw: " ++ show tName)
 
 newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PQ.PrimExpr }
                                       deriving Show
@@ -72,3 +84,4 @@ unsafeCol = Expr . PQ.AttrExpr . sym
 instance (ToJSON a, Typeable a) => ToField (Json a) where
   toField = toJSONField . getJson
 -}
+
