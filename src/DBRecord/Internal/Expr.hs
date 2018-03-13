@@ -337,6 +337,11 @@ false = Expr $ PQ.ConstExpr $ PQ.Bool False
 array :: (ShowDBType 'Postgres (GetPGTypeRep a)) => [Expr sc a] -> Expr sc [a]
 array = annotateType . Expr . PQ.ArrayExpr . coerce
 
+append :: Expr sc [a] -> Expr sc a -> Expr sc [a]
+append arr v =
+  let fun = PQ.FunExpr "array_append" [getExpr arr, getExpr v]
+  in  fun
+  
 nil :: (ShowDBType 'Postgres (GetPGTypeRep a)) => Expr sc [a]
 nil = array []
 
