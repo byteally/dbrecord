@@ -94,34 +94,39 @@ data Page = Offset Int | Limit Int | OffsetLimit Int Int
 newtype ColVal tab a = ColVal a
                      deriving (Show, Eq, Num)
 
-newtype Updated tab (sc :: [*]) = Updated {getUpdateMap :: HashMap Attribute PrimExpr}
+newtype Updated db tab (sc :: [*]) = Updated {getUpdateMap :: HashMap Attribute PrimExpr}
   deriving (Show)
 
-pattern EmptyUpdate :: Updated tab sc
+pattern EmptyUpdate :: Updated db tab sc
 pattern EmptyUpdate <- (HM.null . getUpdateMap -> True) where
   EmptyUpdate = Updated HM.empty
 
 
 
-(.~) :: forall fn sc val tab.
+(.~) :: forall db tab fn alfn sc val.
         ( UnifyField sc fn val ('Text "Unable to find column " ':<>: 'ShowType fn)
         , sc ~ (OriginalTableFields tab)
         , KnownSymbol fn
-        ) => Col fn -> Expr sc val -> Updated tab sc -> Updated tab sc
-(.~) colVal expr (Updated updates) = Updated $ HM.insert (T.pack $ symbolVal colVal) (getExpr expr) updates
+        , alfn ~ AliasedCol fn (ColumnNames db tab)
+        , KnownSymbol alfn
+        ) => Col fn -> Expr sc val -> Updated db tab sc -> Updated db tab sc
+(.~) _ expr (Updated updates) = Updated $ HM.insert (T.pack alfn) (getExpr expr) updates
+  where alfn = symbolVal (Proxy @alfn)
 
 infixr 4 .~
 
 
-(%~) :: forall fn sc val db tab.
+(%~) :: forall db tab fn alfn sc val.
         ( UnifyField sc fn val ('Text "Unable to find column " ':<>: 'ShowType fn)
         , sc ~ (OriginalTableFields tab)
         , KnownSymbol fn
         , Table db tab
         , SingCtx db tab
         , SingCtxDb db
-        ) => Proxy db -> Col fn -> (Expr sc val -> Expr sc val) -> Updated tab sc -> Updated tab sc
-(%~) _pdb col' exprFn updates = (.~) col' (exprFn $ col (Proxy :: Proxy (DBTag db tab fn))) updates
+        , alfn ~ AliasedCol fn (ColumnNames db tab)
+        , KnownSymbol alfn          
+        ) => Col fn -> (Expr sc val -> Expr sc val) -> Updated db tab sc -> Updated db tab sc
+(%~) col' exprFn updates = (.~) col' (exprFn $ col (Proxy :: Proxy (DBTag db tab fn))) updates
 
 infixr 4 %~
 
@@ -402,7 +407,7 @@ update :: forall tab db keys driver cfg sc rets.
   , SingCtxDb db
   , sc ~ OriginalTableFields tab
   ) => Expr (OriginalTableFields tab) Bool
-  -> (Updated tab (OriginalTableFields tab) -> Updated tab (OriginalTableFields tab))
+  -> (Updated db tab (OriginalTableFields tab) -> Updated db tab (OriginalTableFields tab))
   -> HList (Expr sc) rets -> DBM db [HListToTuple keys]  
 update filt updateFn rets =
   runUpdateRet (Proxy @tab) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) (toPrimExprs rets)
@@ -418,7 +423,7 @@ update_ :: forall tab db cfg driver.
   , HasUpdate driver
   , FromDBRow driver Int  
   ) => Expr (OriginalTableFields tab) Bool
-  -> (Updated tab (OriginalTableFields tab) -> Updated tab (OriginalTableFields tab))
+  -> (Updated db tab (OriginalTableFields tab) -> Updated db tab (OriginalTableFields tab))
   -> DBM db ()
 update_ filt updateFn =
   runUpdate (Proxy @tab) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate)

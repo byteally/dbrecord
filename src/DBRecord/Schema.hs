@@ -22,6 +22,7 @@ module DBRecord.Schema
        , HList (..)
        , Serial
        , Owned
+       , TypeName (..)
        ) where
 
 import DBRecord.Internal.Types

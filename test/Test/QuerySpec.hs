@@ -8,6 +8,7 @@ import DBRecord.Internal.Types
 import DBRecord.Internal.PrimQuery
 import Data.Text (Text)
 import qualified Data.Text as T
+import DBRecord.Internal.Schema (SingI, SingCtx)
 import Data.Proxy
 import GHC.Generics
 import Data.Function
@@ -16,12 +17,13 @@ import Database.PostgreSQL.Simple as PGS
 import Database.PostgreSQL.Simple.FromField as PGS
 import Database.PostgreSQL.Simple.FromRow as PGS
 import DBRecord.Internal.Common
-import DBRecord.Internal.Schema
 import Data.String
 import Control.Monad.Reader
 import DBRecord.Transaction hiding (runTrasaction)
 import Test.Hspec
 import Data.Functor.Identity (Identity (..))
+import DBRecord.Internal.DBTypes
+import DBRecord.Internal.Types (HList (..))
 
 --- TODO: Cheating.
 instance (FromField a) => FromRow (Identity a) where
@@ -69,9 +71,10 @@ instance Database TestDB where
                         , Profile
                         ]
   type Types TestDB = '[ UserRole
-                       , Sum1
-                       , Prod1
-                       , Address -- TODO: Didnt throw an error when not added
+                       -- NOTE: Only Enum supported as of now
+                       -- , Sum1 
+                       -- , Prod1
+                       -- , Address -- TODO: Didnt throw an error when not added
                        ]
 
 instance Table TestDB Profile where
@@ -109,28 +112,41 @@ instance Table TestDB User where
     :& end
     )
 
+instance UDType TestDB UserRole where
+  type TypeMappings TestDB UserRole = 'EnumType "UserRole" '[ "Admin"
+                                                            , "Guest"
+                                                            , "Normal"
+                                                            ]
+
+
+
 data TestDBMig
 
-instance BaseDatabase TestDBMig where
-  type BaseVersion TestDBMig = ()
-  type BaseTables TestDBMig = '["usr"]
+instance BaseDatabase TestDBMig 0 where
+  type BaseTables TestDBMig 0 = '[ 'TypeName "test" "QuerySpec" "usr" ]
 
-instance BaseTable TestDBMig "usr" where
-  type BaseColumns TestDBMig "usr" = '[ "id" ::: Int
-                                      , "name" ::: Text
-                                      , "email" ::: Text
-                                      , "role" ::: UserRole
-                                      ]
-  type BasePrimaryKey TestDBMig "usr" = '["id"]
-  type BaseForeignKey TestDBMig "usr" = '[ 'BaseRefBy '["age"] "usr" '["name"]
-                                         , 'BaseRef "id" "usr"
-                                         ]
-  type BaseUnique TestDBMig "usr" = '[ 'UniqueOn '["name"] "uq_user_name"]
-  type BaseDefaultedCols TestDBMig "usr" = '["id"]
-  type BaseCheck TestDBMig "usr" = '[ 'CheckOn '["email"] "emailValidity"]
+instance BaseTable TestDBMig ('TypeName "test" "QuerySpec" "usr") 0 where
+  type BaseColumns TestDBMig ('TypeName "test" "QuerySpec" "usr") 0
+    = '[ '( "id", DBInt4)
+       , '( "name", DBText)
+       , '( "email", DBText)
+       , '("role", DBTypeName "Role")
+       ]
+  type BasePrimaryKey TestDBMig ('TypeName "test" "QuerySpec" "usr") 0
+    = '["id"]
+  type BaseForeignKey TestDBMig ('TypeName "test" "QuerySpec" "usr") 0
+    = '[ -- 'RefBy '["age"] ('TypeName "test" "QuerySpec" "usr") '["name"]
+       -- , 'Ref "id" ('TypeName "test" "QuerySpec" "usr") "usr"
+       ]
+  type BaseUnique TestDBMig ('TypeName "test" "QuerySpec" "usr") 0
+    = '[ 'UniqueOn '["name"] "uq_user_name"]
+  type BaseDefaultedCols TestDBMig ('TypeName "test" "QuerySpec" "usr") 0
+    = '["id"]
+  type BaseCheck TestDBMig ('TypeName "test" "QuerySpec" "usr") 0
+    = '[ 'CheckOn '["email"] "emailValidity"]
 
-instance DBMigration TestDBMig () where
-  type CreatedTables TestDBMig () = '["profile"]
+instance DBMigration TestDBMig 0 where
+  type CreatedTables TestDBMig 0 = '[ 'TypeName "test" "QuerySpec" "usr" ]
 
 newtype MyDBM (db :: *) a = MyDBM {runDB :: ReaderT (PGS PGS.Connection) IO a}
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader (PGS PGS.Connection))
@@ -146,22 +162,22 @@ withEnv cfg dbact
 
 
 
-runPGMigration :: ( Database db
-                   , schema ~ Schema db
-                   , tables ~ Tables db
-                   , types  ~ Types db
-                   , All (Table db) tables
-                   , TyCxts db types
-                   , SingI tables
-                   , SingI types
-                   , All (SingCtx db) tables
-                   ) => Proxy db -> PGS.Connection -> IO ()
-runPGMigration pdb conn = do
-  let mig = mkMigration pdb
-      migStmtQ = unlines (fmap renderDDL mig)
-  withTransaction conn $ do
-    execute_ conn (fromString migStmtQ)
-  return ()
+-- runPGMigration :: ( Database db
+--                    , schema ~ Schema db
+--                    , tables ~ Tables db
+--                    , types  ~ Types db
+--                    , All (Table db) tables
+--                    , TyCxts db types
+--                    , SingI tables
+--                    , SingI types
+--                    , All (SingCtx db) tables
+--                    ) => Proxy db -> PGS.Connection -> IO ()
+-- runPGMigration pdb conn = do
+--   let mig = mkMigration pdb
+--       migStmtQ = unlines (fmap renderDDL mig)
+--   withTransaction conn $ do
+--     execute_ conn (fromString migStmtQ)
+--   return ()
 
 instance FromRow User where
 
@@ -169,11 +185,6 @@ instance FromField UserRole
   
 someFunc :: IO ()
 someFunc = do
-  let mig = mkMigration (Proxy :: Proxy TestDB)
-  mapM_ putStrLn (fmap renderDDL mig)
-  conn <- connect $ defaultConnectInfo { connectHost = "172.17.0.2"
-                                       , connectPassword = "mysecretpassword"
-                                       }
   dbConfig <- defaultConfig $ defaultConnectInfo { connectHost = "172.17.0.2"
                                                  , connectPassword = "mysecretpassword"
                                                  }
@@ -182,31 +193,33 @@ someFunc = do
     _ <- insertMany @User Proxy [ (#email "m@m.com", #role Admin)
                                  , (#email "m1@m.com", #role Admin)
                                  ]
-    _ <- insert @User Proxy (#email "m@m.com", #role Admin)
-    delete @User (#id .== #id)
-    (_ :: Maybe User) <- getBy #uq_user_name (Identity (#name "foo"))
-    (_ :: Maybe User) <- get (Identity (#id 10))
-    _ <- get @User (Identity (#id 10))
-    _ <- getBy @User #uq_user_name (Identity (#name "foo"))
-    _cnt <- count @User (#id .== #id)
-    update @User (#id .== #id) (\row ->
+    -- _ <- insert @User Proxy (#email "m@m.com", #role Admin)
+    -- delete @User (#id .== #id)
+    -- (_ :: Maybe User) <- getBy #uq_user_name (Identity (#name "foo"))
+    -- (_ :: Maybe User) <- get (Identity (#id 10))
+    -- _ <- get @User (Identity (#id 10))
+    -- _ <- getBy @User #uq_user_name (Identity (#name "foo"))
+    -- _cnt <- count @User (#id .== #id)
+    update @User true          (\row ->
                                   row & (Col @"id") .~ 10
                                       & (Col @"id") .~ 10
                                       & (Col @"id") %~ (\n -> n + 10)
-                               )      
+                               ) Nil
     pure ()
 
 instance ConstExpr UserRole where
   constExpr r = let roleStr = T.pack $ "'"++show r++"'"
                 in literalExpr $ Other roleStr
 
+
+{-
 main :: IO ()
 main = do 
   conn <- PGS.connect (ConnectInfo "10.42.0.1" 5432 "sreenidhi" "" "test_dbrecord") 
   let mig = mkMigration (Proxy :: Proxy TestDB)
       migStmtQ = unlines (fmap renderDDL mig)
   putStrLn migStmtQ
-
+-}
 
 spec = describe "query" $
   it "is supposed to run queries" pending
