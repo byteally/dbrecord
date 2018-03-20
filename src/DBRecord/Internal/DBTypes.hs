@@ -167,7 +167,9 @@ class ( Generic ty
 
 -- TODO: Support other type mappings as well
 data UDTypeMappings = EnumType Symbol [Symbol]
-                    -- | Composite Symbol [(Symbol, DBTypeK)]
-                    -- | Flat [(Symbol, DBTypeK)]
-                    -- | EnumText [Symbol]
-                    -- | Sum [(Symbol, [(Symbol, DBTypeK)])]
+{-
+                    | Composite Symbol [(Symbol, DBTypeK)]
+                    | Flat [(Symbol, DBTypeK)]
+                    | EnumText [Symbol]
+                    | Sum [(Symbol, [(Symbol, DBTypeK)])]
+-}
