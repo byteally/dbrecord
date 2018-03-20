@@ -128,10 +128,10 @@ class ( Database db
   checks :: DBChecks db tab
   checks = DBChecks Nil
 
-data Sequence = PGSerial Symbol   -- ^ Column
-                         Symbol   -- ^ Sequence Name
-              | PGOwned  Symbol   -- ^ Column
-                         Symbol   -- ^ Sequence Name
+data Sequence = PGSerial Symbol   -- Column
+                         Symbol   -- Sequence Name
+              | PGOwned  Symbol   -- Column
+                         Symbol   -- Sequence Name
 
 type family Serial (cname :: Symbol) (seqname :: Symbol) where
   Serial cname seqname = 'PGSerial cname seqname
@@ -982,10 +982,12 @@ data TypeNameInfo = TypeNameInfo { _typeNameVal   :: TypeName Text
                                  } deriving (Show, Eq)
 
 data TypeNameMap = EnumTypeNM Text [Text]
+{-
                  -- | CompositeNM Text [(Text, TypeName Text)]
                  -- | FlatNM [(Text, TypeName Text)]
                  -- | EnumTextNM [Text]
                  -- | SumNM [(Text, [(Text, DBTypeK)])]
+-}
                  deriving (Show, Eq)
 
 addEnumValAfter :: Text -> Text -> TypeNameMap -> TypeNameMap
@@ -1265,13 +1267,13 @@ seqType k t = fmap (\a -> t { _seqType = a }) (k (_seqType t))
 data SequenceType = SeqOwned | SeqSerial
                   deriving (Show, Eq)
 
-data ForeignRefD = RefByD Text   -- ^ fk name
-                          [Text] -- ^ cols
-                          (TypeName Text) -- ^ ref tab name
-                          [Text] -- ^ ref cols
-                 | RefD   Text   -- ^ fk name
-                          Text   -- ^ col
-                          (TypeName Text) -- ^ ref tab name
+data ForeignRefD = RefByD Text   --  fk name
+                          [Text] --  cols
+                          (TypeName Text) --  ref tab name
+                          [Text] --  ref cols
+                 | RefD   Text   --  fk name
+                          Text   --  col
+                          (TypeName Text) --  ref tab name
 
 headDatabaseInfo :: forall db.
                 ( SingCtxDb db

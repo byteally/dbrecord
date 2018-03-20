@@ -154,11 +154,11 @@ class DBMigration (base :: *) (v :: Nat) where
   type AlteredTypes base v :: [TypeName Symbol]
   type AlteredTypes base v = '[]
 
-data UDTypeOP = AddEnumValAfter Symbol -- ^ Add enum val
-                                Symbol -- ^ After this enum
-              | AddEnumValBefore Symbol -- ^ Add enum val
-                                 Symbol -- ^ Before this enum
-              | AddEnumVal Symbol -- ^ Add enum val
+data UDTypeOP = AddEnumValAfter Symbol -- Add enum val
+                                Symbol -- After this enum
+              | AddEnumValBefore Symbol -- Add enum val
+                                 Symbol -- Before this enum
+              | AddEnumVal Symbol -- Add enum val
                              
 class TypeMigration (db :: *) (ver :: Nat) (ty :: TypeName Symbol) where
   type TypeMigrations db ver ty :: [UDTypeOP]
@@ -576,23 +576,23 @@ data RenameTable = RenameTable (Maybe Symbol)      -- ^ To tablename
 data DropTable = DropTable
 
 
-data AddColumn = AddColumn Symbol                  -- ^ Column ref
-                           (TagHK DbK DBTypeK)     -- ^ type in DB with tag
+data AddColumn = AddColumn Symbol                  --  Column ref
+                           (TagHK DbK DBTypeK)     --  type in DB with tag
 
-data DropColumn = DropColumn Symbol                -- ^ Column ref
+data DropColumn = DropColumn Symbol                -- Column ref
 
-data RenameColumn = RenameColumn Symbol            -- ^ hask columnName
-                                 Symbol            -- ^ To tablename
+data RenameColumn = RenameColumn Symbol            -- hask columnName
+                                 Symbol            -- To tablename
 
-data AlterColumn = SetNotNull Symbol               -- ^ Column ref
-                 | DropNotNull Symbol              -- ^ Column ref
-                 | ChangeType Symbol               -- ^ Column ref
-                              (TagHK DbK DBTypeK)  -- ^ type in DB with tag
-                 | AddDefault Symbol               -- ^ Column ref
-                 | DropDefault Symbol              -- ^ Column ref
+data AlterColumn = SetNotNull Symbol               -- Column ref
+                 | DropNotNull Symbol              -- Column ref
+                 | ChangeType Symbol               -- Column ref
+                              (TagHK DbK DBTypeK)  -- type in DB with tag
+                 | AddDefault Symbol               -- Column ref
+                 | DropDefault Symbol              -- Column ref
 
-data AddConstraint = AddPrimaryKey [Symbol] -- ^ Column refs
-                                   Symbol   -- ^ Constraint name
+data AddConstraint = AddPrimaryKey [Symbol] -- Column refs
+                                   Symbol   -- Constraint name
                    | AddUnique UniqueCT     -- ^ Unique constraint 
                    | AddCheck CheckCT       -- ^ Check constraint
                    | AddForeignKey (ForeignRef (TypeName Symbol))
