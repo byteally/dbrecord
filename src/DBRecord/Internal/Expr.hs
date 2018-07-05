@@ -55,7 +55,7 @@ instance ConstExpr Int where
 
 instance ConstExpr t => ConstExpr (fn ::: t) where
   constExpr (Field v) = coerce $ constExpr v
-  
+
 class HasInsertValues t where
   insertValues :: t -> PQ.Assoc
 
@@ -83,8 +83,8 @@ instance ( KnownSymbol fn1
     = [ (T.pack $ symbolVal (Proxy @fn1), getExpr $ constExpr v1)
       , (T.pack $ symbolVal (Proxy @fn2), getExpr $ constExpr v2)
       , (T.pack $ symbolVal (Proxy @fn3), getExpr $ constExpr v3)
-      ]      
-  
+      ]
+
 
 binOp :: PQ.BinOp -> Expr sc a -> Expr sc b -> Expr sc c
 binOp op (Expr lhs) (Expr rhs) = Expr (PQ.BinExpr op lhs rhs)
@@ -109,7 +109,7 @@ strictDecodeUtf8 = T.unpack . STE.decodeUtf8
 
 lazyDecodeUtf8 :: LB.ByteString -> String
 lazyDecodeUtf8 = LT.unpack . LTE.decodeUtf8
-  
+
 class (Num a) => NumExpr a where
   exprFromInteger :: Integer -> Expr sc a
 
@@ -131,7 +131,7 @@ instance ( NumExpr a
                    , (a .<  0, (-1))
                    , (a .>  0, 1)
                    ] a
-                     
+
 class IntegralExpr a where
   quot_ :: Expr sc a ->  Expr sc a -> Expr sc a
   rem_  :: Expr sc a ->  Expr sc a -> Expr sc a
@@ -145,7 +145,7 @@ instance IntegralExpr Integer
 
 class NumExpr a => FractionalExpr a where
   exprFromRational :: Rational -> Expr sc a
-  
+
 instance (FractionalExpr a, OrdExpr a) => Fractional (Expr sc a) where
   fromRational = exprFromRational
   (/)    = binOp PQ.OpDiv
@@ -170,7 +170,7 @@ instance FractionalExpr Float where
 
 instance FractionalExpr Double where
   exprFromRational = literalExpr . PQ.Double . fromRational
-  
+
 instance IsString (Expr sc T.Text) where
   fromString = text . T.pack
 
@@ -184,7 +184,7 @@ instance (IsString (Expr sc a)
 class EqExpr a where
   (.==) :: Expr sc a -> Expr sc a -> Expr sc Bool
   (.==) a b = not_ (a ./= b)
-  
+
   (./=) :: Expr sc a -> Expr sc a -> Expr sc Bool
   (./=) a b = not_ (a .== b)
   {-# MINIMAL (.==) | (./=) #-}
@@ -206,7 +206,7 @@ class (EqExpr a) => OrdExpr a where
   (.<)  :: Expr sc a -> Expr sc a -> Expr sc Bool
   (.>=) :: Expr sc a -> Expr sc a -> Expr sc Bool
   (.<=) :: Expr sc a -> Expr sc a -> Expr sc Bool
-  
+
   (.>) a b  = not_ (a .<= b)
   (.<) a b  = (a .<= b) .&& not_ (a .== b)
   (.>=) a b = not_ (a .<= b) .|| (a .== b)
@@ -266,7 +266,7 @@ toNullable :: Expr sc a -> Expr sc (Maybe a)
 toNullable = unsafeCoerceExpr
 
 matchNullable :: Expr sc b -> (Expr sc a -> Expr sc b) -> Expr sc (Maybe a) -> Expr sc b
-matchNullable def f val = ifThenElse (isNull val) (f $ unsafeCoerceExpr val) def
+matchNullable def f val = ifThenElse (isNull val) def (f $ unsafeCoerceExpr val)
 
 fromNullable :: Expr sc a -> Expr sc (Maybe a) -> Expr sc a
 fromNullable = flip matchNullable id
@@ -342,7 +342,7 @@ timeOfDay = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%T%Q'"
 
 utcTimeNow :: Expr sc UTCTime
-utcTimeNow = 
+utcTimeNow =
   let now = PQ.FunExpr "now" []
       utcT = PQ.BinExpr PQ.OpAtTimeZone now utcText
       utcText = PQ.ConstExpr (PQ.String "utc")
@@ -486,10 +486,10 @@ deriving instance (OrdExpr a) => OrdExpr (Identity a)
 data ScopeRep = FieldRepNode  TypeRep
               | ScopeRepNode  ScopeRepMap
               deriving Show
-                       
+
 newtype ScopeRepMap = ScopeRepMap { getScopeRepMap :: HM.HashMap T.Text ScopeRep }
                     deriving Show
-                             
+
 insertScopeRepMap :: T.Text -> ScopeRep -> ScopeRepMap -> ScopeRepMap
 insertScopeRepMap k v = ScopeRepMap . HM.insert k v . getScopeRepMap
 
@@ -500,7 +500,7 @@ lookupScopeRepMap :: T.Text -> ScopeRepMap -> Maybe ScopeRep
 lookupScopeRepMap k = HM.lookup k . getScopeRepMap
 
 class ToScopeRep (sc :: [*]) acc where
-  toScopeRep :: Proxy sc -> acc -> ScopeRepMap 
+  toScopeRep :: Proxy sc -> acc -> ScopeRepMap
 
 instance ToScopeRep '[] acc where
   toScopeRep _ _ = emptyScopeRepMap
@@ -515,9 +515,9 @@ lookupField (fld : flds) scrMap = case lookupScopeRepMap fld scrMap of
     [] -> Just tRep
     _  -> Nothing
   Just (ScopeRepNode scs) -> lookupField flds scs
-  Nothing -> Nothing 
+  Nothing -> Nothing
 lookupField _ _ = Nothing
-  
+
 checkFieldType :: (Typeable t) => [T.Text] -> Proxy t -> ScopeRepMap -> Bool
 checkFieldType colPieces t scrMap =
   maybe False (== tyRep) (lookupField colPieces scrMap)
@@ -526,7 +526,7 @@ checkFieldType colPieces t scrMap =
 type Validation = Either [ExprError]
 data ExprError  = TypeMismatch TypeRep TypeRep -- Expected, Got
                 | ParseErr
-                deriving Show  
+                deriving Show
                 -- ...
 
 choice :: Validation a -> Validation a -> Validation a
@@ -611,7 +611,7 @@ parseLitInteger tRep t = case t of
     | typeRep (Proxy :: Proxy Int32)   == tRep -> parseIntLike (Proxy @Int32) t
     | typeRep (Proxy :: Proxy Int64)   == tRep -> parseIntLike (Proxy @Int64) t
     | typeRep (Proxy :: Proxy Integer) == tRep -> parseIntLike (Proxy @Integer) t
-    | typeRep (Proxy :: Proxy Word)    == tRep -> parseWordLike (Proxy @Word) t                                               
+    | typeRep (Proxy :: Proxy Word)    == tRep -> parseWordLike (Proxy @Word) t
     | typeRep (Proxy :: Proxy Word8)   == tRep -> parseWordLike (Proxy @Word8) t
     | typeRep (Proxy :: Proxy Word16)  == tRep -> parseWordLike (Proxy @Word16) t
     | typeRep (Proxy :: Proxy Word32)  == tRep -> parseWordLike (Proxy @Word32) t
@@ -623,7 +623,7 @@ parseLitInteger tRep t = case t of
 
         parseWordLike :: (Integral i) => Proxy i -> T.Text -> Validation Integer
         parseWordLike p = (toInteger <$>) . getParsedVal p . R.decimal
-          
+
 parseLitDouble :: TypeRep -> T.Text -> Validation Double
 parseLitDouble tRep t = case t of
   _ | typeRep (Proxy :: Proxy Float)   == tRep -> parseFloat  t
@@ -631,8 +631,8 @@ parseLitDouble tRep t = case t of
     | otherwise                                -> exprParseErr
 
   where parseDouble = getParsedVal (Proxy @Double) . R.double
-        -- TODO: Fix float 
-        parseFloat  = getParsedVal (Proxy @Double) . R.double 
+        -- TODO: Fix float
+        parseFloat  = getParsedVal (Proxy @Double) . R.double
 
 parseLitOther :: TypeRep -> T.Text -> Validation T.Text
 parseLitOther _ _ = exprParseErr
@@ -694,12 +694,12 @@ parseJSONExpr (A.Object eobj) = do
     Just e -> pure (Expr e)
     Nothing -> case A.withText "Expr" go <$> (HM.lookup "untrusted" eobj) of
       Just p  -> p
-      Nothing -> fail "key not found"    
+      Nothing -> fail "key not found"
   where go texpr = case parseExpr texpr of
           Left  errs -> fail (T.unpack (renderErrs errs))
           Right v    -> pure v
 parseJSONExpr e = typeMismatch "Expr" e
-                           
+
 renderErrs :: [ExprError] -> T.Text
 renderErrs errs =
   "Following errors occured while parsing the Expr\n" <>
