@@ -175,7 +175,8 @@ data PrimExpr = AttrExpr Sym -- Eg?
                                     -- here.  Perhaps a special type is
                                     -- needed for insert expressions.
               | ArrayExpr [PrimExpr] -- ^ ARRAY[..]
-              | WindowExpr WindowName PrimExpr -- OVER   
+              | WindowExpr WindowName PrimExpr -- OVER
+              | FlatComposite [(Sym, PrimExpr)]
               deriving (Read, Show, Generic, Eq, Ord)
 
 instance Uniplate PrimExpr where

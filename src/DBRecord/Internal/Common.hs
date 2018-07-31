@@ -255,14 +255,11 @@ type family HListToTuple (xs :: [*]) = (ret :: *) | ret -> xs where
   HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11)
   HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12)
 
-
 type family TupleToHList (t :: *) = (res :: [*]) | res -> t where
   TupleToHList ()           = '[]
   TupleToHList (Identity x) = '[x]
   TupleToHList (x1, x2) = '[x1, x2]
   TupleToHList (x1, x2, x3) = '[x1, x2, x3]
-
-
 
 type family FilterNonDefaults (xs :: [*]) (defs :: [Symbol]) :: [*] where
   FilterNonDefaults '[] _ = '[]
@@ -272,7 +269,6 @@ type family FilterNonDefaults' (isDef :: Bool) (c :: *) (xs :: [*]) (defs :: [Sy
   FilterNonDefaults' 'True _ xs defs = FilterNonDefaults xs defs
   FilterNonDefaults' 'False x xs defs = x ': FilterNonDefaults xs defs
   
-
 class (Applicative f) => GTypeToRec f rep xs | rep -> xs where
   gTypeToRec :: rep a -> HList f xs
 
