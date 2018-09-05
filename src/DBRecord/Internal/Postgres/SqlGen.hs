@@ -17,6 +17,7 @@ import qualified DBRecord.Internal.Postgres.Types as PGT
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import qualified Data.Maybe as M
+import qualified Debug.Trace as DT
 
 sql :: PQ.PrimQuery -> SqlSelect
 sql = PQ.foldPrimQuery sqlQueryGenerator
@@ -231,7 +232,8 @@ defaultSqlExpr gen expr = case expr of
   PQ.DefaultInsertExpr   -> DefaultSqlExpr
   PQ.ArrayExpr es        -> ArraySqlExpr (map (sqlExpr gen) es)
   PQ.WindowExpr w e      -> WindowSqlExpr (T.unpack w) (sqlExpr gen e)
-
+  _                      -> error "Panic: Unexpected flatcomposite"
+  
 showBinOp :: PQ.BinOp -> String
 showBinOp  PQ.OpEq         = "="
 showBinOp  PQ.OpLt         = "<"

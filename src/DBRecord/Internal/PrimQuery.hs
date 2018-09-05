@@ -176,7 +176,7 @@ data PrimExpr = AttrExpr Sym -- Eg?
                                     -- needed for insert expressions.
               | ArrayExpr [PrimExpr] -- ^ ARRAY[..]
               | WindowExpr WindowName PrimExpr -- OVER
-              | FlatComposite [(Sym, PrimExpr)]
+              | FlatComposite [(Text, PrimExpr)]
               deriving (Read, Show, Generic, Eq, Ord)
 
 instance Uniplate PrimExpr where
@@ -195,6 +195,11 @@ instance Uniplate PrimExpr where
   uniplate (DefaultInsertExpr)   = plate DefaultInsertExpr
   uniplate (ArrayExpr pes)       = plate ArrayExpr ||* pes
   uniplate (WindowExpr n pe)     = plate WindowExpr |- n |* pe
+  uniplate (FlatComposite tpes)  = plate FlatComposite ||+ tpes
+
+-- NOTE: Orphan!
+instance Biplate (Text, PrimExpr) PrimExpr where
+  biplate (a, b) = plate (,) |- a |* b
 
 instance Biplate OrderExpr PrimExpr where
   biplate (OrderExpr oop pe) = plate OrderExpr |- oop |* pe
