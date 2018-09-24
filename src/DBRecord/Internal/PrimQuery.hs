@@ -59,7 +59,6 @@ data UpdateQuery = UpdateQuery TableId [PrimExpr] Assoc [PrimExpr]
 data DeleteQuery = DeleteQuery TableId [PrimExpr]
                  deriving (Show, Read, Generic)
 
-
 type Projection = (Sym, PrimExpr)
 
 data Clauses = Clauses { projections :: [Projection]
@@ -387,3 +386,5 @@ instance ToJSON ByteString where
   -- toEncoding = E.string . B64.encode
   toJSON     = A.String . decodeUtf8 . B64.encode
 
+transformPE :: (PrimExpr -> PrimExpr) -> PrimExpr -> PrimExpr
+transformPE = transform
