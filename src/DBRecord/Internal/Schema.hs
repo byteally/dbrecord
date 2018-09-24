@@ -409,7 +409,7 @@ instance SingE (sy :: Symbol) where
   fromSing SSym = T.pack (symbolVal (Proxy :: Proxy sy))
 
 instance SingE (n :: Nat) where
-  type Demote sy = Integer
+  type Demote n = Integer
   fromSing SNat = natVal (Proxy :: Proxy n)
 
 type family Fst (tup :: (k1, k2)) :: k1 where
@@ -483,7 +483,7 @@ instance (UqCtx SingE uq) => SingE (uq :: UniqueCT) where
   fromSing (SUniqueOn uniqFlds uniqOn) = (fromSing uniqFlds, fromSing uniqOn)
 
 instance (CkCtx SingE uq) => SingE (uq :: CheckCT) where
-  type Demote (ck :: CheckCT)         = (Demote (Any :: [Symbol]), Demote (Any :: Symbol))
+  type Demote (uq :: CheckCT)         = (Demote (Any :: [Symbol]), Demote (Any :: Symbol))
   fromSing (SCheck chkFlds chkn) = (fromSing chkFlds, fromSing chkn)
 
 instance ( FKCtxTy SingE fk
@@ -505,7 +505,7 @@ instance ( FKCtxTyN SingE fk
     RefD  (fromSing fkname) (fromSing coln) (fromSing reft)
 
 instance SingE (db :: DbK) where
-  type Demote dbK = DbK
+  type Demote db = DbK
   fromSing SPostgres  = Postgres
   fromSing SMySQL     = MySQL
   fromSing SSQLite    = SQLite

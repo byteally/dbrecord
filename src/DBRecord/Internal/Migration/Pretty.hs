@@ -9,6 +9,7 @@ import Text.PrettyPrint.HughesPJ (Doc, (<+>), text,
                                   parens, comma, punctuate,
                                   hsep, semi, render, char,
                                   (<>))
+import Prelude hiding ((<>))
 
 escQuote :: Text -> Text
 escQuote = escapeBy (Just '\'')
