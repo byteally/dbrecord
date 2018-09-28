@@ -8,7 +8,6 @@ module DBRecord.Internal.Postgres.TextSearch.Vector
        , Vector
        ) where
 
-import Prelude hiding (const, exp)
 import DBRecord.Internal.Expr
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
