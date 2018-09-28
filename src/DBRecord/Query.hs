@@ -22,6 +22,7 @@
 module DBRecord.Query
        ( module DBRecord.Internal.Order
        , module DBRecord.Internal.Expr
+       , module DBRecord.Internal.Window
        , module DBRecord.Internal.Predicate
        , get, getBy, getAll
        , delete
@@ -44,6 +45,7 @@ import DBRecord.Internal.Order
 import DBRecord.Internal.Expr
 import DBRecord.Internal.Predicate
 import DBRecord.Internal.Common
+import DBRecord.Internal.Window
 import DBRecord.Internal.Schema hiding (insert, delete)
 import DBRecord.Internal.PrimQuery  hiding (insertQ, updateQ, deleteQ)
 import qualified DBRecord.Internal.PrimQuery as PQ
