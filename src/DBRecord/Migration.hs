@@ -399,8 +399,9 @@ instance SingE (t :: RenameColumn) where
     let coln   = fromSing scoln
         dbColn = fromSing sdcoln
     curTab <- use currentTable
-    prevDbColn <- use (dbInfo . tableInfoAt curTab . columnInfoAt coln . columnNameInfo . dbName)   
+    mprevDbColn <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt coln . columnNameInfo . dbName)   
     dbInfo . tableInfoAt curTab . columnInfoAt coln . columnNameInfo . dbName .= dbColn
+    let prevDbColn = fromJust mprevDbColn
     pure $ M.renameColumn (coerce prevDbColn) (coerce dbColn)
 
 type family AlterColumnCtx (t :: AlterColumn) :: Constraint where
@@ -415,20 +416,23 @@ instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
   fromSing (SSetNotNull scoln) = do
     let hsColn = fromSing scoln
     curTab <- use currentTable    
-    dbColn <- use (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    mdbColn <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    let dbColn = fromJust mdbColn
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . isNullable .= False
     pure $ M.setNotNull (coerce dbColn)
   fromSing (SDropNotNull scoln) = do
     let hsColn = fromSing scoln
     curTab <- use currentTable 
-    dbColn <- use (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    mdbColn <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    let dbColn = fromJust mdbColn
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . isNullable .= True    
     pure $ M.dropNotNull (coerce dbColn)
   fromSing (SChangeType scoln scolt) = do
     let hsColn = fromSing scoln
         colt   = fromSing scolt
     curTab <- use currentTable    
-    dbColn <- use (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    mdbColn <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    let dbColn = fromJust mdbColn
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnTypeName .= (coerce colt)
     pure $ M.addColumn (M.column (coerce dbColn) (coerce colt))
   fromSing (SAddDefault scoln) = do
@@ -448,7 +452,8 @@ instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
   fromSing (SDropDefault scoln) = do
     let hsColn = fromSing scoln
     curTab <- use currentTable    
-    dbColn <- use (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    mdbColn <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    let dbColn = fromJust mdbColn
     dbInfo . tableInfoAt curTab . defaultInfo %=
               delete hsColn (\di -> di ^. defaultOn)
     pure $ M.dropDefault (coerce hsColn)
@@ -500,14 +505,16 @@ instance (AddConstraintCtx t) => SingE (t :: AddConstraint) where
              ctxn' = ctxn
              fkEt = mkEntityName ctxn' ctxn'
          dbInfo . tableInfoAt curTab . foreignKeyInfo %= insert fk
-         dbTabN <- use (dbInfo . tableInfoAt reft . tableName . dbName)
+         mdbTabN <- preuse (dbInfo . tableInfoAt reft . tableName . dbName)
+         let dbTabN = fromJust mdbTabN
          pure $ M.addForeignKey (coerce ctxn') (coerce cols) (coerce dbTabN) (coerce refcols)
       RefD ctxn col reft -> do
         let fk = mkForeignKeyInfo fkEt ([col]) reft ([col])
             ctxn' = ctxn
             fkEt = mkEntityName ctxn' ctxn'
         dbInfo . tableInfoAt curTab . foreignKeyInfo %= insert fk
-        dbTabN <- use (dbInfo . tableInfoAt reft . tableName . dbName)        
+        mdbTabN <- preuse (dbInfo . tableInfoAt reft . tableName . dbName)
+        let dbTabN = fromJust mdbTabN
         pure $ M.addForeignKey (coerce ctxn') (coerce [col]) (coerce dbTabN) (coerce [col])
 
 instance SingE (t :: DropConstraint) where
@@ -523,21 +530,24 @@ instance SingE (t :: DropConstraint) where
   fromSing (SDropCheck schkn) = do
     curTab <- use currentTable    
     let hsChkn = (fromSing schkn)
-    dbChkn <- use (dbInfo . tableInfoAt curTab . checkInfoAt hsChkn . checkName . dbName)
+    mdbChkn <- preuse (dbInfo . tableInfoAt curTab . checkInfoAt hsChkn . checkName . dbName)
+    let dbChkn = fromJust mdbChkn
     dbInfo . tableInfoAt curTab . checkInfo %=
       delete hsChkn (\ck -> ck ^. checkName . hsName)
     pure $ M.dropCheck (coerce dbChkn)
   fromSing (SDropUnique suqn) = do
     curTab <- use currentTable    
     let hsUqn = (fromSing suqn)
-    dbUqn <- use (dbInfo . tableInfoAt curTab . uniqueInfoAt hsUqn . uqName . dbName)    
+    mdbUqn <- preuse (dbInfo . tableInfoAt curTab . uniqueInfoAt hsUqn . uqName . dbName)
+    let dbUqn = fromJust mdbUqn
     dbInfo . tableInfoAt curTab . uniqueInfo %=
          delete hsUqn (\uq -> uq ^. uqName . hsName)
     pure $ M.dropUnique (coerce dbUqn)
   fromSing (SDropForeignKey sfkn) = do
     curTab <- use currentTable    
     let hsFkn = (fromSing sfkn)
-    dbFkn <- use (dbInfo . tableInfoAt curTab . foreignKeyInfoAt hsFkn . fkeyName . dbName)    
+    mdbFkn <- preuse (dbInfo . tableInfoAt curTab . foreignKeyInfoAt hsFkn . fkeyName . dbName)
+    let dbFkn = fromJust mdbFkn
     dbInfo . tableInfoAt curTab . foreignKeyInfo %=
          delete hsFkn (\fk -> fk ^. fkeyName . hsName)
     pure $ M.dropForeignKey (coerce dbFkn)
@@ -760,7 +770,8 @@ mkMigrationTable _ = do
   alcs <- sequence $ fromSing (sing :: Sing (AlteredColumn db tab ver))
   acts <- sequence $ fromSing (sing :: Sing (AddedConstraint db tab ver))
   dcts <- sequence $ fromSing (sing :: Sing (DropedConstraint db tab ver))
-  dbTabN <- use (dbInfo . tableInfoAt curTab . tableName . dbName) 
+  mdbTabN <- preuse (dbInfo . tableInfoAt curTab . tableName . dbName)
+  let dbTabN = fromJust mdbTabN
   pure $ M.altering (coerce dbTabN) (acs ++ dcs ++ rcs ++ alcs ++ acts ++  dcts)
 
 type family MkDroppedColumn (dcs :: [Symbol]) where
@@ -854,11 +865,11 @@ dropUnique uq = M.dropUnique (coerce (uq ^. uqName . dbName))
 createFKey :: DatabaseInfo -> TableInfo -> [ForeignKeyInfo] -> [M.AlterTable]
 createFKey dbInfo tabInfo fkInfos = 
   let fkColsDb fkInfo = getDbColumnNames (tabInfo ^. columnInfo) (fkInfo ^. fkeyColumns)
-      fkRefColsDb fkInfo = getDbColumnNames (dbInfo ^. tableInfoAt (fkInfo ^. fkeyRefTable) . columnInfo)
+      fkRefColsDb fkInfo = getDbColumnNames (fromJust (dbInfo ^? tableInfoAt (fkInfo ^. fkeyRefTable) . columnInfo))
                                             (fkInfo ^. fkeyRefColumns)
       addFk fkInfo = M.addForeignKey (coerce (fkInfo ^. fkeyName . dbName))
                                      (coerce (fkColsDb fkInfo))                            
-                                     (coerce (dbInfo ^. tableInfoAt (fkInfo ^. fkeyRefTable) . tableName . dbName))
+                                     (coerce (fromJust (dbInfo ^? tableInfoAt (fkInfo ^. fkeyRefTable) . tableName . dbName)))
                                      (coerce (fkRefColsDb fkInfo))
   in  map addFk fkInfos
 
