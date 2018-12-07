@@ -232,7 +232,7 @@ tableColQ =
                \ordinal_position, \
                \column_default, \
                \is_nullable, \ 
-               \data_type, \
+               \CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END, \
                \character_maximum_length \
         \FROM information_schema.columns \
         \WHERE table_schema = 'public' \
