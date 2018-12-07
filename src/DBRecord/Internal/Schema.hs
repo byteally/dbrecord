@@ -39,7 +39,7 @@ import DBRecord.Internal.Common
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.DBTypes
 import qualified Data.List as L
-import DBRecord.Internal.Lens (unsafeFind, (^.), Lens', coerceL)
+import DBRecord.Internal.Lens ((^.), Lens', coerceL, Traversal', ixBy)
 import Data.Monoid ((<>))
 
 data Col (a :: Symbol) = Col
@@ -935,19 +935,19 @@ data TypeName a = TypeName { _packageName :: a
                            }
                 deriving (Show, Eq)
 
-packageName :: Functor f => (a -> f a) -> TypeName a -> f (TypeName a)
+packageName :: Lens' (TypeName a) a
 packageName k t = fmap (\a -> t { _packageName = a }) (k (_packageName t))
 
-moduleName :: Functor f => (a -> f a) -> TypeName a -> f (TypeName a)
+moduleName :: Lens' (TypeName a) a
 moduleName k t = fmap (\a -> t { _moduleName = a }) (k (_moduleName t))
 
-typeName :: Functor f => (a -> f a) -> TypeName a -> f (TypeName a)
+typeName :: Lens' (TypeName a) a
 typeName k t = fmap (\a -> t { _typeName = a }) (k (_typeName t))
 
 newtype DBType = DBType { _dbType :: Text }
                deriving (Show, Eq)
 
-dbType :: Functor f => (Text -> f Text) -> DBType -> f DBType
+dbType :: Lens' DBType Text
 dbType k t = fmap coerce (k (coerce t))
 
 data EntityName a = EntityName { _hsName :: a
@@ -959,10 +959,10 @@ mkEntityName hsn dbn = EntityName { _hsName = hsn
                                    , _dbName = dbn
                                    }
 
-hsName :: Functor f => (a -> f a) -> EntityName a -> f (EntityName a)
+hsName :: Lens' (EntityName a) a
 hsName k t = fmap (\a -> t { _hsName = a }) (k (_hsName t))
 
-dbName :: Functor f => (DBName -> f DBName) -> EntityName a -> f (EntityName a)
+dbName :: Lens' (EntityName a) DBName
 dbName k t = fmap (\a -> t { _dbName = a }) (k (_dbName t))
 
 type EntityNameWithHask = EntityName HaskName
@@ -1011,10 +1011,10 @@ addEnumVal :: Text -> TypeNameMap -> TypeNameMap
 addEnumVal eVal (EnumTypeNM et evs) =
   EnumTypeNM et (evs ++ [eVal])
 
-typeNameVal :: Functor f => (TypeName Text -> f (TypeName Text)) -> TypeNameInfo -> f TypeNameInfo
+typeNameVal :: Lens' TypeNameInfo (TypeName Text)
 typeNameVal k t = fmap (\a -> t { _typeNameVal = a }) (k (_typeNameVal t))
 
-typeNameMap :: Functor f => (TypeNameMap -> f TypeNameMap) -> TypeNameInfo -> f TypeNameInfo
+typeNameMap :: Lens' TypeNameInfo TypeNameMap
 typeNameMap k t = fmap (\a -> t { _typeNameMap = a }) (k (_typeNameMap t))
 
 mkDatabaseInfo :: EntityNameWithType -> [TypeNameInfo] -> Step -> Step -> TableInfos -> DatabaseInfo
@@ -1038,26 +1038,26 @@ data DatabaseInfo = DatabaseInfo { _name           :: EntityNameWithType
 newtype TableInfos = TableInfos { _getTableInfos :: [TableInfo] }
                    deriving (Show, Eq)
 
-name :: Functor f => (EntityNameWithType -> f EntityNameWithType) -> DatabaseInfo -> f DatabaseInfo
+name :: Lens' DatabaseInfo EntityNameWithType 
 name k t = fmap (\a -> t { _name = a }) (k (_name t))
 
-typeNameInfos :: Functor f => ([TypeNameInfo] -> f [TypeNameInfo]) -> DatabaseInfo -> f DatabaseInfo
+typeNameInfos :: Lens' DatabaseInfo [TypeNameInfo]
 typeNameInfos k t = fmap (\a -> t { _typeNameInfos = a }) (k (_typeNameInfos t))
 
-typeNameInfoAt :: Functor f => TypeName Text -> (TypeNameInfo -> f TypeNameInfo) -> DatabaseInfo -> f DatabaseInfo
-typeNameInfoAt et = typeNameInfos . unsafeFind et (_typeNameVal)
+typeNameInfoAt :: TypeName Text -> Traversal' DatabaseInfo TypeNameInfo
+typeNameInfoAt hsN = typeNameInfos . ixBy hsN _typeNameVal
 
-baseline :: Functor f => (Step -> f Step) -> DatabaseInfo -> f DatabaseInfo
+baseline :: Lens' DatabaseInfo Step
 baseline k t = fmap (\a -> t { _baseline = a }) (k (_baseline t))
 
-version :: Functor f => (Step -> f Step) -> DatabaseInfo -> f DatabaseInfo
+version :: Lens' DatabaseInfo Step
 version k t = fmap (\a -> t { _version = a }) (k (_version t))
 
-tableInfos :: Functor f => (TableInfos -> f TableInfos) -> DatabaseInfo -> f DatabaseInfo
+tableInfos :: Lens' DatabaseInfo TableInfos
 tableInfos k t = fmap (\a -> t { _tableInfos = a }) (k (_tableInfos t))
 
-tableInfoAt :: Functor f => TypeName T.Text -> (TableInfo -> f TableInfo) -> DatabaseInfo -> f DatabaseInfo
-tableInfoAt et = tableInfos . coerceL . unsafeFind et (_hsName . _tableName)
+tableInfoAt :: TypeName T.Text -> Traversal' DatabaseInfo TableInfo
+tableInfoAt hsN = tableInfos . coerceL . ixBy hsN (_hsName . _tableName)
 
 mkTableInfo :: Maybe PrimaryKeyInfo -> [ForeignKeyInfo] -> [DefaultInfo] -> [CheckInfo] -> [UniqueInfo] -> [SequenceInfo] -> EntityNameWithType -> [ColumnInfo] -> TableInfo
 mkTableInfo pki fki di cki uqi sqi tn ci =
@@ -1083,54 +1083,53 @@ data TableInfo = TableInfo { _primaryKeyInfo   :: Maybe PrimaryKeyInfo
                            , _ignoredCols      :: ()
                            } deriving (Show, Eq)
 
-primaryKeyInfo :: Functor f => (Maybe PrimaryKeyInfo -> f (Maybe PrimaryKeyInfo)) -> TableInfo -> f TableInfo
+primaryKeyInfo :: Lens' TableInfo (Maybe PrimaryKeyInfo)
 primaryKeyInfo k t = fmap (\a -> t { _primaryKeyInfo = a }) (k (_primaryKeyInfo t))
 
-foreignKeyInfoAt :: Functor f => HaskName -> (ForeignKeyInfo -> f ForeignKeyInfo) -> TableInfo -> f TableInfo
-foreignKeyInfoAt hsN = foreignKeyInfo . unsafeFind hsN (_hsName . _fkeyName)
+foreignKeyInfoAt :: HaskName -> Traversal' TableInfo ForeignKeyInfo
+foreignKeyInfoAt hsN = foreignKeyInfo . ixBy hsN (_hsName . _fkeyName)
 
-foreignKeyInfoAtDb :: Functor f => DBName -> (ForeignKeyInfo -> f ForeignKeyInfo) -> TableInfo -> f TableInfo
-foreignKeyInfoAtDb dbN = foreignKeyInfo . unsafeFind dbN (_dbName . _fkeyName)
+foreignKeyInfoAtDb :: DBName -> Traversal' TableInfo ForeignKeyInfo
+foreignKeyInfoAtDb dbN = foreignKeyInfo . ixBy dbN (_dbName . _fkeyName)
 
-foreignKeyInfo :: Functor f => ([ForeignKeyInfo] -> f [ForeignKeyInfo]) -> TableInfo -> f TableInfo
+foreignKeyInfo :: Lens' TableInfo [ForeignKeyInfo] 
 foreignKeyInfo k t = fmap (\a -> t { _foreignKeyInfo = a }) (k (_foreignKeyInfo t))
 
-defaultInfo :: Functor f => ([DefaultInfo] -> f [DefaultInfo]) -> TableInfo -> f TableInfo
+defaultInfo :: Lens' TableInfo [DefaultInfo]
 defaultInfo k t = fmap (\a -> t { _defaultInfo = a }) (k (_defaultInfo t))
 
-checkInfoAt :: Functor f => HaskName -> (CheckInfo -> f CheckInfo) -> TableInfo -> f TableInfo
-checkInfoAt hsN = checkInfo . unsafeFind hsN (_hsName . _checkName)
+checkInfoAt :: HaskName -> Traversal' TableInfo CheckInfo
+checkInfoAt hsN = checkInfo . ixBy hsN (_hsName . _checkName)
 
-checkInfoAtDb :: Functor f => HaskName -> (CheckInfo -> f CheckInfo) -> TableInfo -> f TableInfo
-checkInfoAtDb dbN = checkInfo . unsafeFind dbN (_dbName . _checkName)
+checkInfoAtDb :: DBName -> Traversal' TableInfo CheckInfo
+checkInfoAtDb dbN = checkInfo . ixBy dbN (_dbName . _checkName)
 
-checkInfo :: Functor f => ([CheckInfo] -> f [CheckInfo]) -> TableInfo -> f TableInfo
+checkInfo :: Lens' TableInfo [CheckInfo]
 checkInfo k t = fmap (\a -> t { _checkInfo = a }) (k (_checkInfo t))
 
-
-uniqueInfo :: Functor f => ([UniqueInfo] -> f [UniqueInfo]) -> TableInfo -> f TableInfo
+uniqueInfo :: Lens' TableInfo [UniqueInfo]
 uniqueInfo k t = fmap (\a -> t { _uniqueInfo = a }) (k (_uniqueInfo t))
 
-uniqueInfoAt :: Functor f => HaskName -> (UniqueInfo -> f UniqueInfo) -> TableInfo -> f TableInfo
-uniqueInfoAt et = uniqueInfo . unsafeFind et (_hsName . _uqName)
+uniqueInfoAt :: HaskName -> Traversal' TableInfo UniqueInfo
+uniqueInfoAt hsN = uniqueInfo . ixBy hsN (_hsName . _uqName)
 
-uniqueInfoAtDb :: Functor f => DBName -> (UniqueInfo -> f UniqueInfo) -> TableInfo -> f TableInfo
-uniqueInfoAtDb dbN = uniqueInfo . unsafeFind dbN (_dbName . _uqName)
+uniqueInfoAtDb :: DBName -> Traversal' TableInfo UniqueInfo
+uniqueInfoAtDb dbN = uniqueInfo . ixBy dbN (_dbName . _uqName)
 
-sequenceInfo :: Functor f => ([SequenceInfo] -> f [SequenceInfo]) -> TableInfo -> f TableInfo
+sequenceInfo :: Lens' TableInfo [SequenceInfo]
 sequenceInfo k t = fmap (\a -> t { _sequenceInfo = a }) (k (_sequenceInfo t))
 
-tableName :: Functor f => (EntityNameWithType -> f EntityNameWithType) -> TableInfo -> f TableInfo
+tableName :: Lens' TableInfo EntityNameWithType
 tableName k t = fmap (\a -> t { _tableName = a }) (k (_tableName t))
 
-columnInfo :: Functor f => ([ColumnInfo] -> f [ColumnInfo]) -> TableInfo -> f TableInfo
+columnInfo :: Lens' TableInfo [ColumnInfo]
 columnInfo k t = fmap (\a -> t { _columnInfo = a }) (k (_columnInfo t))
 
-columnInfoAt :: Functor f => HaskName -> (ColumnInfo -> f ColumnInfo) -> TableInfo -> f TableInfo
-columnInfoAt hsN = columnInfo . unsafeFind hsN (_hsName . _columnNameInfo)
+columnInfoAt :: HaskName -> Traversal' TableInfo ColumnInfo
+columnInfoAt hsN = columnInfo . ixBy hsN (_hsName . _columnNameInfo)
 
-columnInfoAtDb :: Functor f => DBName -> (ColumnInfo -> f ColumnInfo) -> TableInfo -> f TableInfo
-columnInfoAtDb dbN = columnInfo . unsafeFind dbN (_dbName . _columnNameInfo)
+columnInfoAtDb :: DBName -> Traversal' TableInfo ColumnInfo 
+columnInfoAtDb dbN = columnInfo . ixBy dbN (_dbName . _columnNameInfo)
 
 mkColumnInfo :: Bool -> EntityNameWithHask -> DBType -> ColumnInfo
 mkColumnInfo isn cni ctn =
@@ -1144,13 +1143,13 @@ data ColumnInfo = ColumnInfo { _isNullable     :: Bool
                              , _columnTypeName :: DBType
                              } deriving (Show, Eq)
 
-isNullable :: Functor f => (Bool -> f Bool) -> ColumnInfo -> f ColumnInfo
+isNullable :: Lens' ColumnInfo Bool
 isNullable k t = fmap (\a -> t { _isNullable = a }) (k (_isNullable t))
 
-columnNameInfo :: Functor f => (EntityNameWithHask -> f EntityNameWithHask) -> ColumnInfo -> f ColumnInfo
+columnNameInfo :: Lens' ColumnInfo EntityNameWithHask
 columnNameInfo k t = fmap (\a -> t { _columnNameInfo = a }) (k (_columnNameInfo t))
 
-columnTypeName :: Functor f => (DBType -> f DBType) -> ColumnInfo -> f ColumnInfo
+columnTypeName :: Lens' ColumnInfo DBType
 columnTypeName k t = fmap (\a -> t { _columnTypeName = a }) (k (_columnTypeName t))
 
 mkPrimaryKeyInfo :: Text -> [HaskName] -> PrimaryKeyInfo
@@ -1163,10 +1162,10 @@ data PrimaryKeyInfo = PrimaryKeyInfo { _pkeyName    :: Text
                                      , _pkeyColumns :: [HaskName]
                                      } deriving (Eq, Show)
 
-pkeyName :: Functor f => (Text -> f Text) -> PrimaryKeyInfo -> f PrimaryKeyInfo
+pkeyName :: Lens' PrimaryKeyInfo Text 
 pkeyName k t = fmap (\a -> t { _pkeyName = a }) (k (_pkeyName t))
 
-pkeyColumns :: Functor f => ([HaskName] -> f [HaskName]) -> PrimaryKeyInfo -> f PrimaryKeyInfo
+pkeyColumns :: Lens' PrimaryKeyInfo [HaskName]
 pkeyColumns k t = fmap (\a -> t { _pkeyColumns = a }) (k (_pkeyColumns t))
 
 mkForeignKeyInfo :: EntityNameWithHask -> [HaskName] -> TypeName Text -> [HaskName] -> ForeignKeyInfo
@@ -1183,10 +1182,10 @@ data ForeignKeyInfo = ForeignKeyInfo { _fkeyName       :: EntityNameWithHask
                                      , _fkeyRefColumns :: [HaskName]
                                      } deriving (Show, Eq)
 
-fkeyName :: Functor f => (EntityNameWithHask -> f EntityNameWithHask) -> ForeignKeyInfo -> f ForeignKeyInfo
+fkeyName :: Lens' ForeignKeyInfo EntityNameWithHask 
 fkeyName k t = fmap (\a -> t { _fkeyName = a }) (k (_fkeyName t))
 
-fkeyColumns :: Functor f => ([HaskName] -> f [HaskName]) -> ForeignKeyInfo -> f ForeignKeyInfo
+fkeyColumns :: Lens' ForeignKeyInfo [HaskName]
 fkeyColumns k t = fmap (\a -> t { _fkeyColumns = a }) (k (_fkeyColumns t))
 
 fkeyRefTable :: Functor f => (TypeName Text -> f (TypeName Text)) -> ForeignKeyInfo -> f ForeignKeyInfo
@@ -1205,10 +1204,10 @@ data UniqueInfo = UniqueInfo { _uqName    :: EntityNameWithHask
                              , _uqColumns :: [HaskName]
                              } deriving (Show, Eq)
 
-uqName :: Functor f => (EntityNameWithHask -> f EntityNameWithHask) -> UniqueInfo -> f UniqueInfo
+uqName :: Lens' UniqueInfo EntityNameWithHask
 uqName k t = fmap (\a -> t { _uqName = a }) (k (_uqName t))
 
-uqColumns :: Functor f => ([HaskName] -> f [HaskName]) -> UniqueInfo -> f UniqueInfo
+uqColumns :: Lens' UniqueInfo [HaskName]
 uqColumns k t = fmap (\a -> t { _uqColumns = a }) (k (_uqColumns t))
 
 mkDefaultInfo :: HaskName -> PQ.PrimExpr -> DefaultInfo
@@ -1221,10 +1220,10 @@ data DefaultInfo = DefaultInfo { _defaultOn  :: HaskName
                                , _defaultExp :: PQ.PrimExpr
                                } deriving (Show, Eq)
 
-defaultOn :: Functor f => (HaskName -> f HaskName) -> DefaultInfo -> f DefaultInfo
+defaultOn :: Lens' DefaultInfo HaskName
 defaultOn k t = fmap (\a -> t { _defaultOn = a }) (k (_defaultOn t))
 
-defaultExp :: Functor f => (PQ.PrimExpr -> f PQ.PrimExpr) -> DefaultInfo -> f DefaultInfo
+defaultExp :: Lens' DefaultInfo PQ.PrimExpr
 defaultExp k t = fmap (\a -> t { _defaultExp = a }) (k (_defaultExp t))
 
 mkCheckInfo :: EntityNameWithHask -> PQ.PrimExpr -> CheckInfo
@@ -1237,10 +1236,10 @@ data CheckInfo = CheckInfo { _checkExp  :: PQ.PrimExpr
                            , _checkName :: EntityNameWithHask
                            } deriving (Show, Eq)
 
-checkName :: Functor f => (EntityNameWithHask -> f EntityNameWithHask) -> CheckInfo -> f CheckInfo
+checkName :: Lens' CheckInfo EntityNameWithHask
 checkName k t = fmap (\a -> t { _checkName = a }) (k (_checkName t))
 
-checkExp :: Functor f => (PQ.PrimExpr -> f PQ.PrimExpr) -> CheckInfo -> f CheckInfo
+checkExp :: Lens' CheckInfo PQ.PrimExpr
 checkExp k t = fmap (\a -> t { _checkExp = a }) (k (_checkExp t))
 
 mkSequenceInfo :: EntityNameWithHask -> HaskName -> SequenceType -> SequenceInfo
@@ -1255,13 +1254,13 @@ data SequenceInfo = SequenceInfo { _seqName   :: EntityNameWithHask
                                  , _seqType   :: SequenceType
                                  } deriving (Show, Eq)
 
-seqName :: Functor f => (EntityNameWithHask -> f EntityNameWithHask) -> SequenceInfo -> f SequenceInfo
+seqName :: Lens' SequenceInfo EntityNameWithHask
 seqName k t = fmap (\a -> t { _seqName = a }) (k (_seqName t))
 
-seqOn :: Functor f => (HaskName -> f HaskName) -> SequenceInfo -> f SequenceInfo
+seqOn :: Lens' SequenceInfo HaskName
 seqOn k t = fmap (\a -> t { _seqOn = a }) (k (_seqOn t))
 
-seqType :: Functor f => (SequenceType -> f SequenceType) -> SequenceInfo -> f SequenceInfo
+seqType :: Lens' SequenceInfo SequenceType
 seqType k t = fmap (\a -> t { _seqType = a }) (k (_seqType t))
 
 data SequenceType = SeqOwned | SeqSerial

@@ -4,15 +4,31 @@ module DBRecord.Internal.Lens where
 import Data.Functor.Const
 import Data.Functor.Identity
 import qualified Control.Monad.State as State
-import qualified Control.Monad.Reader as Reader
 import qualified Data.List as L
 import GHC.Stack
 import Data.Coerce
+import Data.Monoid
 
 infixr 4 %~, .~, ^.
 infix  4 .=, %=
+infixl 8 ^?
 
+type Traversal s t a b = forall f. (Applicative f) => (a -> f b) -> s -> f t
+type Traversal' s a    = Traversal s s a a
+
+{-# INLINE ixBy #-}
+ixBy :: (Eq v) => v -> (k -> v) -> Traversal' [k] k
+ixBy k pf f xs0 = go xs0 k where
+    go [] _ = pure []
+    go (a:as) k | pf a == k     = (:as) <$> f a
+                | otherwise    = (a:) <$> (go as k)
+  
 type ASetter s t a b = (a -> Identity b) -> s -> Identity t
+
+
+{-# INLINE (^?) #-}
+(^?) :: s -> Getting (First a) s a -> Maybe a
+(^?) s g = getFirst . getConst . g (Const . First . Just) $ s
 
 (%~) :: ASetter s t a b -> (a -> b) -> s -> t
 (%~) = over
@@ -44,8 +60,11 @@ type Getting r s a = (a -> Const r a) -> s -> Const r s
 s ^. l = getConst (l Const s)
 {-# INLINE (^.) #-}
 
-view :: State.MonadState s m => Getting a s a -> m a
-view l = State.gets (getConst . l Const)
+use :: State.MonadState s m => Getting a s a -> m a
+use l = State.gets (getConst . l Const)
+
+preuse :: State.MonadState s m => Getting (First a) s a -> m (Maybe a)
+preuse l = State.gets (getFirst . getConst . l (Const . First . Just))
 
 lens :: (s -> a) -> (s -> b -> t) -> Lens s t a b
 lens sa sbt afb s = sbt s <$> afb (sa s)
@@ -71,11 +90,4 @@ unsafeFind eqv f = lens gt st
                 False -> error $ "Panic: Invariant violated @unsafeFind in: " ++ show as ++ "\nwhile looking for value: " ++ show eqv
                 True  -> t
                               
-{-
-
-(<<%~) :: LensLike ((,)a) s t a b -> (a -> b) -> s -> (a, t)
-(<<%~) l = l . lmap (\a -> (a, a)) . second'
-{-# INLINE (<<%~) #-}
-
--}
 

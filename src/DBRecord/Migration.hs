@@ -358,7 +358,7 @@ instance (RenameTableCtx t) => SingE (t :: RenameTable) where
     case fromSing smName of
       Nothing    -> pure Nothing
       (Just dbN) -> do
-        curTab <- view currentTable
+        curTab <- use currentTable
         dbInfo . tableInfoAt curTab . tableName . dbName .= dbN
         pure (Just $ M.renameTab (coerce dbN))
 
@@ -373,7 +373,7 @@ instance (AddColumnCtx t) => SingE (t :: AddColumn) where
         colt = fromSing scolt
         isn  = fromSing (isNullableSing scolt)
         cni  = mkEntityName coln coln 
-    curTab <- view currentTable
+    curTab <- use currentTable
     dbInfo . tableInfoAt curTab . columnInfo %=
          insert (mkColumnInfo isn cni (coerce colt))
     pure $ M.addColumn (M.column (coerce coln) (coerce colt))
@@ -388,7 +388,7 @@ instance SingE (t :: DropColumn) where
   type Demote t = ChangeSetM M.AlterTable
   fromSing (SDropColumn scoln) = do
     let coln = fromSing scoln
-    curTab <- view currentTable
+    curTab <- use currentTable
     dbInfo . tableInfoAt curTab . columnInfo %=
          delete coln (\ci -> ci ^. columnNameInfo . hsName)
     pure $ M.dropColumn (coerce coln)
@@ -398,8 +398,8 @@ instance SingE (t :: RenameColumn) where
   fromSing (SRenameColumn scoln sdcoln) = do
     let coln   = fromSing scoln
         dbColn = fromSing sdcoln
-    curTab <- view currentTable
-    prevDbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt coln . columnNameInfo . dbName)   
+    curTab <- use currentTable
+    prevDbColn <- use (dbInfo . tableInfoAt curTab . columnInfoAt coln . columnNameInfo . dbName)   
     dbInfo . tableInfoAt curTab . columnInfoAt coln . columnNameInfo . dbName .= dbColn
     pure $ M.renameColumn (coerce prevDbColn) (coerce dbColn)
 
@@ -414,39 +414,41 @@ instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
   type Demote t = ChangeSetM M.AlterTable
   fromSing (SSetNotNull scoln) = do
     let hsColn = fromSing scoln
-    curTab <- view currentTable    
-    dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    curTab <- use currentTable    
+    dbColn <- use (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . isNullable .= False
     pure $ M.setNotNull (coerce dbColn)
   fromSing (SDropNotNull scoln) = do
     let hsColn = fromSing scoln
-    curTab <- view currentTable 
-    dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    curTab <- use currentTable 
+    dbColn <- use (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . isNullable .= True    
     pure $ M.dropNotNull (coerce dbColn)
   fromSing (SChangeType scoln scolt) = do
     let hsColn = fromSing scoln
         colt   = fromSing scolt
-    curTab <- view currentTable    
-    dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    curTab <- use currentTable    
+    dbColn <- use (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnTypeName .= (coerce colt)
     pure $ M.addColumn (M.column (coerce dbColn) (coerce colt))
   fromSing (SAddDefault scoln) = do
     let hsColn = (fromSing scoln)
-    curTab <- view currentTable
-    cksAndDefs <- view currentChecksAndDefs
-    tabInfo <- view (dbInfo . tableInfoAt curTab)
-    let dbColn     = tabInfo ^. columnInfoAt hsColn . columnNameInfo . dbName
+    curTab <- use currentTable
+    cksAndDefs <- use currentChecksAndDefs
+    mtabInfo <- preuse (dbInfo . tableInfoAt curTab)
+    let mdbColn    = tabInfo ^? columnInfoAt hsColn . columnNameInfo . dbName
         cols       = tabInfo ^. columnInfo
         curTabName = tabInfo ^. tableName
+        tabInfo    = fromJust mtabInfo
+        dbColn     = fromJust mdbColn
         defVal = migDefInfo cksAndDefs hsColn curTabName cols
     dbInfo . tableInfoAt curTab . defaultInfo %=
               insert defVal
     pure $ M.addDefault (coerce dbColn) (coerce (defVal ^. defaultExp))
   fromSing (SDropDefault scoln) = do
     let hsColn = fromSing scoln
-    curTab <- view currentTable    
-    dbColn <- view (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
+    curTab <- use currentTable    
+    dbColn <- use (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     dbInfo . tableInfoAt curTab . defaultInfo %=
               delete hsColn (\di -> di ^. defaultOn)
     pure $ M.dropDefault (coerce hsColn)
@@ -464,25 +466,26 @@ instance (AddConstraintCtx t) => SingE (t :: AddConstraint) where
     let cols = coerce $ fromSing scols
         ctxn = fromSing sctxn
         pki  = mkPrimaryKeyInfo ctxn (coerce cols)
-    curTab <- view currentTable
+    curTab <- use currentTable
     dbInfo . tableInfoAt curTab . primaryKeyInfo .= Just pki
     pure (M.addPrimaryKey (coerce ctxn) cols)
   fromSing (SAddUnique suq) = do
     let (cols, ctxn) = fromSing suq
         ctxn' = ctxn
         uniqEt = mkEntityName ctxn' ctxn'
-    curTab <- view currentTable
+    curTab <- use currentTable
     dbInfo . tableInfoAt curTab . uniqueInfo %=
          insert (mkUniqueInfo uniqEt cols)
     pure (M.addUnique (coerce ctxn') (coerce cols))
   fromSing (SAddCheck sck)  = do
     let (scols, hsCname) = fromSing sck
         chkEt = mkEntityName hsCname hsCname
-    curTab <- view currentTable
-    tabInfo <- view (dbInfo . tableInfoAt curTab)
+    curTab <- use currentTable
+    mtabInfo <- preuse (dbInfo . tableInfoAt curTab)
     let cols       = tabInfo ^. columnInfo
-        curTabName = tabInfo ^. tableName    
-    cksAndDefs <- view currentChecksAndDefs    
+        curTabName = tabInfo ^. tableName
+        tabInfo    = fromJust mtabInfo
+    cksAndDefs <- use currentChecksAndDefs    
     let ckInfo = migCksInfo cksAndDefs hsCname curTabName cols
     dbInfo . tableInfoAt curTab . checkInfo %=
          insert ckInfo
@@ -490,51 +493,51 @@ instance (AddConstraintCtx t) => SingE (t :: AddConstraint) where
                      (coerce (ckInfo ^. checkExp)))
   fromSing (SAddForeignKey (sfkref :: Sing (fkref :: ForeignRef (TypeName Symbol)))) = do
     let fkref = fromSing sfkref
-    curTab <- view currentTable
+    curTab <- use currentTable
     case fkref of
       RefByD ctxn cols reft refcols -> do
          let fk = mkForeignKeyInfo fkEt cols reft refcols
              ctxn' = ctxn
              fkEt = mkEntityName ctxn' ctxn'
          dbInfo . tableInfoAt curTab . foreignKeyInfo %= insert fk
-         dbTabN <- view (dbInfo . tableInfoAt reft . tableName . dbName)
+         dbTabN <- use (dbInfo . tableInfoAt reft . tableName . dbName)
          pure $ M.addForeignKey (coerce ctxn') (coerce cols) (coerce dbTabN) (coerce refcols)
       RefD ctxn col reft -> do
         let fk = mkForeignKeyInfo fkEt ([col]) reft ([col])
             ctxn' = ctxn
             fkEt = mkEntityName ctxn' ctxn'
         dbInfo . tableInfoAt curTab . foreignKeyInfo %= insert fk
-        dbTabN <- view (dbInfo . tableInfoAt reft . tableName . dbName)        
+        dbTabN <- use (dbInfo . tableInfoAt reft . tableName . dbName)        
         pure $ M.addForeignKey (coerce ctxn') (coerce [col]) (coerce dbTabN) (coerce [col])
 
 instance SingE (t :: DropConstraint) where
   type Demote t = ChangeSetM M.AlterTable
   fromSing SDropPrimaryKey = do
-    curTab <- view currentTable    
-    mpki <- view $ dbInfo . tableInfoAt curTab . primaryKeyInfo
+    curTab <- use currentTable    
+    mpki <- preuse (dbInfo . tableInfoAt curTab . primaryKeyInfo . traverse)
     dbInfo . tableInfoAt curTab . primaryKeyInfo .=
       Nothing
     pure $ case mpki of
       Just pki -> M.dropPrimaryKey (coerce (pki ^. pkeyName))
       Nothing  -> error "Panic: non existant primary key"
   fromSing (SDropCheck schkn) = do
-    curTab <- view currentTable    
+    curTab <- use currentTable    
     let hsChkn = (fromSing schkn)
-    dbChkn <- view (dbInfo . tableInfoAt curTab . checkInfoAt hsChkn . checkName . dbName)
+    dbChkn <- use (dbInfo . tableInfoAt curTab . checkInfoAt hsChkn . checkName . dbName)
     dbInfo . tableInfoAt curTab . checkInfo %=
       delete hsChkn (\ck -> ck ^. checkName . hsName)
     pure $ M.dropCheck (coerce dbChkn)
   fromSing (SDropUnique suqn) = do
-    curTab <- view currentTable    
+    curTab <- use currentTable    
     let hsUqn = (fromSing suqn)
-    dbUqn <- view (dbInfo . tableInfoAt curTab . uniqueInfoAt hsUqn . uqName . dbName)    
+    dbUqn <- use (dbInfo . tableInfoAt curTab . uniqueInfoAt hsUqn . uqName . dbName)    
     dbInfo . tableInfoAt curTab . uniqueInfo %=
          delete hsUqn (\uq -> uq ^. uqName . hsName)
     pure $ M.dropUnique (coerce dbUqn)
   fromSing (SDropForeignKey sfkn) = do
-    curTab <- view currentTable    
+    curTab <- use currentTable    
     let hsFkn = (fromSing sfkn)
-    dbFkn <- view (dbInfo . tableInfoAt curTab . foreignKeyInfoAt hsFkn . fkeyName . dbName)    
+    dbFkn <- use (dbInfo . tableInfoAt curTab . foreignKeyInfoAt hsFkn . fkeyName . dbName)    
     dbInfo . tableInfoAt curTab . foreignKeyInfo %=
          delete hsFkn (\fk -> fk ^. fkeyName . hsName)
     pure $ M.dropForeignKey (coerce dbFkn)
@@ -757,7 +760,7 @@ mkMigrationTable _ = do
   alcs <- sequence $ fromSing (sing :: Sing (AlteredColumn db tab ver))
   acts <- sequence $ fromSing (sing :: Sing (AddedConstraint db tab ver))
   dcts <- sequence $ fromSing (sing :: Sing (DropedConstraint db tab ver))
-  dbTabN <- view (dbInfo . tableInfoAt curTab . tableName . dbName) 
+  dbTabN <- use (dbInfo . tableInfoAt curTab . tableName . dbName) 
   pure $ M.altering (coerce dbTabN) (acs ++ dcs ++ rcs ++ alcs ++ acts ++  dcts)
 
 type family MkDroppedColumn (dcs :: [Symbol]) where
