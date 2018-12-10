@@ -5,8 +5,7 @@ import DBRecord.Internal.Migration.Validation
 import qualified Database.PostgreSQL.Simple as PGS
 
 main = do
-  conn <- PGS.connect localConnectInfo
-  dbInfo <- getDbSchemaInfo "test_dbrecord" "public" conn
+  dbInfo <- getPostgresDbSchemaInfo "public" defHints localConnectInfo
   print dbInfo
 
 
