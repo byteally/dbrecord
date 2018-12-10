@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, DuplicateRecordFields, ScopedTypeVariables #-}
-module DBRecord.Internal.Migration.Validation where
+module DBRecord.Internal.Migration.Validation ( getDbSchemaInfo ) where
 
 -- import DBRecord.Internal.Migration.Types hiding (CheckExpr)
 import Database.PostgreSQL.Simple.FromRow
@@ -7,6 +7,7 @@ import Database.PostgreSQL.Simple
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Text  (Text)
+import qualified Data.Text as T
 import Data.Proxy
 import qualified Data.List as L
 
@@ -85,20 +86,22 @@ toUniqKeyInfo = HM.fromListWith (++) . concatMap (map toUniqKeyInfo . groupByKey
   where groupByTableName = L.groupBy (\(UniqKey _ tna _ _) (UniqKey _ tnb _ _) -> tna == tnb)
         groupByKeyName   = L.groupBy (\(UniqKey kna _ _ _) (UniqKey knb _ _ _) -> kna == knb)
 
-        toUniqKeyInfo pks@(UniqKey kna tna _ _ : _) = (mkHaskName tna, [UniqueInfo { _uqName     = mkEntityName (mkHaskName kna) kna
-                                                                                   , _uqColumns  = (getUQCols pks)
-                                                                                   }
-                                                                         ]
-                                                      )
+        toUniqKeyInfo pks@(UniqKey kna tna _ _ : _) =
+          (mkHaskName tna, [UniqueInfo { _uqName     = mkEntityName (mkHaskName kna) kna
+                                       , _uqColumns  = (getUQCols pks)
+                                       }
+                           ]
+          )
         toUniqKeyInfo []                            = error "impossible: empty group"
         
-        getUQCols = map snd . L.sortBy cmpByFst . map getUQCol
+        getUQCols = map (mkHaskName . snd) . L.sortBy cmpByFst . map getUQCol
         getUQCol (UniqKey _ _ col i) = (i, col)
         cmpByFst a b = compare (fst a) (fst b)
 
-toDatabaseInfo :: [EnumInfo] -> TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> DatabaseInfo
-toDatabaseInfo eis cols chks defs pk uqs fks =
+toDatabaseInfo :: DatabaseName -> [EnumInfo] -> TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> DatabaseInfo
+toDatabaseInfo dbn eis cols chks defs pk uqs fks =
   let tabNs = HM.keys cols
+      dbt = EntityName { _hsName = mkHaskTypeName dbn , _dbName = dbn }
       types = map (\ei ->
                     mkTypeNameInfo (mkHaskTypeName (enumTypeName ei)) (EnumTypeNM (enumTypeName ei) (V.toList (enumCons ei)))
                   ) eis
@@ -120,7 +123,7 @@ toDatabaseInfo eis cols chks defs pk uqs fks =
                                       , _ignoredCols    = ()
                                       }
                        ) tabNs
-  in mkDatabaseInfo undefined types 0 0 (coerce tabInfos)
+  in mkDatabaseInfo dbt types 0 0 (coerce tabInfos)
 
 toCheckInfo :: TableContent ColumnInfo -> [CheckCtx] -> TableContent CheckInfo
 toCheckInfo tcis = HM.fromListWith (++) . catMaybes . map chkInfo
@@ -129,9 +132,7 @@ toCheckInfo tcis = HM.fromListWith (++) . catMaybes . map chkInfo
           in  case isNotNullCk tcis chkOn ckExp of
                 True -> Nothing
                 False -> Just ( mkHaskName chkOn
-                              , [CheckInfo { _checkExp  = ckExp
-                                           , _checkName = mkEntityName chkName chkName
-                                           }
+                              , [ mkCheckInfo (mkEntityName (mkHaskName chkName) chkName) ckExp
                                 ]
                               )
 
@@ -146,12 +147,10 @@ toDefaultInfo :: [TableColInfo] -> TableContent DefaultInfo
 toDefaultInfo = HM.fromListWith (++) . map defaultInfo
   where defaultInfo tci =
           ( mkHaskName (dbColumnName tci)
-          , [DefaultInfo { _defaultOn  = (mkHaskName (dbColumnName tci))
-                         , _defaultExp = unsafeParseExpr (fromJust (dbColDefault tci))
-                        }
+          , [ mkDefaultInfo (mkHaskName (dbColumnName tci))
+                            (unsafeParseExpr (fromJust (dbColDefault tci)))
             ]
           )
-
 toForeignKeyInfo :: [FKey] -> TableContent ForeignKeyInfo
 toForeignKeyInfo = HM.fromListWith (++) . concatMap (map toForeignKeyInfo . groupByKeyName) . groupByTableName
   where groupByTableName = L.groupBy (\(FKey _ tna _ _ _ _ _ _) (FKey _ tnb _ _ _ _ _ _) -> tna == tnb)
@@ -165,10 +164,10 @@ toForeignKeyInfo = HM.fromListWith (++) . concatMap (map toForeignKeyInfo . grou
           in (mkHaskName tna , [fki])
         toForeignKeyInfo []                                        = error "impossible: empty group"
 
-        getFKCols = map snd . L.sortBy cmpByFst . map getFKCol
+        getFKCols = map (mkHaskName . snd) . L.sortBy cmpByFst . map getFKCol
         getFKCol (FKey _ _ col i _ _ _ _) = (i, col)
 
-        getFKRefCols = map snd . L.sortBy cmpByFst . map getFKRefCol
+        getFKRefCols = map (mkHaskName . snd) . L.sortBy cmpByFst . map getFKRefCol
         getFKRefCol (FKey _ _ _ _ _ _ col i) = (i, col)
         
         cmpByFst a b = compare (fst a) (fst b)
@@ -342,9 +341,10 @@ seqsQ =
    
  
 type SchemaName = Text
+type DatabaseName = Text
                
-getDbSchemaInfo :: SchemaName -> Connection -> IO DatabaseInfo
-getDbSchemaInfo sn conn = do
+getDbSchemaInfo :: DatabaseName -> SchemaName -> Connection -> IO DatabaseInfo
+getDbSchemaInfo dbn sn conn = do
   enumTs <- query_ conn enumQ
   tcols <- query_ conn tableColQ
   tchks <- query_ conn checksQ
@@ -353,7 +353,7 @@ getDbSchemaInfo sn conn = do
   fks   <- query_ conn foreignKeysQ
   (seqs :: [Seq])  <- query_ conn seqsQ
   let tcis = (toTabColInfo tcols)
-  pure $ (toDatabaseInfo enumTs tcis (toCheckInfo tcis tchks) (toDefaultInfo tcols) (toPrimKeyInfo prims) (toUniqKeyInfo uniqs) (toForeignKeyInfo fks))
+  pure $ (toDatabaseInfo dbn enumTs tcis (toCheckInfo tcis tchks) (toDefaultInfo tcols) (toPrimKeyInfo prims) (toUniqKeyInfo uniqs) (toForeignKeyInfo fks))
 
 unsafeParseExpr :: Text -> PQ.PrimExpr
 unsafeParseExpr t = primExprGen . either parsePanic id . parseOnly sqlExpr $ t
@@ -375,9 +375,22 @@ mkMigrations enumInfos tabInfos =
   mkMigrationTypes enumInfos ++ mkMigrationTables tabInfos
 -}
 
+
+
 mkHaskName :: Text -> Text
-mkHaskName = id
+mkHaskName = camelCase
 
 mkHaskTypeName :: Text -> S.TypeName Text
-mkHaskTypeName = mkTypeName "DBPackage" "DBModule"
+mkHaskTypeName = mkTypeName "DBPackage" "DBModule" . pascalCase
   
+camelCase :: Text -> Text
+camelCase = mconcat . capBeginExceptFirst . splitName
+  where capBeginExceptFirst (x : xs) = T.toLower x : map T.toTitle xs
+        capBeginExceptFirst []       = []
+
+pascalCase :: Text -> Text
+pascalCase = mconcat . map T.toTitle . splitName
+
+splitName :: Text -> [Text]
+splitName = filter (\a -> a /= "" || a /= "|") . T.split (\x -> x == ' ' || x == '_')
+
