@@ -76,6 +76,7 @@ library
                      , postgresql-libpq  == 0.9.*
                      , mongoDB
                      , bson
+                     , hashable          == 1.2.*
 
   default-language:    Haskell2010
 
