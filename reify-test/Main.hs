@@ -7,6 +7,8 @@ import Data.Function
 
 main = do
   let hints = defHints & tableNameHint "empsalary" "Emp_Salary"
+                       & columnNameHint "File" "createdAt" "created_at"
+                       
   dbInfo <- getPostgresDbSchemaInfo "public" hints localConnectInfo
   print dbInfo
 

@@ -56,6 +56,9 @@ over l f = runIdentity . l (Identity . f)
 
 type Getting r s a = (a -> Const r a) -> s -> Const r s
 
+view :: Getting a s a -> s -> a
+view = flip (^.)
+
 (^.) :: s -> Getting a s a -> a
 s ^. l = getConst (l Const s)
 {-# INLINE (^.) #-}

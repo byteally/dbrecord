@@ -36,10 +36,10 @@ doubleQuotes :: Text -> Doc
 doubleQuotes = Pretty.doubleQuotes . text_ . escDoubleQuote
 
 ppColumnName :: ColName -> Doc
-ppColumnName (ColName colN) = doubleQuotes colN
+ppColumnName (ColName _ colN) = doubleQuotes colN
 
 ppTableName :: TabName -> Doc
-ppTableName (TabName tabN) = doubleQuotes tabN
+ppTableName (TabName _ tabN) = doubleQuotes tabN
 
 ppTypeName :: TypeName -> Doc
 ppTypeName (TypeName typeN) = text_ typeN
@@ -57,7 +57,7 @@ ppEnumVal :: EnumVal -> Doc
 ppEnumVal (EnumVal e) = quotes e
 
 ppSeqName :: SeqName -> Doc
-ppSeqName (SeqName seqN) = text_ seqN
+ppSeqName (SeqName _ seqN) = text_ seqN
 
 ppColumn :: Column -> Doc
 ppColumn (Column name ty) =
@@ -65,7 +65,7 @@ ppColumn (Column name ty) =
   <+> ppColumnType ty
 
 ppConstraintName :: ConstraintName -> Doc
-ppConstraintName (ConstraintName c) = doubleQuotes c
+ppConstraintName (ConstraintName _ c) = doubleQuotes c
 
 ppPrimDDL :: PrimDDL -> Doc
 ppPrimDDL (CreateTable tab cols) =

@@ -45,7 +45,6 @@ import GHC.TypeLits
 import Data.Kind
 import Data.Functor.Const
 import Data.Coerce (coerce)
-import DBRecord.Internal.Migration.Validation ()-- (getSchemaInfo)
 import Data.Monoid ((<>))
 import qualified Data.List as L
 import qualified Control.Monad.State as M
@@ -360,7 +359,7 @@ instance (RenameTableCtx t) => SingE (t :: RenameTable) where
       (Just dbN) -> do
         curTab <- use currentTable
         dbInfo . tableInfoAt curTab . tableName . dbName .= dbN
-        pure (Just $ M.renameTab (coerce dbN))
+        pure (Just $ M.renameTab (M.tableName (curTab ^. typeName) dbN))
 
 type family AddColumnCtx (t :: AddColumn) :: Constraint where
   AddColumnCtx ('AddColumn cn dbTyp) =
@@ -369,14 +368,15 @@ type family AddColumnCtx (t :: AddColumn) :: Constraint where
 instance (AddColumnCtx t) => SingE (t :: AddColumn) where
   type Demote t = ChangeSetM M.AlterTable
   fromSing (SAddColumn scoln scolt) = do
-    let coln = fromSing scoln
-        colt = fromSing scolt
-        isn  = fromSing (isNullableSing scolt)
-        cni  = mkEntityName coln coln 
+    let colnHs = fromSing scoln
+        colnDb = mkDbColumnName colnHs
+        colt   = fromSing scolt
+        isn    = fromSing (isNullableSing scolt)
+        cni    = mkEntityName colnHs colnDb
     curTab <- use currentTable
     dbInfo . tableInfoAt curTab . columnInfo %=
          insert (mkColumnInfo isn cni (coerce colt))
-    pure $ M.addColumn (M.column (coerce coln) (coerce colt))
+    pure $ M.addColumn (M.column (M.columnName colnHs colnDb) (coerce (M.typeName colt)))
 
       where isNullableSing :: forall dbt db. (SingI (IsNullable (UnTag dbt))) => Sing dbt -> Sing (IsNullable (UnTag dbt))
             isNullableSing _ = sing
@@ -389,20 +389,22 @@ instance SingE (t :: DropColumn) where
   fromSing (SDropColumn scoln) = do
     let coln = fromSing scoln
     curTab <- use currentTable
+    mdbN   <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt coln . columnNameInfo . dbName)
+    let dbN = fromJust mdbN
     dbInfo . tableInfoAt curTab . columnInfo %=
          delete coln (\ci -> ci ^. columnNameInfo . hsName)
-    pure $ M.dropColumn (coerce coln)
+    pure $ M.dropColumn (M.columnName coln dbN)
 
 instance SingE (t :: RenameColumn) where
   type Demote t = ChangeSetM M.AlterTable
   fromSing (SRenameColumn scoln sdcoln) = do
-    let coln   = fromSing scoln
-        dbColn = fromSing sdcoln
+    let hsColN = fromSing scoln
+        dbColN = fromSing sdcoln
     curTab <- use currentTable
-    mprevDbColn <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt coln . columnNameInfo . dbName)   
-    dbInfo . tableInfoAt curTab . columnInfoAt coln . columnNameInfo . dbName .= dbColn
-    let prevDbColn = fromJust mprevDbColn
-    pure $ M.renameColumn (coerce prevDbColn) (coerce dbColn)
+    mprevDbColN <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt hsColN . columnNameInfo . dbName)   
+    dbInfo . tableInfoAt curTab . columnInfoAt hsColN . columnNameInfo . dbName .= dbColN
+    let prevDbColN = fromJust mprevDbColN
+    pure $ M.renameColumn (M.columnName hsColN prevDbColN) (M.columnName hsColN dbColN)
 
 type family AlterColumnCtx (t :: AlterColumn) :: Constraint where
   AlterColumnCtx ('SetNotNull cn)  = (SingE cn)
@@ -419,14 +421,14 @@ instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
     mdbColn <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     let dbColn = fromJust mdbColn
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . isNullable .= False
-    pure $ M.setNotNull (coerce dbColn)
+    pure $ M.setNotNull (M.columnName hsColn dbColn)
   fromSing (SDropNotNull scoln) = do
     let hsColn = fromSing scoln
     curTab <- use currentTable 
     mdbColn <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     let dbColn = fromJust mdbColn
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . isNullable .= True    
-    pure $ M.dropNotNull (coerce dbColn)
+    pure $ M.dropNotNull (M.columnName hsColn dbColn)
   fromSing (SChangeType scoln scolt) = do
     let hsColn = fromSing scoln
         colt   = fromSing scolt
@@ -434,7 +436,7 @@ instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
     mdbColn <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     let dbColn = fromJust mdbColn
     dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnTypeName .= (coerce colt)
-    pure $ M.addColumn (M.column (coerce dbColn) (coerce colt))
+    pure $ M.changeType (M.columnName hsColn dbColn) (coerce (M.typeName colt))
   fromSing (SAddDefault scoln) = do
     let hsColn = (fromSing scoln)
     curTab <- use currentTable
@@ -448,7 +450,7 @@ instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
         defVal = migDefInfo cksAndDefs hsColn curTabName cols
     dbInfo . tableInfoAt curTab . defaultInfo %=
               insert defVal
-    pure $ M.addDefault (coerce dbColn) (coerce (defVal ^. defaultExp))
+    pure $ M.addDefault (M.columnName hsColn dbColn) (coerce (defVal ^. defaultExp))
   fromSing (SDropDefault scoln) = do
     let hsColn = fromSing scoln
     curTab <- use currentTable    
@@ -456,7 +458,7 @@ instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
     let dbColn = fromJust mdbColn
     dbInfo . tableInfoAt curTab . defaultInfo %=
               delete hsColn (\di -> di ^. defaultOn)
-    pure $ M.dropDefault (coerce hsColn)
+    pure $ M.dropDefault (M.columnName hsColn dbColn)
 
 type family AddConstraintCtx (t :: AddConstraint) :: Constraint where
   AddConstraintCtx ('AddPrimaryKey cols ctxn) =
@@ -468,20 +470,31 @@ type family AddConstraintCtx (t :: AddConstraint) :: Constraint where
 instance (AddConstraintCtx t) => SingE (t :: AddConstraint) where
   type Demote t = ChangeSetM M.AlterTable
   fromSing (SAddPrimaryKey scols sctxn) = do
+    curTab <- use currentTable    
+    mTabInfo <- preuse (dbInfo . tableInfoAt curTab)
     let cols = coerce $ fromSing scols
-        ctxn = fromSing sctxn
-        pki  = mkPrimaryKeyInfo ctxn (coerce cols)
-    curTab <- use currentTable
+        mcols = map (\hsCol -> case mTabInfo ^? traverse . columnInfoAt hsCol . columnNameInfo . dbName of
+                                Just dbCol -> M.columnName hsCol dbCol
+                                Nothing    -> error "Panic: impossible case"
+                    ) cols
+        dbCtxn = {-mkDbKeyName (PkName curTab cols)-} (fromSing sctxn)
+        pki  = mkPrimaryKeyInfo dbCtxn (coerce cols)
     dbInfo . tableInfoAt curTab . primaryKeyInfo .= Just pki
-    pure (M.addPrimaryKey (coerce ctxn) cols)
+    pure (M.addPrimaryKey (M.constraintName dbCtxn dbCtxn) mcols)
   fromSing (SAddUnique suq) = do
-    let (cols, ctxn) = fromSing suq
-        ctxn' = ctxn
-        uniqEt = mkEntityName ctxn' ctxn'
     curTab <- use currentTable
+    mTabInfo <- preuse (dbInfo . tableInfoAt curTab)
+    
+    let (cols, hsUqN) = fromSing suq
+        dbUqN = mkDbKeyName (UqName (curTab ^. typeName) cols)
+        uniqEt = mkEntityName hsUqN dbUqN
+        mcols = map (\hsCol -> case mTabInfo ^? traverse . columnInfoAt hsCol . columnNameInfo . dbName of
+                      Just dbCol -> M.columnName hsCol dbCol
+                      Nothing    -> error "Panic: impossible case"
+                    ) cols        
     dbInfo . tableInfoAt curTab . uniqueInfo %=
          insert (mkUniqueInfo uniqEt cols)
-    pure (M.addUnique (coerce ctxn') (coerce cols))
+    pure (M.addUnique (M.constraintName hsUqN dbUqN) mcols)
   fromSing (SAddCheck sck)  = do
     let (scols, hsCname) = fromSing sck
         chkEt = mkEntityName hsCname hsCname
@@ -494,28 +507,36 @@ instance (AddConstraintCtx t) => SingE (t :: AddConstraint) where
     let ckInfo = migCksInfo cksAndDefs hsCname curTabName cols
     dbInfo . tableInfoAt curTab . checkInfo %=
          insert ckInfo
-    pure (M.addCheck (coerce (ckInfo ^. checkName . dbName))
+    pure (M.addCheck (M.constraintName hsCname (coerce (ckInfo ^. checkName . dbName)))
                      (coerce (ckInfo ^. checkExp)))
   fromSing (SAddForeignKey (sfkref :: Sing (fkref :: ForeignRef (TypeName Symbol)))) = do
     let fkref = fromSing sfkref
     curTab <- use currentTable
+    mTabInfo <- preuse (dbInfo . tableInfoAt curTab)
     case fkref of
-      RefByD ctxn cols reft refcols -> do
+      RefByD fkN cols reft refcols -> do
          let fk = mkForeignKeyInfo fkEt cols reft refcols
-             ctxn' = ctxn
-             fkEt = mkEntityName ctxn' ctxn'
+             dbFkN = mkDbKeyName (FkName (curTab ^. typeName) cols (reft ^. typeName))
+             hsFkN = fkN
+             fkEt = mkEntityName hsFkN dbFkN
+             mcols = map (\hsCol -> case mTabInfo ^? traverse . columnInfoAt hsCol . columnNameInfo . dbName of
+                                Just dbCol -> M.columnName hsCol dbCol
+                                Nothing    -> error "Panic: impossible case"
+                    ) cols
          dbInfo . tableInfoAt curTab . foreignKeyInfo %= insert fk
-         mdbTabN <- preuse (dbInfo . tableInfoAt reft . tableName . dbName)
-         let dbTabN = fromJust mdbTabN
-         pure $ M.addForeignKey (coerce ctxn') (coerce cols) (coerce dbTabN) (coerce refcols)
-      RefD ctxn col reft -> do
-        let fk = mkForeignKeyInfo fkEt ([col]) reft ([col])
-            ctxn' = ctxn
-            fkEt = mkEntityName ctxn' ctxn'
-        dbInfo . tableInfoAt curTab . foreignKeyInfo %= insert fk
-        mdbTabN <- preuse (dbInfo . tableInfoAt reft . tableName . dbName)
-        let dbTabN = fromJust mdbTabN
-        pure $ M.addForeignKey (coerce ctxn') (coerce [col]) (coerce dbTabN) (coerce [col])
+         mrefDbTabN <- preuse (dbInfo . tableInfoAt reft . tableName . dbName)
+         mrefAllCols <- preuse (dbInfo . tableInfoAt reft . columnInfo)
+         let refDbTabN  = fromJust mrefDbTabN
+             refAllCols = fromJust mrefAllCols
+             mrefcols = map (\hsCol -> case refAllCols ^? ixBy hsCol (_hsName . _columnNameInfo) . columnNameInfo . dbName of
+                                (Just dbCol) -> M.columnName hsCol dbCol
+                                _            -> error "Panic: impossible case"
+                       ) refcols             
+         pure $ M.addForeignKey (M.constraintName hsFkN dbFkN)
+                                mcols
+                                (M.tableName (reft ^. typeName) refDbTabN)
+                                mrefcols
+      _ -> error "No sing for RefD"
 
 instance SingE (t :: DropConstraint) where
   type Demote t = ChangeSetM M.AlterTable
@@ -525,7 +546,7 @@ instance SingE (t :: DropConstraint) where
     dbInfo . tableInfoAt curTab . primaryKeyInfo .=
       Nothing
     pure $ case mpki of
-      Just pki -> M.dropPrimaryKey (coerce (pki ^. pkeyName))
+      Just pki -> M.dropPrimaryKey (M.constraintName (pki ^. pkeyName) (pki ^. pkeyName))
       Nothing  -> error "Panic: non existant primary key"
   fromSing (SDropCheck schkn) = do
     curTab <- use currentTable    
@@ -534,7 +555,7 @@ instance SingE (t :: DropConstraint) where
     let dbChkn = fromJust mdbChkn
     dbInfo . tableInfoAt curTab . checkInfo %=
       delete hsChkn (\ck -> ck ^. checkName . hsName)
-    pure $ M.dropCheck (coerce dbChkn)
+    pure $ M.dropCheck (M.constraintName hsChkn dbChkn)
   fromSing (SDropUnique suqn) = do
     curTab <- use currentTable    
     let hsUqn = (fromSing suqn)
@@ -542,7 +563,7 @@ instance SingE (t :: DropConstraint) where
     let dbUqn = fromJust mdbUqn
     dbInfo . tableInfoAt curTab . uniqueInfo %=
          delete hsUqn (\uq -> uq ^. uqName . hsName)
-    pure $ M.dropUnique (coerce dbUqn)
+    pure $ M.dropUnique (M.constraintName hsUqn dbUqn)
   fromSing (SDropForeignKey sfkn) = do
     curTab <- use currentTable    
     let hsFkn = (fromSing sfkn)
@@ -550,7 +571,7 @@ instance SingE (t :: DropConstraint) where
     let dbFkn = fromJust mdbFkn
     dbInfo . tableInfoAt curTab . foreignKeyInfo %=
          delete hsFkn (\fk -> fk ^. fkeyName . hsName)
-    pure $ M.dropForeignKey (coerce dbFkn)
+    pure $ M.dropForeignKey (M.constraintName hsFkn dbFkn)
 
 type family UDTOpCtx (t :: TagHK (TypeName Symbol) UDTypeOP) where
   UDTOpCtx ('Tag tn ('AddEnumValAfter ev after))   = (SingE tn, SingE ev, SingE after)
@@ -565,20 +586,20 @@ instance (UDTOpCtx t) => SingE (t :: TagHK (TypeName Symbol) UDTypeOP) where
         enAft  = fromSing sEnAfter
     dbInfo . typeNameInfoAt typN . typeNameMap %=
       addEnumValAfter enVal enAft
-    pure (M.alterAddEnumAfter (coerce $ genTabName typN) (coerce enVal) (coerce enAft))
+    pure (M.alterAddEnumAfter (M.typeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal) (coerce enAft))
   fromSing (STag stypN (SAddEnumValBefore sEnVal sEnBef)) = do
     let typN   = fromSing stypN
         enVal  = fromSing sEnVal
         enBef  = fromSing sEnBef
     dbInfo . typeNameInfoAt typN . typeNameMap %=
       addEnumValBefore enVal enBef
-    pure (M.alterAddEnumBefore (coerce $ genTabName typN) (coerce enVal) (coerce enBef))
+    pure (M.alterAddEnumBefore (M.typeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal) (coerce enBef))
   fromSing (STag stypN (SAddEnumVal sEnVal)) = do
     let typN   = fromSing stypN
         enVal  = fromSing sEnVal
     dbInfo . typeNameInfoAt typN . typeNameMap %=
       addEnumVal enVal
-    pure (M.alterAddEnum (coerce $ genTabName typN) (coerce enVal))
+    pure (M.alterAddEnum (M.typeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal))
 
 data CreateType = CreateType
 data DropType   = DropType
@@ -772,7 +793,7 @@ mkMigrationTable _ = do
   dcts <- sequence $ fromSing (sing :: Sing (DropedConstraint db tab ver))
   mdbTabN <- preuse (dbInfo . tableInfoAt curTab . tableName . dbName)
   let dbTabN = fromJust mdbTabN
-  pure $ M.altering (coerce dbTabN) (acs ++ dcs ++ rcs ++ alcs ++ acts ++  dcts)
+  pure $ M.altering (M.tableName (curTab ^. typeName) dbTabN) (acs ++ dcs ++ rcs ++ alcs ++ acts ++  dcts)
 
 type family MkDroppedColumn (dcs :: [Symbol]) where
   MkDroppedColumn (dc ': dcs) = 'DropColumn dc ': MkDroppedColumn dcs
@@ -839,104 +860,137 @@ dbInfoChangeSet di = coerce (go di :: [M.PrimDDL])
 createPKey :: TableInfo -> PrimaryKeyInfo -> M.AlterTable
 createPKey tabInfo pkInfo = 
   let pkNameDb = pkInfo ^. pkeyName
-      pkColsDb = getDbColumnNames (tabInfo ^. columnInfo) (pkInfo ^. pkeyColumns)
-  in  M.addPrimaryKey (coerce pkNameDb) (coerce pkColsDb)
+      pkNameHs = ""
+      pkColsDb = getBothColumnNames (tabInfo ^. columnInfo) (pkInfo ^. pkeyColumns)
+  in  M.addPrimaryKey (M.constraintName pkNameDb pkNameHs) (map (uncurry M.columnName) pkColsDb)
 
 createType :: TypeNameInfo -> M.PrimDDL
 createType tni =
-  let (dbTypN, cons) = case tni ^. typeNameMap of
-        EnumTypeNM dbTypN cs -> (dbTypN, cs)
-  in M.createEnum (coerce dbTypN) (map coerce cons)
+  let dbTypN = S.dbTypeName (tni ^. typeNameMap)
+      cons   = S.dbConstructors (tni ^. typeNameMap)
+  in M.createEnum (M.typeName dbTypN) (map coerce cons)
 
 dropType :: TypeNameInfo -> M.PrimDDL
 dropType tni =
-  M.dropType (coerce (S.dbTypeName (tni ^. typeNameMap)))
+  M.dropType (M.typeName (S.dbTypeName (tni ^. typeNameMap)))
 
 createUnique :: TableInfo -> [UniqueInfo] -> [M.AlterTable]
 createUnique tabInfo uqInfos = 
-  let uqColsDb uqInfo = getDbColumnNames (tabInfo ^. columnInfo) (uqInfo ^. uqColumns)                    
-      addUniq uqInfo  = M.addUnique (coerce (uqInfo ^. uqName . dbName))
-                                    (coerce (uqColsDb uqInfo))
+  let uqColsDb uqInfo = getBothColumnNames (tabInfo ^. columnInfo) (uqInfo ^. uqColumns)
+      uqHsN = view (uqName . hsName)
+      uqDbN = view (uqName . dbName)
+      addUniq uqInfo  = M.addUnique (M.constraintName (uqHsN uqInfo) (uqDbN uqInfo))
+                                    (map (uncurry M.columnName) (uqColsDb uqInfo))
   in  map addUniq uqInfos
 
 dropUnique :: UniqueInfo -> M.AlterTable
-dropUnique uq = M.dropUnique (coerce (uq ^. uqName . dbName))
+dropUnique uqInfo =
+  let uqHsN = uqInfo ^. (uqName . hsName)
+      uqDbN = uqInfo ^. (uqName . dbName)
+  in  M.dropUnique (M.constraintName uqHsN uqDbN)
 
-createFKey :: DatabaseInfo -> TableInfo -> [ForeignKeyInfo] -> [M.AlterTable]
-createFKey dbInfo tabInfo fkInfos = 
-  let fkColsDb fkInfo = getDbColumnNames (tabInfo ^. columnInfo) (fkInfo ^. fkeyColumns)
-      fkRefColsDb fkInfo = getDbColumnNames (fromJust (dbInfo ^? tableInfoAt (fkInfo ^. fkeyRefTable) . columnInfo))
-                                            (fkInfo ^. fkeyRefColumns)
-      addFk fkInfo = M.addForeignKey (coerce (fkInfo ^. fkeyName . dbName))
-                                     (coerce (fkColsDb fkInfo))                            
-                                     (coerce (fromJust (dbInfo ^? tableInfoAt (fkInfo ^. fkeyRefTable) . tableName . dbName)))
-                                     (coerce (fkRefColsDb fkInfo))
+createForeignKey :: DatabaseInfo -> TableInfo -> [ForeignKeyInfo] -> [M.AlterTable]
+createForeignKey dbInfo tabInfo fkInfos = 
+  let fkColsDb fkInfo = getBothColumnNames (tabInfo ^. columnInfo) (fkInfo ^. fkeyColumns)
+      fkRefColsDb fkInfo = getBothColumnNames (fromJust (dbInfo ^? tableInfoAt (fkInfo ^. fkeyRefTable) . columnInfo))
+                                              (fkInfo ^. fkeyRefColumns)
+      refTabDbN fki = fromJust $ dbInfo ^? tableInfoAt (fki ^. fkeyRefTable) . tableName . dbName
+      refTabHsN fki = fromJust $ dbInfo ^? tableInfoAt (fki ^. fkeyRefTable) . tableName . hsName . typeName
+      fkDbN = view (fkeyName . dbName)
+      fkHsN = view (fkeyName . hsName)
+      addFk fkInfo = M.addForeignKey (M.constraintName (fkHsN fkInfo) (fkDbN fkInfo))
+                                     (map (uncurry M.columnName) (fkColsDb fkInfo))                            
+                                     (M.tableName (refTabHsN fkInfo) (refTabDbN fkInfo))
+                                     (map (uncurry M.columnName) (fkRefColsDb fkInfo))
   in  map addFk fkInfos
 
-dropFKey :: ForeignKeyInfo -> M.AlterTable
-dropFKey fk = M.dropForeignKey (coerce (fk ^. fkeyName . dbName))
+dropForeignKey :: ForeignKeyInfo -> M.AlterTable
+dropForeignKey fkInfo =
+  let fkDbN = fkInfo ^. (fkeyName . dbName)
+      fkHsN = fkInfo ^. (fkeyName . hsName)
+  in M.dropForeignKey (M.constraintName fkHsN fkDbN)
 
 createCheck :: [CheckInfo] -> [M.AlterTable]
 createCheck ckInfos = 
-  let addCk ckInfo = M.addCheck (coerce (ckInfo ^. checkName . dbName))
+  let addCk ckInfo = M.addCheck (M.constraintName (ckHsN ckInfo) (ckDbN ckInfo))
                                 (coerce (ckInfo ^. checkExp))
+      ckHsN = view (checkName . hsName)
+      ckDbN = view (checkName . dbName)
   in  map addCk ckInfos
 
 dropCheck :: CheckInfo -> M.AlterTable
-dropCheck ck = M.dropCheck (coerce (ck ^. checkName . dbName))
+dropCheck ckInfo =
+  let ckHsN = ckInfo ^. (checkName . hsName)
+      ckDbN = ckInfo ^. (checkName . dbName)
+  in M.dropCheck (M.constraintName ckHsN ckDbN)
 
 createDefault ::  TableInfo -> [DefaultInfo] -> [M.AlterTable]
 createDefault tabInfo defInfos =
-  let addDef defInfo = M.addDefault (coerce (getDbColumnName (tabInfo ^. columnInfo) (defInfo ^. defaultOn)))
+  let addDef defInfo = M.addDefault (uncurry M.columnName (getBothColumnName (tabInfo ^. columnInfo) (defInfo ^. defaultOn)))
                                     (coerce (defInfo ^. defaultExp))
   in map addDef defInfos
 
 dropDefault :: TableInfo -> DefaultInfo -> M.AlterTable
-dropDefault ti dfi = M.dropDefault (coerce (getDbColumnName (ti ^. columnInfo) (dfi ^. defaultOn)))
+dropDefault ti dfi =
+  M.dropDefault (uncurry M.columnName (getBothColumnName (ti ^. columnInfo) (dfi ^. defaultOn)))
 
 createSequence :: TableInfo -> [SequenceInfo] -> [M.PrimDDL]
 createSequence ti seqInfos =
-  let createSeq coln seqn = M.createSequence (coerce $ doubleQuoteT (genKeyName $ SeqNameGen tabn coln (Just seqn)))
-      tabn = ti ^. tableName . dbName                                  
-      ownSeq coln seqn seqT = case seqT of
-        SeqOwned -> Just $ M.addOwnerToSequence (coerce tabn)
-                                                (coerce coln)
-                                                (coerce $ doubleQuoteT (genKeyName $ SeqNameGen tabn coln Nothing))
+  let createSeq (_ , dbColN) seqn = M.createSequence (M.sequenceName (seqn ^. hsName) (seqn ^. dbName))
+      dbTabN = ti ^. tableName . dbName
+      hsTabN = ti ^. tableName . hsName . typeName   
+      ownSeq (hsColN, dbColN) seqn seqT = case seqT of
+        SeqOwned -> Just $ M.addOwnerToSequence (M.tableName hsTabN dbTabN)
+                                               (M.columnName hsColN dbColN)
+                                               (M.sequenceName (seqn ^. hsName) (seqn ^. dbName))
                                                     
         _        -> Nothing
-      seqn coln = quoteT $ doubleQuoteT (genKeyName $ SeqNameGen tabn coln Nothing)
-      seqnE coln = PQ.ConstExpr (PQ.Other (seqn coln))
-      nextValE coln = PQ.FunExpr "nextVal" [seqnE coln]
-      defSeq coln seqn seqT = case seqT of
+      seqNameGen = quoteT . doubleQuoteT
+      seqnE dbSeqN = PQ.ConstExpr (PQ.Other (seqNameGen dbSeqN))
+      nextValE dbSeqN = PQ.FunExpr "nextVal" [seqnE dbSeqN]
+      defSeq (hsColN, dbColN) seqn seqT = case seqT of
         SeqOwned  -> Nothing
-        SeqSerial -> Just (M.altering (coerce (ti ^. tableName . dbName)) $ M.single $
-                                  M.addDefault (coerce coln) (coerce (nextValE coln)))
-  in  map (\si -> createSeq (getDbColumnName (ti ^. columnInfo) (si ^. seqOn)) (si ^. seqName . dbName)) seqInfos ++                         
-      (catMaybes $ map (\si -> ownSeq (getDbColumnName (ti ^. columnInfo) (si ^. seqOn)) (si ^. seqName . dbName) (si ^. seqType)) seqInfos) ++
-      concat (catMaybes $ map (\si -> defSeq (getDbColumnName (ti ^. columnInfo) (si ^. seqOn)) (si ^. seqName . dbName) (si ^. seqType)) seqInfos)
+        SeqSerial ->
+          let tN   = M.tableName hsTabN dbTabN
+              colN = M.columnName hsColN dbColN
+          in  Just (M.altering tN $ M.single $ M.addDefault colN (coerce (nextValE dbColN)))
+  in  map (\si -> createSeq (getBothColumnName (ti ^. columnInfo) (si ^. seqOn)) (si ^. seqName)) seqInfos ++                         
+      (catMaybes $ map (\si -> ownSeq (getBothColumnName (ti ^. columnInfo) (si ^. seqOn)) (si ^. seqName) (si ^. seqType)) seqInfos) ++
+      concat (catMaybes $ map (\si -> defSeq (getBothColumnName (ti ^. columnInfo) (si ^. seqOn)) (si ^. seqName) (si ^. seqType)) seqInfos)
                     
 dropSequence :: SequenceInfo -> M.PrimDDL
-dropSequence sq = M.dropSequence (coerce (sq ^. seqName . dbName))
+dropSequence sq =
+  M.dropSequence (M.sequenceName (sq ^. seqName . hsName) (sq ^. seqName . dbName))
   
 addNotNull :: [ColumnInfo] -> [M.AlterTable]
 addNotNull notNullCols =
-  let addNotNullCtx notNullCol = M.setNotNull (coerce (notNullCol ^. columnNameInfo . dbName))
+  let addNotNullCtx notNullCol = M.setNotNull (M.columnName (notNullCol ^. columnNameInfo . hsName) (notNullCol ^. columnNameInfo . dbName))
   in map addNotNullCtx notNullCols
 
+columnName :: ColumnInfo -> M.ColName
+columnName colInfo =
+  M.columnName (colInfo ^. columnNameInfo . hsName) (colInfo ^. columnNameInfo . dbName)
+
+columnType :: ColumnInfo -> M.ColType
+columnType colInfo =
+  M.columnType (M.typeName (colInfo ^. columnTypeName . dbType))
+
 toMColumn :: ColumnInfo -> M.Column
-toMColumn colInfo = M.column (coerce (colInfo ^. columnNameInfo . dbName))
-                              (coerce (colInfo ^. columnTypeName))
+toMColumn colInfo =
+  let colN = columnName colInfo
+      colT = columnType colInfo
+  in  M.column colN colT
 
 dropTable :: TableInfo -> [M.PrimDDL]
 dropTable tabInfo =
-  let dpk   = maybe [] M.single $ fmap (\pki -> M.dropPrimaryKey (coerce (pki ^. pkeyName ))) (tabInfo ^. primaryKeyInfo)
+  let dpk   = maybe [] M.single $ fmap (\pki -> M.dropPrimaryKey (M.constraintName (pki ^. pkeyName) (pki ^. pkeyName))) (tabInfo ^. primaryKeyInfo)
       duqs  = map dropUnique (tabInfo ^. uniqueInfo)
-      dfks  = map dropFKey (tabInfo ^. foreignKeyInfo)
+      dfks  = map dropForeignKey (tabInfo ^. foreignKeyInfo)
       dcks  = map dropCheck (tabInfo ^. checkInfo)
       ddefs = map (dropDefault tabInfo) (tabInfo ^. defaultInfo)
       dseqs = map dropSequence (tabInfo ^. sequenceInfo)
-      tabn  = tabInfo ^. tableName . dbName
-  in  (M.altering (coerce tabn) $
+      tabn  = M.tableName (tabInfo ^. tableName . hsName . typeName) (tabInfo ^. tableName . dbName)
+  in  (M.altering tabn $
         dpk ++ duqs ++ dfks ++ dcks ++ ddefs)            ++
       [M.dropTable (coerce tabn)]                        ++
       dseqs
@@ -944,24 +998,25 @@ dropTable tabInfo =
 createTable :: DatabaseInfo -> TableInfo -> [M.PrimDDL]
 createTable dbi tabInfo =          
   let tabNDb  = tabInfo ^. tableName . dbName
-     
-      createTab = M.CreateTable (coerce tabNDb) (coerce (map toMColumn (tabInfo ^. columnInfo)))
+      tabNHs  = tabInfo ^. tableName . hsName . typeName
+      createTab = M.createTable (M.tableName tabNHs tabNDb) (coerce (map toMColumn (tabInfo ^. columnInfo)))
       addPks  = let mpkInfo  = tabInfo ^. primaryKeyInfo                             
                 in  maybe [] M.single (fmap (createPKey tabInfo) mpkInfo)
       addUqs  = createUnique tabInfo (tabInfo ^. uniqueInfo)
-      addFks  = createFKey dbi tabInfo (tabInfo ^. foreignKeyInfo)
+      addFks  = createForeignKey dbi tabInfo (tabInfo ^. foreignKeyInfo)
       addChks = createCheck (tabInfo ^. checkInfo)
       addDefs = createDefault tabInfo (tabInfo ^. defaultInfo)                        
       addNotNullChks = addNotNull (getNonNullableColumns (tabInfo ^. columnInfo))
+      tN   = M.tableName tabNHs tabNDb
   in (:) createTab $
          createSequence tabInfo (tabInfo ^. sequenceInfo) ++
-         (M.altering (coerce tabNDb) $ concat [   addPks  
-                                               , addUqs
-                                               , addFks
-                                               , addChks
-                                               , addDefs
-                                               , addNotNullChks
-                                               ]
+         (M.altering tN $ concat [ addPks  
+                                 , addUqs
+                                 , addFks
+                                 , addChks
+                                 , addDefs
+                                 , addNotNullChks
+                                 ]
           )
         
 type family TyCxts (db :: *) (tys :: [*]) :: Constraint where
@@ -1010,11 +1065,11 @@ diffPKInfo oldTi newTi mOldPki mNewPki =
   case (mOldPki, mNewPki) of
     (Just oldPki, Just newPki) -> case oldPki `isSamePkAs` newPki of
                                 True  -> []
-                                False -> [ M.dropPrimaryKey (coerce (oldPki ^. pkeyName))
+                                False -> [ M.dropPrimaryKey (M.constraintName (oldPki ^. pkeyName) (oldPki ^. pkeyName))
                                          , createPKey newTi newPki
                                          ]
     (Nothing, Just newPki) -> M.single $ createPKey newTi newPki
-    (Just oldPki, Nothing) -> M.single $ M.dropPrimaryKey (coerce (oldPki ^. pkeyName))
+    (Just oldPki, Nothing) -> M.single $ M.dropPrimaryKey (M.constraintName (oldPki ^. pkeyName) (oldPki ^. pkeyName))
     (Nothing, Nothing)   -> []
 
   where isSamePkAs oldPki newPki =
@@ -1026,7 +1081,7 @@ diffUqInfo :: TableInfo -> TableInfo -> UniqueInfo -> UniqueInfo -> [M.AlterTabl
 diffUqInfo oldTi newTi oldUq newUq =
   case oldUq `isSameUqAs` newUq of
     True  -> []
-    False ->   M.dropUnique (coerce (oldUq ^. uqName . dbName))
+    False ->   dropUnique oldUq
              : createUnique newTi [newUq]
   
   where isSameUqAs oldUq newUq =
@@ -1034,24 +1089,23 @@ diffUqInfo oldTi newTi oldUq newUq =
           getDbColumnNames (newTi ^. columnInfo) (newUq ^. uqColumns) 
 
 diffFkInfo :: DatabaseInfo -> DatabaseInfo -> TableInfo -> TableInfo -> ForeignKeyInfo -> ForeignKeyInfo -> [M.AlterTable]
-diffFkInfo di1 newDi oldTi newTi oldFk newFk =
+diffFkInfo oldDi newDi oldTi newTi oldFk newFk =
   case oldFk `isSameFkAs` newFk of
     True  -> []
-    False ->   M.dropForeignKey (coerce (oldFk ^. fkeyName . dbName))
-             : createFKey di1 newTi [newFk]
+    False -> dropForeignKey oldFk : createForeignKey newDi newTi [newFk]
   
   where isSameFkAs oldFk newFk =
           getDbColumnNames (oldTi ^. columnInfo) (oldFk ^. fkeyColumns) ==
           getDbColumnNames (oldTi ^. columnInfo) (newFk ^. fkeyColumns) &&
-          getDbColumnNames (di1 ^. tableInfoAt (oldFk ^. fkeyRefTable) . columnInfo) (oldFk ^. fkeyRefColumns) ==
+          getDbColumnNames (oldDi ^. tableInfoAt (oldFk ^. fkeyRefTable) . columnInfo) (oldFk ^. fkeyRefColumns) ==
           getDbColumnNames (newDi ^. tableInfoAt (newFk ^. fkeyRefTable) . columnInfo) (newFk ^. fkeyRefColumns)
 
 diffCheck :: CheckInfo -> CheckInfo -> [M.AlterTable]
 diffCheck oldCki newCki =
   case oldCki `isSameCheckAs` newCki of
     True -> []
-    False -> M.dropCheck (coerce (newCki ^. checkName . dbName))
-           : createCheck [oldCki]
+    False -> dropCheck oldCki
+           : createCheck [newCki]
   where isSameCheckAs oldCki newCki =
           (oldCki ^. checkExp) == (newCki ^. checkExp)
           
@@ -1059,7 +1113,7 @@ diffDefault :: TableInfo -> TableInfo -> DefaultInfo -> DefaultInfo -> [M.AlterT
 diffDefault oldTi newTi oldDfi newDfi =
   case oldDfi `isSameDefAs` newDfi of
      True  -> []
-     False -> M.dropDefault (coerce (oldDfi ^. defaultOn))
+     False -> dropDefault oldTi oldDfi
             : createDefault newTi [newDfi]
 
   where isSameDefAs oldDfi newDfi =
@@ -1088,14 +1142,14 @@ diffColumnInfo oldCi newCi =
   where diffNulls oldCi newCi =
           case (oldCi ^. isNullable) == (newCi ^. isNullable) of
             False -> case oldCi ^. isNullable of
-              False -> M.single $ M.dropNotNull (coerce (newCi ^. columnNameInfo . dbName))
-              True  -> M.single $ M.setNotNull (coerce (newCi ^. columnNameInfo . dbName))
+              False -> M.single $ M.dropNotNull (M.columnName (newCi ^. columnNameInfo . hsName)  (newCi ^. columnNameInfo . dbName))
+              True  -> M.single $ M.setNotNull (M.columnName (newCi ^. columnNameInfo . hsName)  (newCi ^. columnNameInfo . dbName))
             _     -> []
         diffType oldCi newCi =
           case (oldCi ^. columnTypeName) == (newCi ^. columnTypeName) of
             True  -> []
-            False -> M.single $ M.changeType (coerce (newCi ^. columnNameInfo . dbName))
-                                             (coerce (newCi ^. columnTypeName))
+            False -> M.single $ M.changeType (M.columnName (newCi ^. columnNameInfo . hsName) (newCi ^. columnNameInfo . dbName))
+                                            (coerce (M.typeName (newCi ^. columnTypeName . dbType)))
           
 diffTableInfo :: DatabaseInfo -> DatabaseInfo -> TableInfo -> TableInfo -> [M.PrimDDL]
 diffTableInfo oldDi newDi oldTi newTi =
@@ -1128,16 +1182,16 @@ diffTableInfo oldDi newDi oldTi newTi =
                                            (newTi ^. sequenceInfo)                                         
       seqDiff = concatMap (uncurry (diffSequence oldTi newTi)) pairedSqs
       
-  in  (M.altering (coerce (oldTi ^. tableName . dbName)) $
-        map M.dropColumn (map (coerce . (^. columnNameInfo . dbName)) oldCols) ++
+  in  (M.altering (M.tableName (oldTi ^. tableName . hsName . typeName) (oldTi ^. tableName . dbName)) $
+        map M.dropColumn (map columnName oldCols) ++
         map (M.addColumn . toMColumn) newCols ++
         colDiff                               ++
         pkDiff                                ++
         map dropUnique oldUqs                 ++
         createUnique newTi newUqs             ++
         uqDiff                                ++
-        map dropFKey oldFks                   ++
-        createFKey newDi newTi newFks         ++
+        map dropForeignKey oldFks             ++
+        createForeignKey newDi newTi newFks   ++
         fkDiff                                ++
         map (dropDefault oldTi) oldDefs       ++
         createDefault newTi newDefs           ++
@@ -1379,8 +1433,8 @@ basePkInfo :: forall db tab ver.
           ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType -> Maybe PrimaryKeyInfo
 basePkInfo _ _ _ et =
   let pkCols = fromSing (sing :: Sing (BasePrimaryKey db tab ver))
-      pkDefN = let hsn    = genTabName (et ^. hsName)
-               in  genKeyName (PkNameGen hsn pkCols)      
+      pkDefN = let hsn = et ^. hsName . typeName
+               in  mkDbKeyName (PkName hsn pkCols)      
   in  case pkCols of
     [] -> Nothing
     _  -> let dbn = maybe pkDefN id (fromSing (sing :: Sing (BasePrimaryKeyName db tab ver)))
@@ -1448,8 +1502,8 @@ baseTabNameInfo :: forall tab db ver.
                ) => Proxy db -> Proxy tab -> Proxy ver -> EntityNameWithType
 baseTabNameInfo _ _ _ =
   let tabTN = fromSing (sing :: Sing tab)
-      dbTabN = genTabName tabTN
-  in mkEntityName (coerce tabTN) (coerce dbTabN)
+      dbTabN = mkDbTabName tabTN
+  in mkEntityName tabTN dbTabN
                
 baseColInfos :: forall tab db ver.
             ( BaseTable db tab ver
