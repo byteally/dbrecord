@@ -259,7 +259,9 @@ tableColQ =
                \ordinal_position, \
                \column_default, \
                \is_nullable, \ 
-               \CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END, \
+               \CASE WHEN data_type = 'USER-DEFINED' THEN udt_name
+                     ELSE data_type = 'ARRAY'        THEN 'Array(' || udt_name || ')' 
+                END, \
                \character_maximum_length \
         \FROM information_schema.columns \
         \WHERE table_schema = 'public' \
