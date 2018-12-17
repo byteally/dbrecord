@@ -1738,15 +1738,25 @@ mkHaskTypeName typeNameHints dbName =
 
 -- 
 camelCase :: Text -> Text
-camelCase = mconcat . headLower . splitName . T.toTitle
-  where headLower (x : xs) = T.toLower x : xs
+camelCase = mconcat . headLower . splitName
+  where headLower (x : xs) = uncapitalizeHead x : map capitalizeHead xs
         headLower _        = []
 
 pascalCase :: Text -> Text
-pascalCase = mconcat . splitName . T.toTitle
+pascalCase = mconcat . map capitalizeHead . splitName
 
 splitName :: Text -> [Text]
 splitName = filter (\a -> a /= "") . T.split (\x -> x == ' ' || x == '_')
+
+capitalizeHead :: Text -> Text
+capitalizeHead txt = case T.uncons txt of
+  Just (h, rest) -> T.toUpper (T.singleton h) <> rest
+  Nothing        -> txt
+
+uncapitalizeHead :: Text -> Text
+uncapitalizeHead txt = case T.uncons txt of
+  Just (h, rest) -> T.toLower (T.singleton h) <> rest
+  Nothing        -> txt
 
 {-
 ppDatabaseInfo :: DatabaseInfo -> String
