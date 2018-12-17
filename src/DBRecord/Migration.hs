@@ -581,22 +581,25 @@ instance (UDTOpCtx t) => SingE (t :: TagHK (TypeName Symbol) UDTypeOP) where
   type Demote t = ChangeSetM M.PrimDDL
   fromSing (STag stypN (SAddEnumValAfter sEnVal sEnAfter)) = do
     let typN   = fromSing stypN
+        pgt    = enumType (T.unpack (typN ^. typeName))
         enVal  = fromSing sEnVal
         enAft  = fromSing sEnAfter
-    dbInfo . typeNameInfoAt typN . typeNameMap %=
+    dbInfo . typeNameInfoAt pgt . typeNameMap %=
       addEnumValAfter enVal enAft
     pure (M.alterAddEnumAfter (M.customTypeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal) (coerce enAft))
   fromSing (STag stypN (SAddEnumValBefore sEnVal sEnBef)) = do
     let typN   = fromSing stypN
+        pgt    = enumType (T.unpack (typN ^. typeName))    
         enVal  = fromSing sEnVal
         enBef  = fromSing sEnBef
-    dbInfo . typeNameInfoAt typN . typeNameMap %=
+    dbInfo . typeNameInfoAt pgt . typeNameMap %=
       addEnumValBefore enVal enBef
     pure (M.alterAddEnumBefore (M.customTypeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal) (coerce enBef))
   fromSing (STag stypN (SAddEnumVal sEnVal)) = do
     let typN   = fromSing stypN
         enVal  = fromSing sEnVal
-    dbInfo . typeNameInfoAt typN . typeNameMap %=
+        pgt    = enumType (T.unpack (typN ^. typeName))        
+    dbInfo . typeNameInfoAt pgt . typeNameMap %=
       addEnumVal enVal
     pure (M.alterAddEnum (M.customTypeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal))
 
@@ -1372,8 +1375,8 @@ baseTypeNameInfo :: forall db ver ty.
                       ) => Proxy db -> Proxy ver -> Sing (ty :: TypeName Symbol) -> TypeNameInfo
 baseTypeNameInfo _ _ sty =
   let tnm = fromSing (sing :: Sing (BaseTypeMappings db ver ty))
-      tnv = fromSing sty
-  in  mkTypeNameInfo tnv tnm
+      pgt = enumType (T.unpack (fromSing sty ^. typeName))
+  in  mkTypeNameInfo pgt tnm
 
 {-  
 baseTypeNameInfo :: forall db ver.

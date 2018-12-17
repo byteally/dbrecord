@@ -124,7 +124,9 @@ toDatabaseInfo hints dbn eis cols chks defs pk uqs fks =
       custTypeNameHints = customTypeNameHints hints      
       dbt = EntityName { _hsName = mkHaskTypeName dbNameHints dbn , _dbName = dbn }
       types = map (\ei ->
-                    mkTypeNameInfo (mkHaskTypeName custTypeNameHints (enumTypeName ei)) (EnumTypeNM (enumTypeName ei) (V.toList (enumCons ei)))
+                    let et = parsePGType False (T.unpack etn)
+                        etn = enumTypeName ei
+                    in  mkTypeNameInfo et (EnumTypeNM etn (V.toList (enumCons ei)))
                   ) eis
       tabInfos = L.map (\dbTN ->
                          let tUqs = HM.lookupDefault [] dbTN uqs

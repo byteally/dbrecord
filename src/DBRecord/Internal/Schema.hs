@@ -975,13 +975,13 @@ type EntityNameWithType = EntityName (TypeName Text)
 eqBy :: (Eq a) => Lens' s a -> s -> s -> Bool
 eqBy l old new = (old ^. l) == (new ^. l)
 
-mkTypeNameInfo :: TypeName Text -> TypeNameMap -> TypeNameInfo
-mkTypeNameInfo et tnm =
-  TypeNameInfo { _typeNameVal = et
+mkTypeNameInfo :: PGType -> TypeNameMap -> TypeNameInfo
+mkTypeNameInfo pgt tnm =
+  TypeNameInfo { _typeNameVal = pgt
                , _typeNameMap = tnm
                }
 
-data TypeNameInfo = TypeNameInfo { _typeNameVal   :: TypeName Text
+data TypeNameInfo = TypeNameInfo { _typeNameVal   :: PGType
                                  , _typeNameMap   :: TypeNameMap
                                  } deriving (Show, Eq)
 
@@ -1015,7 +1015,7 @@ addEnumVal :: Text -> TypeNameMap -> TypeNameMap
 addEnumVal eVal (EnumTypeNM et evs) =
   EnumTypeNM et (evs ++ [eVal])
 
-typeNameVal :: Lens' TypeNameInfo (TypeName Text)
+typeNameVal :: Lens' TypeNameInfo PGType
 typeNameVal k t = fmap (\a -> t { _typeNameVal = a }) (k (_typeNameVal t))
 
 typeNameMap :: Lens' TypeNameInfo TypeNameMap
@@ -1048,8 +1048,8 @@ name k t = fmap (\a -> t { _name = a }) (k (_name t))
 typeNameInfos :: Lens' DatabaseInfo [TypeNameInfo]
 typeNameInfos k t = fmap (\a -> t { _typeNameInfos = a }) (k (_typeNameInfos t))
 
-typeNameInfoAt :: TypeName Text -> Traversal' DatabaseInfo TypeNameInfo
-typeNameInfoAt hsN = typeNameInfos . ixBy hsN _typeNameVal
+typeNameInfoAt :: PGType -> Traversal' DatabaseInfo TypeNameInfo
+typeNameInfoAt pgt = typeNameInfos . ixBy pgt _typeNameVal
 
 baseline :: Lens' DatabaseInfo Step
 baseline k t = fmap (\a -> t { _baseline = a }) (k (_baseline t))
@@ -1295,13 +1295,14 @@ headTypeNameInfo :: forall db ty.
                       ( UDType db ty
                       , SingI (TypeMappings db ty)
                       , UDTCtx (TypeMappings db ty)
-                      , SingE (GetPMT (Rep ty))
-                      , SingI (GetPMT (Rep ty))
                       , Generic ty
+                      , DB db ~ 'Postgres
+                      , SingDBType 'Postgres (GetPGTypeRep ty)
                       ) => Proxy db -> Sing (ty :: *) -> TypeNameInfo
-headTypeNameInfo _ _ =
+headTypeNameInfo pdb _ =
   let tnm = fromSing (sing :: Sing (TypeMappings db ty))
-      tnv = fromSing (sing :: Sing (GetPMT (Rep ty)))
+      tnv = unliftDBType (Proxy :: Proxy (DB db))
+                         (Proxy :: Proxy (GetDBTypeRep (DB db) ty))
   in  mkTypeNameInfo tnv tnm
 
 type family AllUDCtx db tys :: Constraint where
@@ -1309,9 +1310,9 @@ type family AllUDCtx db tys :: Constraint where
                             , SingI (TypeMappings db ty)
                             , UDTCtx (TypeMappings db ty)
                             , AllUDCtx db tys
-                            , SingE (GetPMT (Rep ty))
-                            , SingI (GetPMT (Rep ty))
                             , Generic ty
+                            , SingDBType 'Postgres (GetPGTypeRep ty)
+                            , DB db ~ 'Postgres
                             )
   AllUDCtx db '[]         = ()                                  
 
@@ -1810,3 +1811,5 @@ parsePGType nullInfo = wrapNullable nullInfo . go
         wrapNullable True a  = PGNullable a
         wrapNullable False a = a
         
+enumType :: String -> PGType
+enumType v = PGCustomType (PGTypeName v) False
