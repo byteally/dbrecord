@@ -4,7 +4,7 @@ module DBRecord.Interface
        , module DBRecord.Query.Interface
        ) where
 
-import DBRecord.Schema.Interface hiding (tableName)
+import DBRecord.Schema.Interface hiding (tableName, toNullable)
 import DBRecord.Migration.Interface
 import DBRecord.Query.Interface hiding (TableName)
 

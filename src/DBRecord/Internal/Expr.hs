@@ -40,7 +40,7 @@ import Data.CaseInsensitive (CI, foldedCase, mk)
 import qualified Data.Attoparsec.Char8 as A
 import Control.Applicative
 import Data.Coerce
-import DBRecord.Internal.Schema
+import DBRecord.Internal.Schema hiding (toNullable)
 import DBRecord.Internal.Common
 import GHC.Generics
 

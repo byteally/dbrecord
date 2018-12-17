@@ -39,7 +39,7 @@ import DBRecord.Internal.Common
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.DBTypes
 import qualified Data.List as L
-import DBRecord.Internal.Lens ((^.), Lens', coerceL, Traversal', ixBy)
+import DBRecord.Internal.Lens ((^.), Lens', coerceL, Traversal', ixBy, view)
 import Data.Monoid ((<>))
 import qualified Data.HashMap.Strict as HM
 
@@ -460,10 +460,10 @@ instance All SingE xs => SingE (xs :: [k]) where
   fromSing (SCons x xs) = fromSing x : fromSing xs
 
 type family DBTypeCtx (taggedDbt :: TagHK DbK DBTypeK) where
-  DBTypeCtx ('Tag dbT dbTy) = (ShowDBType dbT dbTy)
+  DBTypeCtx ('Tag dbT dbTy) = (SingDBType dbT dbTy, dbT ~ 'Postgres)
 
 instance (DBTypeCtx taggedDbt) => SingE (taggedDbt :: TagHK DbK DBTypeK) where
-  type Demote taggedDbt     = Text
+  type Demote taggedDbt     = PGType
   fromSing (STag sdb stype) = showDBTypeSing sdb stype
 
 type family UDTCtx (taggedDbt :: UDTypeMappings) where
@@ -475,9 +475,10 @@ instance (UDTCtx udt) => SingE (udt :: UDTypeMappings) where
     EnumTypeNM (fromSing stn) (fromSing sdcons)
 
 showDBTypeSing :: forall db dbTy.
-                   (ShowDBType db dbTy
-                   ) => Sing (db :: DbK) -> Sing (dbTy :: DBTypeK) -> Text
-showDBTypeSing dbK dbT = showDBType (reproxy dbK) (reproxy dbT)
+                   ( SingDBType db dbTy
+                   , db ~ 'Postgres
+                   ) => Sing (db :: DbK) -> Sing (dbTy :: DBTypeK) -> PGType
+showDBTypeSing dbK dbT = unliftDBType (reproxy dbK) (reproxy dbT)
 
 instance (UqCtx SingE uq) => SingE (uq :: UniqueCT) where
   type Demote (uq :: UniqueCT)         = (Demote (Any :: [Symbol]), Demote (Any :: Symbol))
@@ -947,10 +948,10 @@ moduleName k t = fmap (\a -> t { _moduleName = a }) (k (_moduleName t))
 typeName :: Lens' (TypeName a) a
 typeName k t = fmap (\a -> t { _typeName = a }) (k (_typeName t))
 
-newtype DBType = DBType { _dbType :: Text }
+newtype DBType = DBType { _dbType :: PGType }
                deriving (Show, Eq)
 
-dbType :: Lens' DBType Text
+dbType :: Lens' DBType PGType
 dbType k t = fmap coerce (k (coerce t))
 
 data EntityName a = EntityName { _hsName :: a
@@ -1134,20 +1135,15 @@ columnInfoAt hsN = columnInfo . ixBy hsN (_hsName . _columnNameInfo)
 columnInfoAtDb :: DBName -> Traversal' TableInfo ColumnInfo 
 columnInfoAtDb dbN = columnInfo . ixBy dbN (_dbName . _columnNameInfo)
 
-mkColumnInfo :: Bool -> EntityNameWithHask -> DBType -> ColumnInfo
-mkColumnInfo isn cni ctn =
-  ColumnInfo { _isNullable = isn
-             , _columnNameInfo = cni
+mkColumnInfo :: EntityNameWithHask -> DBType -> ColumnInfo
+mkColumnInfo cni ctn =
+  ColumnInfo { _columnNameInfo = cni
              , _columnTypeName = ctn
              } 
 
-data ColumnInfo = ColumnInfo { _isNullable     :: Bool
-                             , _columnNameInfo :: EntityNameWithHask
+data ColumnInfo = ColumnInfo { _columnNameInfo :: EntityNameWithHask
                              , _columnTypeName :: DBType
                              } deriving (Show, Eq)
-
-isNullable :: Lens' ColumnInfo Bool
-isNullable k t = fmap (\a -> t { _isNullable = a }) (k (_isNullable t))
 
 columnNameInfo :: Lens' ColumnInfo EntityNameWithHask
 columnNameInfo k t = fmap (\a -> t { _columnNameInfo = a }) (k (_columnNameInfo t))
@@ -1505,13 +1501,13 @@ headColInfos _ _ =
       hsns   = fromSing (sing :: Sing (OriginalTableFieldInfo db tab))
   in  map (colInfoOne colMap) hsns
                          
-colInfoOne :: [(Text, Text)] -> ((Text, Bool), Text) -> ColumnInfo
+-- colInfoOne :: [(Text, Text)] -> ((Text, Bool), Text) -> ColumnInfo
 colInfoOne cMap ((typN, isNull), hsn) =
   let dbn = case L.lookup hsn cMap of
         Just dbn' -> dbn'
         _         -> hsn
       etName = mkEntityName hsn dbn
-  in mkColumnInfo isNull etName (coerce typN)
+  in mkColumnInfo etName (coerce typN)
 
 getDbColumnName :: [ColumnInfo] -> HaskName -> DBName
 getDbColumnName cis n = (getColumnInfo cis n) ^. columnNameInfo . dbName
@@ -1533,11 +1529,22 @@ getDbCheckName chkMap k = fromJust (L.lookup k chkMap)
 filterColumns :: [Text] -> [ColumnInfo] -> [ColumnInfo]
 filterColumns hsns cis = map (getColumnInfo cis) hsns
 
+toNullable :: PGType -> PGType
+toNullable = PGNullable
+
+removeNullable :: PGType -> PGType
+removeNullable (PGNullable t) = t
+removeNullable _ = error "Panic: Remove nullable failed"
+
+isNullable :: PGType -> Bool
+isNullable (PGNullable _) = True
+isNullable _              = False
+
 getNullableColumns :: [ColumnInfo] -> [ColumnInfo]
-getNullableColumns = filter _isNullable
+getNullableColumns = filter (isNullable . view (columnTypeName . dbType))
 
 getNonNullableColumns :: [ColumnInfo] -> [ColumnInfo]
-getNonNullableColumns = filter (not . _isNullable)
+getNonNullableColumns = filter (not . isNullable . view (columnTypeName . dbType))
 
 getColumnInfo :: [ColumnInfo] -> Text -> ColumnInfo
 getColumnInfo cis hsn = 
@@ -1746,3 +1753,60 @@ ppDatabaseInfo di =
   "Database Name: " <> ppEntityName (di ^. databaseName) <>
   "Tables 
 -}  
+
+ppPGType :: PGType -> String
+ppPGType = go
+  where go PGInt2             = "SMALLINT"
+        go PGInt4             = "INTEGER"
+        go PGInt8             = "BIGINT"
+        go PGBool             = "BOOLEAN"
+        go PGFloat8           = "DOUBLE PRECISION"
+        go (PGChar i)         = "CHARACTER (" ++ show i ++ " )"
+        go PGText             = "TEXT"
+        go PGByteArr          = "BYTEA"
+        go PGTimestamptz      = "TIMESTAMPTZ"
+        go PGInterval         = "INTERVAL"
+        go PGCiText           = "CITEXT"
+        go PGDate             = "DATE"
+        go PGTime             = "TIME"
+        go PGTimestamp        = "TIMESTAMP"
+        go PGUuid             = "UUID"
+        go PGJson             = "JSON"
+        go PGJsonB            = "JSONB"        
+        go (PGArray t)        = go t ++ "[]"
+        go (PGNullable t)     = go t
+        go (PGTypeName t)     = T.unpack (doubleQuote (T.pack t))
+        go (PGCustomType t _) = go t
+
+parsePGType :: Bool -> String -> PGType
+parsePGType nullInfo = wrapNullable nullInfo . go
+  where go "smallint"                  = PGInt2
+        go "integer"                   = PGInt4
+        go "bigint"                    = PGInt8
+        go "boolean"                   = PGBool
+        go "double precision"          = PGFloat8
+        -- go "character "
+        go "text"                      = PGText
+        go "bytea"                     = PGByteArr
+        go "timestamp with time zone"  = PGTimestamptz
+        go "interval"                  = PGInterval
+        go "citext"                    = PGCiText
+        go "timestamp"                 = PGTimestamp
+        go "date"                      = PGDate
+        go "time"                      = PGTime
+        go "uuid"                      = PGUuid
+        go "jsonb"                     = PGJsonB
+        go "json"                      = PGJson
+        go v | isArray v               = PGArray (parseArray v)
+             | otherwise               = PGCustomType (PGTypeName v) False
+
+
+        isArray v = case splitAt 2 v of
+          ("[]", _) -> True
+          _         -> False
+
+        parseArray = go . drop 3 
+
+        wrapNullable True a  = PGNullable a
+        wrapNullable False a = a
+        

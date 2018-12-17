@@ -3,15 +3,19 @@ module DBRecord.Internal.Migration.Types where
 
 import qualified Data.Text as T
 import qualified DBRecord.Internal.PrimQuery as PQ
-import DBRecord.Internal.Schema (HaskName, DBName)
+import DBRecord.Internal.Schema (HaskName, DBName, ppPGType)
+import DBRecord.Internal.DBTypes (PGType (PGTypeName))
 
 data HaskAnn a = HaskAnn { hsNameAnn :: HaskName
                          , annOn     :: a
                          }
                deriving (Show, Eq, Functor)
 
-typeName :: DBName -> TypeName
-typeName = TypeName
+typeName :: PGType -> TypeName
+typeName = TypeName . T.pack . ppPGType
+
+customTypeName :: T.Text -> TypeName
+customTypeName = TypeName . T.pack . ppPGType . PGTypeName . T.unpack
 
 data TypeName = TypeName DBName
               deriving Show

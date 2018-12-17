@@ -371,11 +371,10 @@ instance (AddColumnCtx t) => SingE (t :: AddColumn) where
     let colnHs = fromSing scoln
         colnDb = mkDbColumnName colnHs
         colt   = fromSing scolt
-        isn    = fromSing (isNullableSing scolt)
         cni    = mkEntityName colnHs colnDb
     curTab <- use currentTable
     dbInfo . tableInfoAt curTab . columnInfo %=
-         insert (mkColumnInfo isn cni (coerce colt))
+         insert (mkColumnInfo cni (coerce colt))
     pure $ M.addColumn (M.column (M.columnName colnHs colnDb) (coerce (M.typeName colt)))
 
       where isNullableSing :: forall dbt db. (SingI (IsNullable (UnTag dbt))) => Sing dbt -> Sing (IsNullable (UnTag dbt))
@@ -420,14 +419,14 @@ instance (AlterColumnCtx t) => SingE (t :: AlterColumn) where
     curTab <- use currentTable    
     mdbColn <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     let dbColn = fromJust mdbColn
-    dbInfo . tableInfoAt curTab . columnInfoAt hsColn . isNullable .= False
+    dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnTypeName . dbType %= removeNullable
     pure $ M.setNotNull (M.columnName hsColn dbColn)
   fromSing (SDropNotNull scoln) = do
     let hsColn = fromSing scoln
     curTab <- use currentTable 
     mdbColn <- preuse (dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnNameInfo . dbName)
     let dbColn = fromJust mdbColn
-    dbInfo . tableInfoAt curTab . columnInfoAt hsColn . isNullable .= True    
+    dbInfo . tableInfoAt curTab . columnInfoAt hsColn . columnTypeName . dbType %= toNullable
     pure $ M.dropNotNull (M.columnName hsColn dbColn)
   fromSing (SChangeType scoln scolt) = do
     let hsColn = fromSing scoln
@@ -586,20 +585,20 @@ instance (UDTOpCtx t) => SingE (t :: TagHK (TypeName Symbol) UDTypeOP) where
         enAft  = fromSing sEnAfter
     dbInfo . typeNameInfoAt typN . typeNameMap %=
       addEnumValAfter enVal enAft
-    pure (M.alterAddEnumAfter (M.typeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal) (coerce enAft))
+    pure (M.alterAddEnumAfter (M.customTypeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal) (coerce enAft))
   fromSing (STag stypN (SAddEnumValBefore sEnVal sEnBef)) = do
     let typN   = fromSing stypN
         enVal  = fromSing sEnVal
         enBef  = fromSing sEnBef
     dbInfo . typeNameInfoAt typN . typeNameMap %=
       addEnumValBefore enVal enBef
-    pure (M.alterAddEnumBefore (M.typeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal) (coerce enBef))
+    pure (M.alterAddEnumBefore (M.customTypeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal) (coerce enBef))
   fromSing (STag stypN (SAddEnumVal sEnVal)) = do
     let typN   = fromSing stypN
         enVal  = fromSing sEnVal
     dbInfo . typeNameInfoAt typN . typeNameMap %=
       addEnumVal enVal
-    pure (M.alterAddEnum (M.typeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal))
+    pure (M.alterAddEnum (M.customTypeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal))
 
 data CreateType = CreateType
 data DropType   = DropType
@@ -868,11 +867,11 @@ createType :: TypeNameInfo -> M.PrimDDL
 createType tni =
   let dbTypN = S.dbTypeName (tni ^. typeNameMap)
       cons   = S.dbConstructors (tni ^. typeNameMap)
-  in M.createEnum (M.typeName dbTypN) (map coerce cons)
+  in M.createEnum (M.customTypeName dbTypN) (map coerce cons)
 
 dropType :: TypeNameInfo -> M.PrimDDL
 dropType tni =
-  M.dropType (M.typeName (S.dbTypeName (tni ^. typeNameMap)))
+  M.dropType (M.customTypeName (S.dbTypeName (tni ^. typeNameMap)))
 
 createUnique :: TableInfo -> [UniqueInfo] -> [M.AlterTable]
 createUnique tabInfo uqInfos = 
@@ -1140,8 +1139,8 @@ diffColumnInfo oldCi newCi =
   diffType  oldCi newCi
 
   where diffNulls oldCi newCi =
-          case (oldCi ^. isNullable) == (newCi ^. isNullable) of
-            False -> case oldCi ^. isNullable of
+          case isNullable (oldCi ^. columnTypeName . dbType) == isNullable (newCi ^. columnTypeName . dbType) of
+            False -> case isNullable (oldCi ^. columnTypeName . dbType) of
               False -> M.single $ M.dropNotNull (M.columnName (newCi ^. columnNameInfo . hsName)  (newCi ^. columnNameInfo . dbName))
               True  -> M.single $ M.setNotNull (M.columnName (newCi ^. columnNameInfo . hsName)  (newCi ^. columnNameInfo . dbName))
             _     -> []

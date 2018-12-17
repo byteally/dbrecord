@@ -208,9 +208,8 @@ toTabColInfo hints = HM.fromListWith (++) . map colInfo
           _     -> error "Panic: Invalid nullability information from DB"
 
         colInfo tci =
-          let ci = mkColumnInfo (nullable tci)
-                                (mkEntityName (mkHaskColumnName (columnNameHints (dbTableName tci) hints) (dbColumnName tci)) (dbColumnName tci))
-                                (coerce (dbTypeName tci))
+          let ci = mkColumnInfo (mkEntityName (mkHaskColumnName (columnNameHints (dbTableName tci) hints) (dbColumnName tci)) (dbColumnName tci))
+                                (coerce (parsePGType (nullable tci) (T.unpack (dbTypeName tci))))
                    
           in ( dbTableName tci, [ci])
 
@@ -259,8 +258,9 @@ tableColQ =
                \ordinal_position, \
                \column_default, \
                \is_nullable, \ 
-               \CASE WHEN data_type = 'USER-DEFINED' THEN udt_name\
-                    \ELSE data_type = 'ARRAY'        THEN 'Array(' || udt_name || ')'\
+               \CASE WHEN data_type = 'USER-DEFINED' THEN udt_name \
+                    \WHEN data_type = 'ARRAY'        THEN '[]' || udt_name \
+                    \ELSE data_type \
                \END, \
                \character_maximum_length \
         \FROM information_schema.columns \
