@@ -1,0 +1,60 @@
+name:                dbrecord-postgres-simple
+version:             0.1.0.0
+synopsis:            DBRecord for Postgres using postgres-simple driver
+description:         Please see README.md
+homepage:            https://github.com/byteally/dbrecord#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Magesh B
+maintainer:          magesh85@gmail.com
+copyright:           © 2016 Magesh B
+category:            Database
+build-type:          Simple
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  ghc-options:        -Wall
+  exposed-modules:  DBRecord.Postgres
+                    DBRecord.Postgres.Internal.Pretty
+                    DBRecord.Postgres.Internal.Interval
+                    DBRecord.Postgres.Internal.TextSearch
+                    DBRecord.Postgres.Internal.TextSearch.Query
+                    DBRecord.Postgres.Internal.TextSearch.Vector                    
+
+
+                  
+  build-depends:       base              >= 4.7 && < 5
+                     , postgresql-simple == 0.5.*
+                     , postgresql-libpq  == 0.9.*
+                     , aeson
+                     , text
+                     , dbrecord
+                     , pretty               == 1.1.*
+                     -- , text              >=0.11.1
+                     , base16-bytestring >= 0.1.1.6 && < 0.2
+                     , bytestring
+                     , attoparsec
+
+  default-language:    Haskell2010
+
+test-suite dbrecord-postgres-simple-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  build-depends:       base
+                     , text
+                     , dbrecord
+                     , tasty-hunit
+                     , hspec
+                     , mtl
+                     , postgresql-simple >= 0.5
+                     , mysql-haskell >= 0.8
+  other-modules:       Test.MigSpec
+                       Test.QuerySpec
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/mageshb/dbrecord

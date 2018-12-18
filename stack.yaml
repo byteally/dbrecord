@@ -1,6 +1,11 @@
 resolver: lts-8.3
 packages:
-- '.'
+- dbrecord
+- dbrecord-postgres-simple
+- dbrecord-mysql-haskell
+- dbrecord-mongo
+- dbrecord-mssql-odbc
+- dbrecord-sqlite-simple
 extra-deps:
 - mysql-haskell-0.8.0.0
 - binary-ieee754-0.1.0.0
