@@ -16,7 +16,12 @@ library
   hs-source-dirs:      src
   ghc-options:        -Wall
   exposed-modules:  DBRecord.Postgres
-                    DBRecord.Postgres.Internal.Pretty
+                    DBRecord.Postgres.Internal.Sql.Pretty
+                    DBRecord.Postgres.Internal.Sql.Parser
+                    DBRecord.Postgres.Internal.PrettyDDL
+                    DBRecord.Postgres.Internal.Reify
+                    DBRecord.Postgres.Internal.Transaction
+                    DBRecord.Postgres.Internal.Query                    
                     DBRecord.Postgres.Internal.Interval
                     DBRecord.Postgres.Internal.TextSearch
                     DBRecord.Postgres.Internal.TextSearch.Query
@@ -30,14 +35,26 @@ library
                      , aeson
                      , text
                      , dbrecord
-                     , pretty               == 1.1.*
-                     -- , text              >=0.11.1
+                     , pretty            == 1.1.*
+                     , vector
                      , base16-bytestring >= 0.1.1.6 && < 0.2
                      , bytestring
                      , attoparsec
+                     , unordered-containers
+                     , hashable
+                     , transformers
+                     , resource-pool
+                     , mtl
 
   default-language:    Haskell2010
 
+test-suite dbrecord-reify-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      reify-test
+  main-is:             Main.hs
+  build-depends:       base
+                     , dbrecord
+   
 test-suite dbrecord-postgres-simple-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test

@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
-module DBRecord.Internal.Sql.Types where
+module DBRecord.Internal.Sql.DML where
 
 import Data.ByteString (ByteString)
 import qualified Data.List.NonEmpty as NEL

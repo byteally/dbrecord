@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
-module DBRecord.MSSQL.Internal.Parser
+module DBRecord.Sqlite.Internal.Sql.Parser
   ( sqlExpr
-  , parseMSSQLType
+  , parseSqliteType
   ) where
 
-import DBRecord.Internal.Sql.Types
+import DBRecord.Internal.Sql.DML
 import Data.Attoparsec.Text hiding (number)
 import qualified Data.Text as T
 import qualified Data.Attoparsec.Text as A
@@ -263,5 +263,5 @@ literal =
           stringLit  = (StringSql . T.pack) <$> quoted word
           oidLit     = (StringSql . T.pack) <$> quoted (doubleQuoted identifier)
           
-parseMSSQLType :: Bool -> String -> DBType
-parseMSSQLType nullInfo = error "Panic: not implemented"
+parseSqliteType :: Bool -> String -> DBType
+parseSqliteType nullInfo = error "Panic: not implemented"

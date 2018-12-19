@@ -12,8 +12,8 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Base16 as Base16
 import qualified Data.List.NonEmpty as NEL
-import DBRecord.Internal.Sql.Types hiding (alias, criteria, attrs)
-import qualified DBRecord.Internal.Sql.Types as PGT
+import DBRecord.Internal.Sql.DML hiding (alias, criteria, attrs)
+import qualified DBRecord.Internal.Sql.DML as DML
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import qualified Data.Maybe as M
@@ -63,21 +63,21 @@ sqlInsertGenerator = PQ.InsertQueryFold
 newSelect :: SelectFrom
 newSelect = SelectFrom {
   options   = [],
-  PGT.attrs     = All,
-  PGT.criteria  = [],
+  DML.attrs     = All,
+  DML.criteria  = [],
   groupby   = Nothing,
   orderby   = [],
   limit     = Nothing,
   offset    = Nothing,
   having    = [],
   windows   = [],
-  PGT.alias = Nothing            
+  DML.alias = Nothing            
   }
 
 baseClauses :: PQ.Clauses -> SelectFrom
 baseClauses cs = 
-    newSelect { PGT.attrs    = Columns (ensureColumns (map sqlBinding (PQ.projections cs)))
-              , PGT.criteria = map toSqlExpr (PQ.criteria cs)
+    newSelect { DML.attrs    = Columns (ensureColumns (map sqlBinding (PQ.projections cs)))
+              , DML.criteria = map toSqlExpr (PQ.criteria cs)
               , windows      = map toSqlWindow (PQ.windows cs)                 
               , groupby  = case (PQ.groupbys cs) of
                              [] -> Nothing
@@ -90,18 +90,18 @@ baseClauses cs =
 
 baseTable :: PQ.TableId -> PQ.Clauses -> SqlSelect
 baseTable tabId cs = SqlSelect (toSqlTable tabId) $ 
-  (baseClauses cs) { PGT.alias  = (T.unpack <$> (PQ.alias cs)) }
+  (baseClauses cs) { DML.alias  = (T.unpack <$> (PQ.alias cs)) }
 
 toSqlTable :: PQ.TableId -> SqlTable
 toSqlTable (PQ.TableId s tn) = SqlTable (Just (T.unpack s)) (T.unpack tn)
 
 product :: NEL.NonEmpty SqlSelect -> PQ.Clauses -> SqlSelect
 product tabs cs = SqlProduct (NEL.toList tabs) $            
-  (baseClauses cs) { PGT.alias = T.unpack <$> (PQ.alias cs) } 
+  (baseClauses cs) { DML.alias = T.unpack <$> (PQ.alias cs) } 
 
 join :: PQ.JoinType -> PQ.PrimExpr -> SqlSelect -> SqlSelect -> PQ.Clauses -> SqlSelect
 join jt e q1 q2 cs = SqlJoin (Join (joinType' jt) (q1, q2) (toSqlExpr e))
-                              ((baseClauses cs) { PGT.alias  = (T.unpack <$> (PQ.alias cs)) })
+                              ((baseClauses cs) { DML.alias  = (T.unpack <$> (PQ.alias cs)) })
                      
   where joinType' :: PQ.JoinType -> JoinType
         joinType' PQ.LeftJoin  = LeftJoin
@@ -111,7 +111,7 @@ join jt e q1 q2 cs = SqlJoin (Join (joinType' jt) (q1, q2) (toSqlExpr e))
 
 binary :: PQ.BinType -> SqlSelect -> SqlSelect -> PQ.Clauses -> SqlSelect
 binary bt q1 q2 cs = SqlBin (Binary (selectBinOp' bt) q1 q2)
-                                     ((baseClauses cs) { PGT.alias  = (T.unpack <$> (PQ.alias cs)) })
+                                     ((baseClauses cs) { DML.alias  = (T.unpack <$> (PQ.alias cs)) })
                      
   where selectBinOp' :: PQ.BinType -> SelectBinOp
         selectBinOp' PQ.Union           = Union

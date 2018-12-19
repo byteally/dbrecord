@@ -28,7 +28,7 @@ module DBRecord.Migration
        ) where
 
 -- import qualified Database.PostgreSQL.Simple  as PGS
-import qualified DBRecord.Internal.Migration as M
+import qualified DBRecord.Internal.DDL       as M
 import qualified DBRecord.Internal.Schema    as S
 import Data.Maybe
 

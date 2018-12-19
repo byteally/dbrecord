@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
-module DBRecord.MSSQL.Internal.Migration.Pretty where
+module DBRecord.MySQL.Internal.PrettyDDL where
 
-import DBRecord.Internal.Migration.Types
+import DBRecord.Internal.DDL
 -- import DBRecord.Internal.Postgres (ppPGExpr)
 import Data.Text (Text, unpack, pack)
 import qualified Text.PrettyPrint.HughesPJ as Pretty
@@ -11,18 +11,16 @@ import Text.PrettyPrint.HughesPJ (Doc, (<+>), text,
                                   (<>))
 import Prelude hiding ((<>))
 import DBRecord.Internal.DBTypes (DBType (DBTypeName))
-import DBRecord.Internal.Migration.Types
 import DBRecord.Migration (ChangeSet (..))
 import qualified Data.Text as T
-import DBRecord.MSSQL.Internal.Pretty
 import DBRecord.Internal.Sql.SqlGen
-import DBRecord.MSSQL.Internal.Pretty
+import DBRecord.MySQL.Internal.Sql.Pretty
 
 typeName :: DBType -> TypeName
-typeName = TypeName . T.pack . ppMSSQLType
+typeName = TypeName . T.pack . ppSqliteType
 
 customTypeName :: T.Text -> TypeName
-customTypeName = TypeName . T.pack . ppMSSQLType . DBTypeName . T.unpack
+customTypeName = TypeName . T.pack . ppSqliteType . DBTypeName . T.unpack
 
 escQuote :: Text -> Text
 escQuote = escapeBy (Just '\'')
@@ -58,13 +56,13 @@ ppTypeName :: TypeName -> Doc
 ppTypeName (TypeName typeN) = text_ typeN
 
 ppColumnType :: ColType -> Doc
-ppColumnType (ColType tn) = text (ppMSSQLType tn)
+ppColumnType (ColType tn) = text (ppSqliteType tn)
 
 ppCheckExpr :: CheckExpr -> Doc
-ppCheckExpr (CheckExpr e) = parens (ppMSSQLExpr (genSqlExpr e))
+ppCheckExpr (CheckExpr e) = parens (ppSqliteExpr (genSqlExpr e))
 
 ppDefaultExpr :: DefExpr -> Doc
-ppDefaultExpr (DefExpr e) = parens (ppMSSQLExpr (genSqlExpr e))
+ppDefaultExpr (DefExpr e) = parens (ppSqliteExpr (genSqlExpr e))
 
 ppEnumVal :: EnumVal -> Doc
 ppEnumVal (EnumVal e) = quotes e

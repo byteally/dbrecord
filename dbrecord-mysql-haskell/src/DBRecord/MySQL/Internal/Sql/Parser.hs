@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
-module DBRecord.Sqlite.Internal.Parser
+module DBRecord.MySQL.Internal.Sql.Parser
   ( sqlExpr
   , parseSqliteType
   ) where
 
-import DBRecord.Internal.Sql.Types
+import DBRecord.Internal.Sql.DML
 import Data.Attoparsec.Text hiding (number)
 import qualified Data.Text as T
 import qualified Data.Attoparsec.Text as A

@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
-module DBRecord.Internal.Sql.Parser
+module DBRecord.Postgres.Internal.Sql.Parser
   ( sqlExpr
   , parsePGType
   ) where
 
-import DBRecord.Internal.Sql.Types
+import DBRecord.Internal.Sql.DML
 -- import qualified DBRecord.Internal.Postgres.Types as PGT
 import Data.Attoparsec.Text hiding (number)
 import qualified Data.Text as T
@@ -14,6 +14,7 @@ import Control.Applicative
 import Data.Char (isAlpha, isDigit)
 import qualified Debug.Trace as DT
 import qualified Data.List.NonEmpty as NEL
+import DBRecord.Internal.DBTypes (DBType (..))
 
 sqlExpr :: Parser SqlExpr
 sqlExpr =

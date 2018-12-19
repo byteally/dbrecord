@@ -4,7 +4,7 @@
 --                Purely Agile Limited (c) 2014-2016
 -- License     :  BSD-style
 
-module DBRecord.MSSQL.Internal.Pretty
+module DBRecord.MSSQL.Internal.Sql.Pretty
   ( renderQuery
   , renderDelete
   , renderInsert
@@ -16,8 +16,8 @@ module DBRecord.MSSQL.Internal.Pretty
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Base16 as Base16
-import DBRecord.Internal.Sql.Types hiding (alias, criteria)
-import qualified DBRecord.Internal.Sql.Types as SQL
+import DBRecord.Internal.Sql.DML hiding (alias, criteria)
+import qualified DBRecord.Internal.Sql.DML as DML
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 import Data.Foldable (toList)
@@ -42,12 +42,12 @@ ppSelect select = case select of
 
 ppSelectWith :: SelectFrom -> Doc -> Doc
 ppSelectWith from tabDoc =
-    ppAs (doubleQuotes . text <$> SQL.alias from) $
+    ppAs (doubleQuotes . text <$> DML.alias from) $
     parens $ 
       text "SELECT"
   <+> ppAttrs (attrs from)
   $$  text "FROM " <+> tabDoc
-  $$  ppWhere (SQL.criteria from)
+  $$  ppWhere (DML.criteria from)
   $$  ppWindows (windows from)  
   $$  ppGroupBy (groupby from)
   $$  ppOrderBy (orderby from)

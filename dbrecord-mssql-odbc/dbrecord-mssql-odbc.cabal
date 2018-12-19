@@ -16,9 +16,9 @@ library
   hs-source-dirs:      src
   ghc-options:         -Wall
   exposed-modules:     DBRecord.MSSQL
-                       DBRecord.MSSQL.Internal.Parser
-                       DBRecord.MSSQL.Internal.Pretty
-                       DBRecord.MSSQL.Internal.Migration.Pretty
+                       DBRecord.MSSQL.Internal.Sql.Parser
+                       DBRecord.MSSQL.Internal.Sql.Pretty
+                       DBRecord.MSSQL.Internal.PrettyDDL
 
 
                                          

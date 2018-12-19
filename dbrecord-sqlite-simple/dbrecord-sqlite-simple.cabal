@@ -17,9 +17,9 @@ library
   ghc-options:         -Wall
   
   exposed-modules:    DBRecord.Sqlite
-                      DBRecord.Sqlite.Internal.Pretty
-                      DBRecord.Sqlite.Internal.Parser
-                      DBRecord.Sqlite.Internal.Migration.Pretty
+                      DBRecord.Sqlite.Internal.Sql.Pretty
+                      DBRecord.Sqlite.Internal.Sql.Parser
+                      DBRecord.Sqlite.Internal.PrettyDDL
 
   build-depends:      base              >= 4.7 && < 5
                     , sqlite-simple

@@ -20,22 +20,23 @@ library
                        DBRecord.Interface
                        DBRecord.Migration
                        DBRecord.Migration.Interface
+                       DBRecord.Query
                        DBRecord.Schema
                        DBRecord.Schema.Interface
                        DBRecord.Query.Interface
                        DBRecord.Internal.PrimQuery
-                       DBRecord.Internal.Sql.Types
+                       DBRecord.Internal.Sql
+                       DBRecord.Internal.Sql.DML
                        DBRecord.Internal.Sql.SqlGen
                        DBRecord.Internal.Expr
                        DBRecord.Internal.Order
                        DBRecord.Internal.Predicate
                        DBRecord.Internal.Window
-                       DBRecord.Internal.Migration.Types
-                       DBRecord.Internal.Migration
                        DBRecord.Internal.Common
                        DBRecord.Internal.Lens                  
                        DBRecord.Internal.Types
                        DBRecord.Internal.DBTypeValidation
+                       DBRecord.Internal.DDL
                        DBRecord.Internal.DBTypes
                        DBRecord.Internal.Schema
 
@@ -75,13 +76,6 @@ test-suite dbrecord-test
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
   default-language:    Haskell2010
 
-test-suite dbrecord-reify-test
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      reify-test
-  main-is:             Main.hs
-  build-depends:       base
-                     , dbrecord
-   
 source-repository head
   type:     git
   location: https://github.com/byteally/dbrecord

@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, DuplicateRecordFields, ScopedTypeVariables, DeriveGeneric #-}
-module DBRecord.Internal.Migration.Validation
+module DBRecord.Postgres.Internal.Reify
        ( getPostgresDbSchemaInfo
        , defHints
        , columnNameHint
@@ -25,19 +25,18 @@ import Data.Hashable
 import Data.Attoparsec.Text (parseOnly)
 import Data.Either (either)
 import qualified DBRecord.Internal.PrimQuery as PQ
-import DBRecord.Internal.Postgres.Parser
-import DBRecord.Internal.Postgres.SqlGen (primExprGen)
-import DBRecord.Internal.Migration.Types ( createTable
-                                         , addPrimaryKey
-                                         , addUnique
-                                         , addForeignKey
-                                         , addCheck
-                                         , addDefault
-                                         , setNotNull
-                                         , column
-                                         , single
-                                         )
-import qualified DBRecord.Internal.Migration.Types as MT
+import DBRecord.Postgres.Internal.Sql.Parser
+import DBRecord.Internal.Sql.SqlGen (primExprGen)
+import DBRecord.Internal.DDL ( createTable
+                             , addPrimaryKey
+                             , addUnique
+                             , addForeignKey
+                             , addCheck
+                             , addDefault
+                             , setNotNull
+                             , column
+                             , single
+                             )
 import Data.Coerce
 import Data.Maybe
 import DBRecord.Internal.Schema hiding (Sequence, dbTypeName, DbKeyName (..))

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
-module DBRecord.Internal.Migration.Pretty where
+module DBRecord.Postgres.Internal.PrettyDDL where
 
-import DBRecord.Internal.Migration.Types
+import DBRecord.Internal.DDL
 -- import DBRecord.Internal.Postgres (ppPGExpr)
 import Data.Text (Text, unpack, pack)
 import qualified Text.PrettyPrint.HughesPJ as Pretty
@@ -10,9 +10,13 @@ import Text.PrettyPrint.HughesPJ (Doc, (<+>), text,
                                   hsep, semi, render, char,
                                   (<>))
 import Prelude hiding ((<>))
-import DBRecord.Internal.DBTypes (PGType (PGTypeName))
+import DBRecord.Internal.DBTypes
+import qualified Data.Text as T
+import DBRecord.Migration (ChangeSet (..))
+import DBRecord.Postgres.Internal.Sql.Pretty
+import DBRecord.Internal.Sql.SqlGen
 
-typeName :: PGType -> TypeName
+typeName :: DBType -> TypeName
 typeName = TypeName . T.pack . ppPGType
 
 customTypeName :: T.Text -> TypeName
@@ -52,7 +56,7 @@ ppTypeName :: TypeName -> Doc
 ppTypeName (TypeName typeN) = text_ typeN
 
 ppColumnType :: ColType -> Doc
-ppColumnType (ColType tn) = ppTypeName tn
+ppColumnType (ColType tn) = text (ppPGType tn)
 
 ppCheckExpr :: CheckExpr -> Doc
 ppCheckExpr (CheckExpr e) = parens (ppPGExpr (genSqlExpr e))

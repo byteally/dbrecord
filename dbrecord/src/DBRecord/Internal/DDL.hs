@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
-module DBRecord.Internal.Migration.Types where
+module DBRecord.Internal.DDL where
 
 import qualified Data.Text as T
 import qualified DBRecord.Internal.PrimQuery as PQ

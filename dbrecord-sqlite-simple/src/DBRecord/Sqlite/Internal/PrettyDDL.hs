@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
-module DBRecord.Sqlite.Internal.Migration.Pretty where
+module DBRecord.Sqlite.Internal.PrettyDDL where
 
-import DBRecord.Internal.Migration.Types
+import DBRecord.Internal.DDL
 -- import DBRecord.Internal.Postgres (ppPGExpr)
 import Data.Text (Text, unpack, pack)
 import qualified Text.PrettyPrint.HughesPJ as Pretty
@@ -11,12 +11,10 @@ import Text.PrettyPrint.HughesPJ (Doc, (<+>), text,
                                   (<>))
 import Prelude hiding ((<>))
 import DBRecord.Internal.DBTypes (DBType (DBTypeName))
-import DBRecord.Internal.Migration.Types
 import DBRecord.Migration (ChangeSet (..))
 import qualified Data.Text as T
-import DBRecord.Sqlite.Internal.Pretty
 import DBRecord.Internal.Sql.SqlGen
-import DBRecord.Sqlite.Internal.Pretty
+import DBRecord.Sqlite.Internal.Sql.Pretty
 
 typeName :: DBType -> TypeName
 typeName = TypeName . T.pack . ppSqliteType

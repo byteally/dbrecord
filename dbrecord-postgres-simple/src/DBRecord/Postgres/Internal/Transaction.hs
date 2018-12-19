@@ -6,7 +6,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 -- | 
 
-module DBRecord.Transaction where
+module DBRecord.Postgres.Internal.Transaction where
 
 
 import           Control.Exception            (AsyncException,

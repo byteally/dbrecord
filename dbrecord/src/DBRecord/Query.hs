@@ -28,15 +28,25 @@ module DBRecord.Query
        , delete
        , insert, insert_, insertMany, insertMany_, insertRet, insertManyRet
        , update, update_
-       , count
+       -- , count
        , (.~) , (%~)
        , DBM
        , Driver
-       , PGS(..)
-       , withResource
+       -- , PGS(..)
+       -- , withResource
        , runSession, SessionConfig(..)
        , runTransaction
        , Page(..)
+       , FromDBRow
+       , ToDBRow
+       , HasUpdate (..)
+       , HasQuery (..)
+       , HasUpdateRet (..)
+       , HasDelete (..)
+       , HasInsert (..)
+       , HasInsertRet (..)
+       , Session (..)
+       , HasTransaction (..)
        ) where
 
 import DBRecord.Schema
@@ -59,20 +69,13 @@ import Data.Int
 import GHC.Exts
 import GHC.TypeLits
 import Data.Functor.Identity
-import qualified DBRecord.Internal.Postgres.SqlGen as PG
-import qualified DBRecord.Internal.Postgres.Pretty as PG
-import qualified DBRecord.Transaction as PG
 import Control.Monad.IO.Class
 import Control.Monad.Reader
-import Database.PostgreSQL.Simple as PGS
-import Database.PostgreSQL.Simple.FromRow as PGS
-import Data.Pool (withResource)
 import DBRecord.Internal.Lens ((^.))
 
 import GHC.Generics
 
 type family DBM (db :: *) = (r :: * -> *) | r -> db
-
 type family Driver (dbm :: * -> *) = (r :: * -> *) | r -> dbm
 
 
@@ -136,12 +139,6 @@ infixr 4 %~
 type family FromDBRow (driver :: * -> *) (a :: *) :: Constraint
 type family ToDBRow (driver :: * -> *) (a :: *) :: Constraint
   
-type instance FromDBRow (PGS) a = (FromRow a)
-type instance ToDBRow (PGS) a = (ToRow a)
-
-data PGS cfg where
-  PGS :: PGS.Connection -> PGS PGS.Connection
-
 class HasUpdate (driver :: * -> *) where
   dbUpdate :: driver cfg -> UpdateQuery -> IO Int64
 
@@ -164,61 +161,13 @@ class Session (driver :: * -> *) where
   data SessionConfig (driver :: * -> *) cfg :: *
   runSession :: SessionConfig driver cfg -> ReaderT (driver cfg) IO a -> IO a
 
-instance Session PGS where
-  data SessionConfig PGS cfg where
-    PGSConfig :: PG.Config_ -> SessionConfig PGS PGS.Connection
-  runSession (PGSConfig cfg) dbact =
-    withResource (PG.connectionPool cfg) $ \conn -> runReaderT dbact $ PGS conn
-  
-
-
 class HasTransaction (driver :: * -> *) where
   withTransaction :: driver cfg ->  IO a -> IO a
-
-instance HasTransaction PGS where
-  withTransaction (PGS conn) dbact = PGS.withTransaction conn dbact
 
 runTransaction :: (Session driver, HasTransaction driver) => SessionConfig driver cfg -> ReaderT (driver cfg) IO a -> IO a
 runTransaction sessionCfg dbact = runSession sessionCfg $ do
   ReaderT (\cfg -> DBRecord.Query.withTransaction cfg $ runReaderT dbact cfg)
   
-
-instance HasUpdateRet PGS where
-  dbUpdateRet (PGS conn) updateQ = do
-    let updateSQL = PG.renderUpdate $ PG.updateSql $ updateQ
-    putStrLn updateSQL
-    returningWith fromRow conn (fromString updateSQL) ([]::[()])
-
-instance HasUpdate PGS where
-  dbUpdate (PGS conn) updateQ = do
-    let updateSQL = PG.renderUpdate $ PG.updateSql $ updateQ
-    putStrLn updateSQL
-    execute_ conn (fromString updateSQL)
-
-instance HasQuery PGS where
-  dbQuery (PGS conn) primQ = do
-    let sqlQ= PG.renderQuery $ PG.sql primQ
-    putStrLn sqlQ
-    query_ conn (fromString sqlQ)
-
-instance HasInsert PGS where
-  dbInsert (PGS conn) insQ = do
-    let insSQL = PG.renderInsert $ PG.insertSql insQ
-    putStrLn insSQL
-    execute_ conn (fromString insSQL)
-
-instance HasInsertRet PGS where
-  dbInsertRet (PGS conn) insQ = do
-    let insSQL = PG.renderInsert $ PG.insertSql insQ
-    putStrLn insSQL
-    returningWith fromRow conn (fromString insSQL) ([]::[()])
-
-instance HasDelete PGS where
-  dbDelete (PGS conn) deleteQ = do
-    let delSQL = PG.renderDelete $ PG.deleteSql $ deleteQ
-    putStrLn delSQL
-    execute_ conn (fromString delSQL)
-
 class HasCol db tab sc (t :: *) where
   hasCol :: Proxy (DBTag db tab t) -> Proxy sc -> Expr sc t
 
@@ -367,6 +316,7 @@ getAll' cls = do
       tabFlds = getTableProjections (Proxy @db) (Proxy @tab)
   runQuery tabId (cls { projections = tabFlds })
 
+{-
 count :: forall tab db driver cfg.
   ( Table db tab
   , MonadIO (DBM db)
@@ -386,6 +336,7 @@ count filt = do
   case res of
     [Only ct] -> pure $ ColVal ct
     _         -> error "Panic: Expecting only a singleton @count"
+-}
 
 runQuery :: ( MonadIO (DBM db)
              , MonadReader (driver cfg) (DBM db)
