@@ -47,70 +47,70 @@ data DBType = DBInt4
 class SingDBType (db :: DbK) (dbTy :: Type.DBTypeK) where
   unliftDBType :: Proxy db -> Proxy dbTy -> DBType
 
-instance SingDBType 'Postgres 'Type.DBInt2 where
+instance SingDBType dbk 'Type.DBInt2 where
   unliftDBType _ _ = DBInt2
 
-instance SingDBType 'Postgres 'Type.DBInt4 where
+instance SingDBType dbk 'Type.DBInt4 where
   unliftDBType _ _ = DBInt4
 
-instance SingDBType 'Postgres 'Type.DBInt8 where
+instance SingDBType dbk 'Type.DBInt8 where
   unliftDBType _ _ = DBInt8
 
-instance SingDBType 'Postgres 'Type.DBBool where
+instance SingDBType dbk 'Type.DBBool where
   unliftDBType _ _ = DBBool
 
-instance SingDBType 'Postgres 'Type.DBFloat8 where
+instance SingDBType dbk 'Type.DBFloat8 where
   unliftDBType _ _ = DBFloat8
 
-instance (KnownNat n) => SingDBType 'Postgres ('Type.DBChar n) where
+instance (KnownNat n) => SingDBType dbk ('Type.DBChar n) where
   unliftDBType _ _ = DBChar (natVal (Proxy @n))
 
-instance SingDBType 'Postgres 'Type.DBText where
+instance SingDBType dbk 'Type.DBText where
   unliftDBType _ _ = DBText
 
-instance SingDBType 'Postgres 'Type.DBByteArr where
+instance SingDBType dbk 'Type.DBByteArr where
   unliftDBType _ _ = DBByteArr
 
-instance SingDBType 'Postgres 'Type.DBTimestamptz where
+instance SingDBType dbk 'Type.DBTimestamptz where
   unliftDBType _ _ = DBTimestamptz
 
-instance SingDBType 'Postgres 'Type.DBInterval where
+instance SingDBType dbk 'Type.DBInterval where
   unliftDBType _ _ = DBInterval
 
-instance SingDBType 'Postgres 'Type.DBCiText where
+instance SingDBType dbk 'Type.DBCiText where
   unliftDBType _ _ = DBCiText
 
-instance SingDBType 'Postgres 'Type.DBTimestamp where
+instance SingDBType dbk 'Type.DBTimestamp where
   unliftDBType _ _ = DBTimestamp
 
-instance SingDBType 'Postgres 'Type.DBDate where
+instance SingDBType dbk 'Type.DBDate where
   unliftDBType _ _ = DBDate
 
-instance SingDBType 'Postgres 'Type.DBTime where
+instance SingDBType dbk 'Type.DBTime where
   unliftDBType _ _ = DBTime
 
-instance SingDBType 'Postgres 'Type.DBUuid where
+instance SingDBType dbk 'Type.DBUuid where
   unliftDBType _ _ = DBUuid
 
-instance SingDBType 'Postgres 'Type.DBJsonB where
+instance SingDBType dbk 'Type.DBJsonB where
   unliftDBType _ _ = DBJsonB
 
-instance SingDBType 'Postgres 'Type.DBJson where
+instance SingDBType dbk 'Type.DBJson where
   unliftDBType _ _ = DBJson
 
-instance KnownSymbol tab => SingDBType 'Postgres ('Type.DBTypeName tab) where
+instance KnownSymbol tab => SingDBType dbk ('Type.DBTypeName tab) where
   unliftDBType _ _ = DBTypeName (T.unpack $ T.toUpper $ T.pack $ symbolVal (Proxy :: Proxy tab))
 
-instance SingDBType 'Postgres dbTy => SingDBType 'Postgres ('Type.DBNullable dbTy) where
+instance SingDBType dbk dbTy => SingDBType dbk ('Type.DBNullable dbTy) where
   unliftDBType dbk _ = DBNullable (unliftDBType dbk (Proxy :: Proxy dbTy))
 
-instance SingDBType 'Postgres dbTy => SingDBType 'Postgres ('Type.DBArray dbTy) where
+instance SingDBType dbk dbTy => SingDBType dbk ('Type.DBArray dbTy) where
   unliftDBType dbk _ = DBArray (unliftDBType dbk (Proxy :: Proxy dbTy))
 
-instance (SingDBType 'Postgres (GetDBTypeRep 'Postgres (InnerTy ty))) => SingDBType 'Postgres ('Type.DBCustomType ty dbTy 'True) where
-  unliftDBType db _ = DBCustomType (unliftDBType db (Proxy :: Proxy (GetDBTypeRep 'Postgres (InnerTy ty)))) True
+instance (SingDBType dbk (GetDBTypeRep dbk (InnerTy ty))) => SingDBType dbk ('Type.DBCustomType ty dbTy 'True) where
+  unliftDBType db _ = DBCustomType (unliftDBType db (Proxy :: Proxy (GetDBTypeRep dbk (InnerTy ty)))) True
 
-instance (SingDBType 'Postgres dbTy, Typeable dbTy) => SingDBType 'Postgres ('Type.DBCustomType ty dbTy 'False) where
+instance (SingDBType dbk dbTy, Typeable dbTy) => SingDBType dbk ('Type.DBCustomType ty dbTy 'False) where
   unliftDBType db _ = DBCustomType (unliftDBType db (Proxy :: Proxy dbTy)) False
 
 class ShowDBType (db :: DbK) (dbTy :: Type.DBTypeK) where
@@ -186,6 +186,32 @@ instance (ShowDBType 'Postgres dbTy, Typeable dbTy) => ShowDBType 'Postgres ('Ty
 
 type family GetDBTypeRep db t where
   GetDBTypeRep 'Postgres t = GetPGTypeRep t
+  GetDBTypeRep 'MSSQL    t = GetMSSQLTypeRep t
+
+type family GetMSSQLTypeRep (t :: *) = (r :: Type.DBTypeK) | r -> t where
+  GetMSSQLTypeRep Int                = 'Type.DBInt4
+  GetMSSQLTypeRep Int16              = 'Type.DBInt2
+  GetMSSQLTypeRep Int64              = 'Type.DBInt8
+  GetMSSQLTypeRep Double             = 'Type.DBFloat8
+  GetMSSQLTypeRep Char               = 'Type.DBChar 1
+  GetMSSQLTypeRep T.Text             = 'Type.DBText
+  GetMSSQLTypeRep (CI T.Text)        = 'Type.DBCiText
+  GetMSSQLTypeRep ByteString         = 'Type.DBByteArr
+  GetMSSQLTypeRep Bool               = 'Type.DBBool
+  GetMSSQLTypeRep Day                = 'Type.DBDate
+  GetMSSQLTypeRep UTCTime            = 'Type.DBTimestamptz
+  GetMSSQLTypeRep LocalTime          = 'Type.DBTimestamp
+  GetMSSQLTypeRep TimeOfDay          = 'Type.DBTime
+  GetMSSQLTypeRep Value              = 'Type.DBJsonB
+  GetMSSQLTypeRep Interval           = 'Type.DBInterval
+  -- GetMSSQLTypeRep (Json a)           = 'Type.DBCustomType (Json a) 'Type.DBJsonB 'False
+  -- GetMSSQLTypeRep (JsonStr a)        = 'Type.DBCustomType (JsonStr a) 'Type.DBJson 'False
+  -- GetMSSQLTypeRep UUID               = 'Type.DBUuid
+  GetMSSQLTypeRep (Maybe t)          = 'Type.DBNullable (GetMSSQLTypeRep t)
+  -- GetMSSQLTypeRep (Vector t)         = 'DBArray (GetMSSQLTypeRep t)
+  GetMSSQLTypeRep [t]                = 'Type.DBArray (GetMSSQLTypeRep t)
+  GetMSSQLTypeRep (CustomType a)     = 'Type.DBCustomType (CustomType a) (CustomDBTypeRep 'MSSQL a) 'False
+  GetMSSQLTypeRep a                  = 'Type.DBCustomType a ('Type.DBTypeName (GetTypeName a)) (IsNewType (Rep a))
 
 type family GetPGTypeRep (t :: *) = (r :: Type.DBTypeK) | r -> t where
   GetPGTypeRep Int                = 'Type.DBInt4

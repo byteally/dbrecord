@@ -215,6 +215,7 @@ data instance Sing (db :: DbK) where
   SSQLite    :: Sing 'SQLite
   SCassandra :: Sing 'Cassandra
   SPresto    :: Sing 'Presto
+  SMSSQL     :: Sing 'MSSQL
   
 data instance Sing (a :: TagHK tk k) where
   STag :: Sing tag -> Sing a -> Sing ('Tag tag a)
@@ -393,6 +394,9 @@ instance SingI 'Cassandra where
 instance SingI 'Presto where
   sing = SPresto
 
+instance SingI 'MSSQL where
+  sing = SMSSQL
+
 instance ( SingI tn
          , SingI dcons
          ) => SingI ('EnumType tn dcons) where
@@ -516,6 +520,7 @@ instance SingE (db :: DbK) where
   fromSing SSQLite    = SQLite
   fromSing SCassandra = Cassandra
   fromSing SPresto    = Presto
+  fromSing SMSSQL     = MSSQL
 
 type family GetPMT (rep :: * -> *) :: TypeName Symbol where
   GetPMT (D1 ('MetaData tyName modName pkgName _) _) =

@@ -50,6 +50,7 @@ data DbK = Postgres
          | SQLite
          | Cassandra
          | Presto
+         | MSSQL
 
 
 data DBTypeK
