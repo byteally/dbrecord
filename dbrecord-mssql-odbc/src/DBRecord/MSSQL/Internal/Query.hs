@@ -29,7 +29,7 @@ instance HasQuery MSSQL where
   dbQuery MSSQL primQ = do
     let sqlQ= MSSQL.renderQuery $ MSSQL.sql primQ
     putStrLn sqlQ
-    undefined
+    return []
 
 instance HasInsert MSSQL where
   dbInsert MSSQL insQ = do

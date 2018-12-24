@@ -5,6 +5,7 @@ module DBRecord.Internal.Expr
        , Expr (..)
        ) where
 
+import DBRecord.Internal.PrimQuery (Expr (..))
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Foldable as F
@@ -39,7 +40,7 @@ import qualified Data.UUID as UUID
 import Data.CaseInsensitive (CI, foldedCase, mk)
 import Control.Applicative
 import Data.Coerce
-import DBRecord.Internal.Schema hiding (toNullable)
+import DBRecord.Internal.Schema hiding (toNullable, DBType (..))
 import DBRecord.Internal.Common
 import GHC.Generics
 
@@ -91,14 +92,24 @@ binOp op (Expr lhs) (Expr rhs) = Expr (PQ.BinExpr op lhs rhs)
 unOp :: PQ.UnOp -> Expr sc a -> Expr sc b
 unOp op (Expr expr) = Expr (PQ.UnExpr op expr)
 
-unsafeCast :: T.Text -> Expr sc a -> Expr sc b
+unsafeCast :: DBType -> Expr sc a -> Expr sc b
 unsafeCast castTo (Expr expr) = Expr $ PQ.CastExpr castTo expr
 
+annotateType' :: forall dbK sc a.
+                 ( DBTypeCtx (GetDBTypeRep dbK a)
+                 , SingI (GetDBTypeRep dbK a)
+                 ) => Proxy (dbK :: DbK) -> Expr sc a -> Expr sc a
+annotateType' _ = unsafeCast tyRep
+  where tyRep = fromSing (sing :: Sing (GetDBTypeRep dbK a))
+
+
 annotateType :: forall a sc.
-               (ShowDBType 'Postgres (GetPGTypeRep a)
+               ( SingI (GetPGTypeRep a)
+               , DBTypeCtx (GetPGTypeRep a)
                ) => Expr sc a -> Expr sc a
 annotateType = unsafeCast tyRep
-  where tyRep = showDBType (Proxy :: Proxy 'Postgres) (Proxy :: Proxy (GetPGTypeRep a))
+  where tyRep = fromSing (sing :: Sing (GetDBTypeRep 'Postgres a))
+
 
 unsafeCoerceExpr :: Expr sc a -> Expr sc b
 unsafeCoerceExpr (Expr e) = Expr e
@@ -303,7 +314,9 @@ true = Expr $ PQ.ConstExpr $ PQ.Bool True
 false :: Expr sc Bool
 false = Expr $ PQ.ConstExpr $ PQ.Bool False
 
-array :: (ShowDBType 'Postgres (GetPGTypeRep a)) => [Expr sc a] -> Expr sc [a]
+array :: ( SingI (GetPGTypeRep a)
+        , DBTypeCtx (GetPGTypeRep a)
+        ) => [Expr sc a] -> Expr sc [a]
 array = annotateType . Expr . PQ.ArrayExpr . coerce
 
 isContainedBy :: Expr sc [a] -> Expr sc [a] -> Expr sc Bool
@@ -412,19 +425,19 @@ seconds :: Int -> Expr sc Interval
 seconds i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " seconds\'"
 
-strToJson :: String -> Expr sc (Json a)
+strToJson :: (Typeable a) => String -> Expr sc (Json a)
 strToJson = annotateType . Expr . PQ.ConstExpr . PQ.String . T.pack
 
-strToJsonStr :: String -> Expr sc (JsonStr a)
+strToJsonStr :: (Typeable a) => String -> Expr sc (JsonStr a)
 strToJsonStr = annotateType . Expr . PQ.ConstExpr . PQ.String . T.pack
 
-lazyJson :: LB.ByteString -> Expr sc (Json a)
+lazyJson :: (Typeable a) => LB.ByteString -> Expr sc (Json a)
 lazyJson = strToJson . lazyDecodeUtf8
 
-toJson :: (ToJSON a) => a -> Expr sc (Json a)
+toJson :: (ToJSON a, Typeable a) => a -> Expr sc (Json a)
 toJson = lazyJson . A.encode
 
-toJsonStr :: (ToJSON a) => a -> Expr sc (JsonStr a)
+toJsonStr :: (ToJSON a, Typeable a) => a -> Expr sc (JsonStr a)
 toJsonStr = strToJsonStr . lazyDecodeUtf8 . A.encode
 
 addInterval :: Expr sc Interval -> Expr sc Interval -> Expr sc Interval
@@ -642,6 +655,7 @@ getParsedVal :: Proxy i -> Either String (i, T.Text) -> Validation i
 getParsedVal _ (Right (v, "")) = Right v
 getParsedVal _ _               = exprParseErr
 
+{-
 instance ToJSON (Expr sc a) where
   toEncoding e = A.pairs ("trusted" A..= getExpr e)
   toJSON     e = A.object ["trusted" A..= getExpr e]
@@ -710,11 +724,13 @@ renderErrs errs =
           "Couldn't match expected type '" <> (T.pack (show expr)) <> "' with actual type '" <> (T.pack (show got)) <> "\n"
         renderErr (ParseErr)             =
           "Parse error"
-
+-}
+{-
 -- We trust the binary input
 instance Binary (Expr sc a) where
   put = put . getExpr
   get = Expr <$> get
+-}
 
 runIdentity :: Expr sc (Identity a) -> Expr sc a
 runIdentity = unsafeCoerceExpr

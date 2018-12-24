@@ -206,16 +206,6 @@ type family FromRight (x :: Either k k1) where
 type family FromLeft (x :: Either k k1) where
   FromLeft ('Left t) = t
 
-class (AllF f xs) => All (f :: k -> Constraint) (xs :: [k])
-instance (AllF f xs) => All f xs
-
-type family AllF (c :: k -> Constraint) (xs :: [k]) :: Constraint
-type instance AllF _c '[]       = ()
-type instance AllF  c (x ': xs) = (c x, All c xs)
-
-class (AllF (All f) xss) => All2 f xss
-instance (AllF (All f) xss) => All2 f xss
-
 type family If (c :: Bool) (t :: k) (f :: k) :: k where
   If 'True t f  = t
   If 'False t f = f

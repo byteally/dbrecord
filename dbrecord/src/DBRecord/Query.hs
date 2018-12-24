@@ -47,6 +47,8 @@ module DBRecord.Query
        , HasInsertRet (..)
        , Session (..)
        , HasTransaction (..)
+       , DBTag
+       , rawClauses
        ) where
 
 import DBRecord.Schema
@@ -178,6 +180,7 @@ instance ( KnownSymbol fld
          , All SingE (GetFieldInfo (DB db) (GenTabFields (Rep tab)))
          , SingI (GetFieldInfo (DB db) (GenTabFields (Rep tab)))
          , SingI (ColumnNames db tab)
+         , sc ~ OriginalTableFields tab
          ) => HasCol db tab sc (fld ::: t) where
   hasCol _ _ = coerceExpr (col (Proxy @(DBTag db tab fld)) :: Expr sc t)
 
@@ -316,6 +319,19 @@ getAll' cls = do
       tabFlds = getTableProjections (Proxy @db) (Proxy @tab)
   runQuery tabId (cls { projections = tabFlds })
 
+rawClauses :: forall db tab driver cfg.
+             ( Table db tab
+             , HasQuery driver
+             , FromDBRow driver tab
+             , MonadReader (driver cfg) (DBM db)
+             , MonadIO (DBM db)
+             , SingCtx db tab
+             , SingCtxDb db               
+             ) => PQ.Clauses -> DBM db [tab]
+rawClauses cls = do
+  let tabId = getTableId (Proxy @db) (Proxy @tab)
+  runQuery tabId cls
+  
 {-
 count :: forall tab db driver cfg.
   ( Table db tab

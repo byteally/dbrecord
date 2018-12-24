@@ -20,7 +20,7 @@ typeName :: DBType -> TypeName
 typeName = TypeName . T.pack . ppPGType
 
 customTypeName :: T.Text -> TypeName
-customTypeName = TypeName . T.pack . ppPGType . DBTypeName . T.unpack
+customTypeName = TypeName . T.pack . ppPGType . flip DBTypeName []
 
 escQuote :: Text -> Text
 escQuote = escapeBy (Just '\'')

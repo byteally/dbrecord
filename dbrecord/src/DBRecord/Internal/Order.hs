@@ -47,7 +47,7 @@ descNullsLast = order PQ.OrderOp { PQ.orderDirection = PQ.OpDesc
 pattern AnyOrder :: Order sc
 pattern AnyOrder = Order []
 
-
+{-
 instance ToJSON (Order sc) where
   toEncoding e = pairs  ("trusted" .= getOrder e)
   toJSON     e = object ["trusted" .= getOrder e]
@@ -75,3 +75,4 @@ parseOrder = undefined
 instance Binary (Order sc) where
   put = put . getOrder
   get = Order <$> get
+-}

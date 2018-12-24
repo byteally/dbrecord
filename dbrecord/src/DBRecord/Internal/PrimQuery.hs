@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, KindSignatures, TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, KindSignatures, TypeFamilies, DataKinds #-}
 -- |
 -- Copyright   :  Daan Leijen (c) 1999, daan@cs.uu.nl
 --                HWT Group (c) 2003, haskelldb-users@lists.sourceforge.net
@@ -20,6 +20,8 @@ import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import GHC.Generics
 import qualified Data.ByteString.Base64 as B64
 import Data.Generics.Uniplate.Direct
+import DBRecord.Internal.DBTypes
+import Data.String
 
 
 -- import DBRecord.Migration hiding (TableName)
@@ -167,7 +169,7 @@ data PrimExpr = AttrExpr Sym -- Eg?
               | ListExpr [PrimExpr]
               | ParamExpr (Maybe Name) PrimExpr
               | FunExpr Name [PrimExpr]
-              | CastExpr Name PrimExpr -- ^ Cast an expression to a given type.
+              | CastExpr DBType PrimExpr -- ^ Cast an expression to a given type.
               | DefaultInsertExpr -- Indicate that we want to insert the
                 -- default value into a column.
                                     -- TODO: I'm not sure this belongs
@@ -340,6 +342,14 @@ toSym flds = case flds of
 unsafeToSym :: [T.Text] -> Sym
 unsafeToSym = maybe (error "Panic: unsafeToSym") id . toSym 
 
+symFromText :: T.Text -> Sym
+symFromText = unsafeToSym . singleton
+  where singleton x = [x]
+
+instance IsString Sym where
+  fromString = symFromText . T.pack
+        
+{-
 instance Binary PrimExpr
 instance Binary OrderExpr
 instance Binary AggrOp
@@ -385,10 +395,23 @@ instance ToJSON WindowPart
 instance ToJSON ByteString where
   -- toEncoding = E.string . B64.encode
   toJSON     = A.String . decodeUtf8 . B64.encode
+-}
 
 transformPE :: (PrimExpr -> PrimExpr) -> PrimExpr -> PrimExpr
 transformPE = transform
 
+newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PrimExpr }
+                                      deriving Show
+
+unsafeCol :: [T.Text] -> Expr sc a
+unsafeCol = Expr . AttrExpr . sym
+  where sym = maybe (error "Panic: Empty col @col_") id . toSym
+
+
+{-
+
 class BackendExpr (b :: *) where
   type BackendExprType b :: *
   backendExpr :: proxy b -> PrimExpr -> BackendExprType b
+
+-}

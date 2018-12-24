@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings, DuplicateRecordFields, ScopedTypeVariables, DeriveGeneric #-}
-module DBRecord.Postgres.Internal.Reify
-       ( getPostgresDbSchemaInfo
+module DBRecord.MSSQL.Internal.Reify where
+{-
+       ( getMSSQLDbSchemaInfo
        , defHints
        , columnNameHint
        , tableNameHint
@@ -517,3 +518,4 @@ sizeInfo tci =
            , szDateTimePrecision = fromIntegral <$> dbDateTimePrecision tci
            , szIntervalPrecision = fromIntegral <$> dbIntervalPrecision tci
            } 
+-}

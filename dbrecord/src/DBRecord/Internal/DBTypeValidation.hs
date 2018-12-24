@@ -64,6 +64,7 @@ type family UnWrapNT (isNewTy :: Bool) (t :: *) where
   UnWrapNT 'True t  = InnerTy t
   UnWrapNT 'False t = t
 
+{-
 instance ( SingCols db cols colMap
          , KnownSymbol cn
          , InvalidDBType db ct
@@ -77,6 +78,7 @@ instance ( SingCols db cols colMap
 
 instance SingCols db '[] colMap where
   singCols _ _ _ = Nil
+-}
 
 getSchemaName :: forall db.
                ( KnownSymbol (GetSchemaName db)

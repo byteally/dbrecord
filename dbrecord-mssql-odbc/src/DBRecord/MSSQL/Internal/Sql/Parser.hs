@@ -167,8 +167,8 @@ sqlOrder = do
               )
   pure (SqlOrder dir nullOrd)
 
-typeExpr :: Parser String
-typeExpr = word
+typeExpr :: Parser DBType
+typeExpr = undefined
 
 ordDir :: Parser SqlOrder
 ordDir = undefined

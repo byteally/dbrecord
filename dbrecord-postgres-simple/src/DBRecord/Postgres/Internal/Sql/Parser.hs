@@ -2,6 +2,8 @@
 module DBRecord.Postgres.Internal.Sql.Parser
   ( sqlExpr
   , parsePGType
+  , SizeInfo (..)
+  , defSizeInfo
   ) where
 
 import DBRecord.Internal.Sql.DML
@@ -15,6 +17,7 @@ import Data.Char (isAlpha, isDigit)
 import qualified Debug.Trace as DT
 import qualified Data.List.NonEmpty as NEL
 import DBRecord.Internal.DBTypes (DBType (..))
+import DBRecord.Internal.Types (Max (..))
 
 sqlExpr :: Parser SqlExpr
 sqlExpr =
@@ -168,8 +171,8 @@ sqlOrder = do
               )
   pure (SqlOrder dir nullOrd)
 
-typeExpr :: Parser String
-typeExpr = word
+typeExpr :: Parser DBType
+typeExpr = undefined
 
 ordDir :: Parser SqlOrder
 ordDir = undefined
@@ -264,29 +267,70 @@ literal =
           stringLit  = (StringSql . T.pack) <$> quoted word
           oidLit     = (StringSql . T.pack) <$> quoted (doubleQuoted identifier)
           
-  
-parsePGType :: Bool -> String -> DBType
-parsePGType nullInfo = wrapNullable nullInfo . go
+
+data SizeInfo = SizeInfo { szCharacterLength :: Maybe Integer
+                         , szNumericPrecision :: Maybe Integer
+                         , szNumericScale :: Maybe Integer
+                         , szDateTimePrecision :: Maybe Integer
+                         , szIntervalPrecision :: Maybe Integer
+                         } deriving (Show, Eq)
+
+defSizeInfo :: SizeInfo
+defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
+                                    
+parsePGType :: Bool -> SizeInfo -> String -> DBType
+parsePGType nullInfo sz = wrapNullable nullInfo . go
   where go "smallint"                  = DBInt2
         go "integer"                   = DBInt4
         go "bigint"                    = DBInt8
         go "boolean"                   = DBBool
-        go "double precision"          = DBFloat8
-        -- go "character "
+        go "double precision"          = case szNumericPrecision sz of
+                                           Nothing -> DBFloat 53
+                                           Just v  -> DBFloat v
+        go "real"                      = case szNumericPrecision sz of
+                                           Nothing -> DBFloat 24
+                                           Just v  -> DBFloat v
+        go "numeric"                   = case (,) <$> szNumericPrecision sz <*> szNumericScale sz of
+                                           Just (pr, sc) -> DBNumeric pr sc
+                                           _             -> error "Panic: numeric must specify precision and scale"
+        go "character"                 = case szCharacterLength sz of
+                                           Just v -> DBChar v
+                                           _      -> error "Panic: character must specify a size"
+        go "character varying"         = case szCharacterLength sz of
+                                           Just v -> DBVarchar (Right v)
+                                           _      -> error "Panic: varying character must specify a size"                                           
         go "text"                      = DBText
-        go "bytea"                     = DBByteArr
-        go "timestamp with time zone"  = DBTimestamptz
-        go "interval"                  = DBInterval
+        go "bytea"                     = DBVarbinary (Left Max)
+        go "bit"                       = case szCharacterLength sz of
+                                           Just v  -> DBBit v
+                                           Nothing -> error "Panic: bit must specify a size"      
+        go "bit varying"               = case szCharacterLength sz of
+                                           Just v -> DBVarbit v
+                                           Nothing -> error "Panic: bit varying must specify a size"         
+        
+        go "timestamp with time zone"  = case szDateTimePrecision sz of
+                                           Just v  -> DBTimestamptz v
+                                           Nothing -> DBTimestamptz 6
+        go "timestamp"                 = case szDateTimePrecision sz of
+                                           Just v  -> DBTimestamp v
+                                           Nothing -> DBTimestamp 6
+        go "time with time zone"       = case szDateTimePrecision sz of
+                                           Just v  -> DBTimetz v
+                                           Nothing -> DBTimetz 6
+        go "time"                      = case szDateTimePrecision sz of
+                                           Just v  -> DBTime v
+                                           Nothing -> DBTime 6                                           
+        go "interval"                  = case szIntervalPrecision sz of
+                                           Just v -> DBInterval Nothing v
+                                           Nothing -> DBInterval Nothing 6
         go "citext"                    = DBCiText
-        go "timestamp"                 = DBTimestamp
         go "date"                      = DBDate
-        go "time"                      = DBTime
         go "uuid"                      = DBUuid
+        go "xml"                       = DBXml
         go "jsonb"                     = DBJsonB
         go "json"                      = DBJson
         go v | isArray v               = DBArray (parseArray v)
-             | otherwise               = DBCustomType (DBTypeName v) False
-
+             | otherwise               = DBCustomType (DBTypeName (T.pack v) []) False
 
         isArray v = case splitAt 2 v of
           ("[]", _) -> True
@@ -296,4 +340,3 @@ parsePGType nullInfo = wrapNullable nullInfo . go
 
         wrapNullable True a  = DBNullable a
         wrapNullable False a = a
-        

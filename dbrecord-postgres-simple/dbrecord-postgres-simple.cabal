@@ -48,12 +48,14 @@ library
 
   default-language:    Haskell2010
 
-test-suite dbrecord-reify-test
+test-suite dbrecord-postgres-simple-reify-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      reify-test
   main-is:             Main.hs
   build-depends:       base
-                     , dbrecord
+                     -- , dbrecord
+                     , dbrecord-postgres-simple
+                     , postgresql-simple
    
 test-suite dbrecord-postgres-simple-test
   type:                exitcode-stdio-1.0

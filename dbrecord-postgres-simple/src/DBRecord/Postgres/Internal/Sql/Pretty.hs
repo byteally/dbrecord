@@ -28,7 +28,8 @@ import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   hcat, vcat, brackets, doubleQuotes,
                                    hsep, equals, char, empty, render,
                                   quotes, space)
-import DBRecord.Schema.Interface       
+import DBRecord.Schema.Interface
+import qualified Data.List as L
 
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
@@ -208,7 +209,7 @@ ppPGExpr expr =
     ListSqlExpr es      -> parens (commaH ppPGExpr es)
     ParamSqlExpr _ v -> ppPGExpr v
     PlaceHolderSqlExpr -> text "?"
-    CastSqlExpr typ e -> text "CAST" <> parens (ppPGExpr e <+> text "AS" <+> text typ)
+    CastSqlExpr typ e -> text "CAST" <> parens (ppPGExpr e <+> text "AS" <+> text (ppPGType typ))
     DefaultSqlExpr    -> text "DEFAULT"
     ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppPGExpr es)
     ExistsSqlExpr s     -> text "EXISTS" <+> parens (ppSelect s)
@@ -313,25 +314,40 @@ renderUpdate = render . ppUpdate
 
 ppPGType :: DBType -> String
 ppPGType = go
-  where go DBInt2             = "SMALLINT"
-        go DBInt4             = "INTEGER"
-        go DBInt8             = "BIGINT"
-        go DBBool             = "BOOLEAN"
-        go DBFloat8           = "DOUBLE PRECISION"
-        go (DBChar i)         = "CHARACTER (" ++ show i ++ " )"
-        go DBText             = "TEXT"
-        go DBByteArr          = "BYTEA"
-        go DBTimestamptz      = "TIMESTAMPTZ"
-        go DBInterval         = "INTERVAL"
-        go DBCiText           = "CITEXT"
-        go DBDate             = "DATE"
-        go DBTime             = "TIME"
-        go DBTimestamp        = "TIMESTAMP"
-        go DBUuid             = "UUID"
-        go DBJson             = "JSON"
-        go DBJsonB            = "JSONB"        
-        go (DBArray t)        = go t ++ "[]"
-        go (DBNullable t)     = go t
-        go (DBTypeName t)     = T.unpack (doubleQuote (T.pack t))
-        go (DBCustomType t _) = go t
+  where go DBInt2                       = "SMALLINT"
+        go DBInt4                       = "INTEGER"
+        go DBInt8                       = "BIGINT"
+        go (DBNumeric p s)              = "NUMERIC (" ++ show p ++ ", " ++ show s ++ ")"
+        go DBBool                       = "BOOLEAN"
+        go (DBFloat i) | i < 25 && i >= 0 = "REAL"
+                       | i >= 53         = "DOUBLE PRECISION"
+                       | otherwise      = error "Panic: outside allowed range @ppPGType DBFloat"
+        go (DBChar i)                   = "CHARACTER (" ++ show i ++ ")"
+        go (DBVarchar i)                = "CHARACTER VARYING (" ++ show i ++ ")"
+        go DBText                       = "TEXT"
+        go (DBTimestamp i)              = "TIMESTAMP (" ++ show i ++ ")"        
+        go (DBTimestamptz i)            = "TIMESTAMP (" ++ show i ++ ") WITH TIME ZONE"
+        go (DBTime i)                   = "TIME (" ++ show i ++ ")"
+        go (DBTimetz i)                 = "TIME (" ++ show i ++ ") WITH TIME ZONE"
+        go (DBInterval _ i)             = "INTERVAL (" ++ show i ++ ")"
+        go (DBBinary _)                 = "BYTEA"        
+        go (DBVarbinary _)              = "BYTEA"
+        go (DBBit n)                    = "BIT (" ++ show n ++ ")"
+        go (DBVarbit n)                 = "BIT VARYING (" ++ show n ++ ")"
+        go DBCiText                     = "CITEXT"
+        go DBDate                       = "DATE"
+        go DBUuid                       = "UUID"
+        go DBJson                       = "JSON"
+        go DBJsonB                      = "JSONB"
+        go DBXml                        = "XML"
+        go (DBArray t)                  = go t ++ "[]"
+        go (DBNullable t)               = go t
+        go (DBTypeName t args)          = T.unpack (doubleQuote t) ++ ppArgs args
+        go (DBCustomType t _)           = go t
+
+        ppArgs []  = ""
+        ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"
+
+        ppArg (TextArg t)    = T.unpack t
+        ppArg (IntegerArg i) = show i
 

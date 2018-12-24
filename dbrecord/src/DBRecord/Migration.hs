@@ -580,7 +580,7 @@ instance (UDTOpCtx t) => SingE (t :: TagHK (TypeName Symbol) UDTypeOP) where
   type Demote t = ChangeSetM M.PrimDDL
   fromSing (STag stypN (SAddEnumValAfter sEnVal sEnAfter)) = do
     let typN   = fromSing stypN
-        pgt    = enumType (T.unpack (typN ^. typeName))
+        pgt    = enumType (typN ^. typeName)
         enVal  = fromSing sEnVal
         enAft  = fromSing sEnAfter
     dbInfo . typeNameInfoAt pgt . typeNameMap %=
@@ -588,7 +588,7 @@ instance (UDTOpCtx t) => SingE (t :: TagHK (TypeName Symbol) UDTypeOP) where
     pure (M.alterAddEnumAfter (M.customTypeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal) (coerce enAft))
   fromSing (STag stypN (SAddEnumValBefore sEnVal sEnBef)) = do
     let typN   = fromSing stypN
-        pgt    = enumType (T.unpack (typN ^. typeName))    
+        pgt    = enumType (typN ^. typeName)
         enVal  = fromSing sEnVal
         enBef  = fromSing sEnBef
     dbInfo . typeNameInfoAt pgt . typeNameMap %=
@@ -597,7 +597,7 @@ instance (UDTOpCtx t) => SingE (t :: TagHK (TypeName Symbol) UDTypeOP) where
   fromSing (STag stypN (SAddEnumVal sEnVal)) = do
     let typN   = fromSing stypN
         enVal  = fromSing sEnVal
-        pgt    = enumType (T.unpack (typN ^. typeName))        
+        pgt    = enumType (typN ^. typeName)
     dbInfo . typeNameInfoAt pgt . typeNameMap %=
       addEnumVal enVal
     pure (M.alterAddEnum (M.customTypeName $ mkDbTypeName (typN ^. typeName)) (coerce enVal))
@@ -1021,8 +1021,8 @@ createTable dbi tabInfo =
           )
         
 type family TyCxts (db :: *) (tys :: [*]) :: Constraint where
-  TyCxts db (ty ': ts) = ( ShowDBType (DB db) (GetDBTypeRep (DB db) ty)
-                         , SingAttrs db (GetTypeFields ty)
+  TyCxts db (ty ': ts) = ( -- ShowDBType (DB db) (GetDBTypeRep (DB db) ty)
+                           SingAttrs db (GetTypeFields ty)
                          , TyCxts db ts
                          )
   TyCxts db '[]        = ()
@@ -1374,7 +1374,7 @@ baseTypeNameInfo :: forall db ver ty.
                       ) => Proxy db -> Proxy ver -> Sing (ty :: TypeName Symbol) -> TypeNameInfo
 baseTypeNameInfo _ _ sty =
   let tnm = fromSing (sing :: Sing (BaseTypeMappings db ver ty))
-      pgt = enumType (T.unpack (fromSing sty ^. typeName))
+      pgt = enumType (fromSing sty ^. typeName)
   in  mkTypeNameInfo pgt tnm
 
 {-  

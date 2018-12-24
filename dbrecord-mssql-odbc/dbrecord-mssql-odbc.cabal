@@ -20,8 +20,7 @@ library
                        DBRecord.MSSQL.Internal.Sql.Pretty
                        DBRecord.MSSQL.Internal.PrettyDDL
                        DBRecord.MSSQL.Internal.Query
-
-
+                       DBRecord.MSSQL.Internal.Types
                                          
   build-depends:       base              >= 4.7 && < 5
                      , dbrecord

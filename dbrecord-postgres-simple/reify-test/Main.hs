@@ -1,16 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import DBRecord.Internal.Migration.Validation
+import DBRecord.Postgres.Internal.Reify
 import qualified Database.PostgreSQL.Simple as PGS
 import Data.Function 
 
 main = do
-  let hints = defHints & tableNameHint "empsalary" "Emp_Salary"
-                       & columnNameHint "File" "createdAt" "created_at"
-                       
+  let hints = defHints                        
   dbInfo <- getPostgresDbSchemaInfo "public" hints localConnectInfo
   print dbInfo
 
-
-  where localConnectInfo = PGS.ConnectInfo "127.0.0.1" 5432 "sreenidhi" "password" "MyHuntPath"
+  where localConnectInfo = PGS.ConnectInfo "127.0.0.1" 5432 "sreenidhi" "password" "chinook"

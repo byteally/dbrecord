@@ -5,6 +5,7 @@ import Data.ByteString (ByteString)
 import qualified Data.List.NonEmpty as NEL
 import Data.Text
 import GHC.Generics (Generic)
+import DBRecord.Internal.DBTypes (DBType)
 
 type TableName = Text
 type Name      = Text
@@ -125,7 +126,7 @@ data SqlExpr = ColumnSqlExpr  SqlColumn
              | ParamSqlExpr (Maybe SqlName) SqlExpr
              | PlaceHolderSqlExpr
              | ParensSqlExpr SqlExpr
-             | CastSqlExpr String SqlExpr
+             | CastSqlExpr DBType SqlExpr
              | CompositeSqlExpr SqlExpr String
              | ArraySqlExpr [SqlExpr]
              | WindowSqlExpr String SqlExpr  

@@ -229,7 +229,7 @@ defaultSqlExpr gen expr = case expr of
   PQ.ListExpr es         -> ListSqlExpr (map (sqlExpr gen) es)
   PQ.ParamExpr n _       -> ParamSqlExpr n PlaceHolderSqlExpr
   PQ.FunExpr n exprs     -> FunSqlExpr (T.unpack n) (map (sqlExpr gen) exprs)
-  PQ.CastExpr typ e1     -> CastSqlExpr (T.unpack typ) (sqlExpr gen e1)
+  PQ.CastExpr typ e1     -> CastSqlExpr typ (sqlExpr gen e1)
   PQ.DefaultInsertExpr   -> DefaultSqlExpr
   PQ.ArrayExpr es        -> ArraySqlExpr (map (sqlExpr gen) es)
   PQ.WindowExpr w e      -> WindowSqlExpr (T.unpack w) (sqlExpr gen e)
@@ -401,7 +401,7 @@ primExprGen expr = case expr of
   CompositeSqlExpr se n          -> PQ.CompositeExpr (primExprGen se) (T.pack n)
   ListSqlExpr ses                -> PQ.ListExpr (map primExprGen ses)
   FunSqlExpr n ses               -> funPrimExprGen n ses
-  CastSqlExpr typ se             -> PQ.CastExpr (T.pack typ) (primExprGen se)
+  CastSqlExpr typ se             -> PQ.CastExpr typ (primExprGen se)
   DefaultSqlExpr                 -> PQ.DefaultInsertExpr
   ArraySqlExpr ses               -> PQ.ArrayExpr (map primExprGen ses)
   WindowSqlExpr w se             -> PQ.WindowExpr (T.pack w) (primExprGen se)
@@ -547,11 +547,13 @@ primQueryGen :: SqlExpr -> PQ.PrimQuery
 primQueryGen = undefined
 -}
 
+{-
 data Sql
 
 instance PQ.BackendExpr Sql where
   type BackendExprType Sql = SqlExpr
   backendExpr _ = defaultSqlExpr defaultSqlGenerator
+-}
 
 genSqlExpr :: PQ.PrimExpr -> SqlExpr
 genSqlExpr = defaultSqlExpr defaultSqlGenerator

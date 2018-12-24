@@ -30,6 +30,7 @@ import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   quotes, space)
 import DBRecord.Schema.Interface
 import DBRecord.Internal.DBTypes
+import qualified Data.List as L
 
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
@@ -50,9 +51,9 @@ ppSelectWith from tabDoc =
   $$  ppWhere (DML.criteria from)
   $$  ppWindows (windows from)  
   $$  ppGroupBy (groupby from)
+  $$  ppHaving (having from)
   $$  ppOrderBy (orderby from)
-  $$  ppLimit (limit from)
-  $$  ppOffset (offset from)
+  $$  ppOffsetFetch (offset from) (limit from)
 
 ppProduct :: [SqlSelect] -> Doc
 ppProduct = ppTables
@@ -143,32 +144,34 @@ ppGroupBy (Just exprs) = go (toList exprs)
     go es = text "GROUP BY" <+> ppGroupAttrs es
     ppGroupAttrs es = commaV (ppMSSQLExpr . deliteral) es
 
+ppHaving :: [SqlExpr] -> Doc
+ppHaving []    = empty
+ppHaving exprs = go (toList exprs)
+  where
+    go es = text "HAVING" <+> ppGroupAttrs es
+    ppGroupAttrs es = commaV (ppMSSQLExpr . deliteral) es
+
 ppOrderBy :: [(SqlExpr,SqlOrder)] -> Doc
 ppOrderBy []   = empty
 ppOrderBy ords = text "ORDER BY" <+> commaV ppOrd ords
 
 ppOrd :: (SqlExpr, SqlOrder) -> Doc
-ppOrd (e, o) = ppMSSQLExpr (deliteral e)
-                    <+> ppOrdDir o
-                    <+> ppNullOrd o
+ppOrd (e, o) = ppMSSQLExpr (deliteral e) <+> ppOrdDir o
 
 ppOrdDir :: SqlOrder -> Doc
 ppOrdDir sqlOrd = text $ case sqlOrdDirection sqlOrd of
   SqlAsc  -> "ASC"
   SqlDesc -> "DESC"
 
-ppNullOrd :: SqlOrder -> Doc
-ppNullOrd sqlOrd = text $ case sqlNullOrd sqlOrd of
-  SqlNullsFirst -> "NULLS FIRST"
-  SqlNullsLast  -> "NULLS LAST"
-
-ppLimit :: Maybe SqlExpr -> Doc
-ppLimit Nothing    = empty
-ppLimit (Just lmt) = text "LIMIT " <> ppMSSQLExpr lmt
-
-ppOffset :: Maybe SqlExpr -> Doc
-ppOffset Nothing    = empty
-ppOffset (Just off) = text "OFFSET " <> ppMSSQLExpr off
+ppOffsetFetch :: Maybe SqlExpr -> Maybe SqlExpr -> Doc
+ppOffsetFetch Nothing Nothing = empty
+ppOffsetFetch (Just off) (Just lim) =
+  text "OFFSET " <> ppMSSQLExpr off <> text " ROWS" $$
+  text "FETCH NEXT "  <> ppMSSQLExpr lim <> text " ROWS ONLY"
+ppOffsetFetch Nothing mlim =
+  ppOffsetFetch (Just (ConstSqlExpr (IntegerSql 0))) mlim  
+ppOffsetFetch (Just off) Nothing =
+  text "OFFSET " <> ppMSSQLExpr off <> text " ROWS"
 
 -- ppOid :: SqlOidName -> Doc
 -- ppOid (SqlOidName n) = quotes (doubleQuotes (text (T.unpack n)))
@@ -194,10 +197,10 @@ ppMSSQLExpr expr =
     -- OidSqlExpr s        -> ppOid s
     CompositeSqlExpr s x -> parens (ppMSSQLExpr s) <> text "." <> text x
     ParensSqlExpr e -> parens (ppMSSQLExpr e)
-    BinSqlExpr op e1 e2 -> ppMSSQLExpr e1 <+> text op <+> ppMSSQLExpr e2
+    BinSqlExpr op e1 e2 -> ppMSSQLExpr e1 <+> ppOp op <+> ppMSSQLExpr e2
     PrefixSqlExpr op e  -> text op <+> ppMSSQLExpr e
     PostfixSqlExpr op e -> ppMSSQLExpr e <+> text op
-    FunSqlExpr f es     -> text f <> parens (commaH ppMSSQLExpr es)
+    FunSqlExpr f es     -> ppFunName f <> parens (commaH ppMSSQLExpr es)
     AggrFunSqlExpr f es ord -> text f <> parens (commaH ppMSSQLExpr es <+> ppOrderBy ord)
     ConstSqlExpr c      -> ppLiteral c
     CaseSqlExpr cs el   -> text "CASE" <> space <> vcat (toList (fmap ppWhen cs))
@@ -209,11 +212,18 @@ ppMSSQLExpr expr =
     ListSqlExpr es      -> parens (commaH ppMSSQLExpr es)
     ParamSqlExpr _ v -> ppMSSQLExpr v
     PlaceHolderSqlExpr -> text "?"
-    CastSqlExpr typ e -> text "CAST" <> parens (ppMSSQLExpr e <+> text "AS" <+> text typ)
+    CastSqlExpr typ e -> text "CAST" <> parens (ppMSSQLExpr e <+> text "AS" <+> text (ppMSSQLType typ))
     DefaultSqlExpr    -> text "DEFAULT"
     ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppMSSQLExpr es)
     ExistsSqlExpr s     -> text "EXISTS" <+> parens (ppSelect s)
-    WindowSqlExpr w e -> ppMSSQLExpr e <+> text "OVER" <+> text w 
+    WindowSqlExpr w e -> ppMSSQLExpr e <+> text "OVER" <+> text w
+
+
+  where ppOp "MOD" = text "%"
+        ppOp  v    = text v
+
+        ppFunName "@" = text "abs"
+        ppFunName v   = text v
 
 ppInsert :: SqlInsert -> Doc
 ppInsert (SqlInsert table names values rets)
@@ -263,14 +273,13 @@ ppAliasedCol = doubleQuotes . hcat . punctuate aliasSep . map text
 aliasSep :: Doc
 aliasSep = char '_'
 
-
 ppLiteral :: LitSql -> Doc
 ppLiteral l =
   case l of
     NullSql -> text "NULL"
     DefaultSql -> text "DEFAULT"
-    BoolSql True -> text "TRUE"
-    BoolSql False -> text "FALSE"
+    BoolSql True -> error "Panic: impossible boolean true literal"
+    BoolSql False -> error "Panic: impossible boolean false literal"
     ByteSql s -> binQuote s
     StringSql s -> text (quote (T.unpack s))
     IntegerSql i -> text (show i)
@@ -282,10 +291,10 @@ ppLiteral l =
 -- testPP doc = render doc
 
 binQuote :: ByteString -> Doc
-binQuote s = text "E'\\\\x" <> text (BS8.unpack (Base16.encode s)) <> text "'"
+binQuote s = text "'\\\\x" <> text (BS8.unpack (Base16.encode s)) <> text "'"
 
 quote :: String -> String
-quote s = "E'" ++ concatMap escape s ++ "'"
+quote s = "'" ++ concatMap escape s ++ "'"
 
 escape :: Char -> String
 escape '\NUL' = "\\0"
@@ -318,25 +327,30 @@ ppMSSQLType = go
   where go DBInt2             = "smallint"
         go DBInt4             = "int"
         go DBInt8             = "bigint"
-        go DBBool             = "bit"
-        go DBFloat4           = "real"        
-        go DBFloat8           = "float"
-        go (DBChar i)         = "nchar (" ++ show i ++ " )"
+        go (DBNumeric p s)    = "numeric (" ++ show p ++ ", " ++ show s ++ ")"
+        go (DBFloat n)        = "float (" ++ show n ++ ")"
+        go (DBChar i)         = "nchar (" ++ show i ++ ")"
+        go (DBVarchar i)      = "nvarchar (" ++ show i ++ ")"        
         go DBText             = "ntext"
-        -- TODO: fix size of varbinary
-        go DBByteArr          = "varbinary(2)"
-        go DBTimestamptz      = "datetimeoffset"
-        -- go DBInterval         = "INTERVAL"
-        -- go DBCiText           = "CITEXT"
-        go DBDate             = "date"
-        go DBTime             = "time"
-        go DBTimestamp        = "datetime2"
+        go (DBBinary i)       = "binary (" ++ show i ++ ")"
+        go (DBVarbinary (Left Max)) = "varbinary (max)"
+        go (DBVarbinary (Right i))  = "varbinary (" ++ show i ++ ")"
+                                     
+        go (DBTimestamptz i)     = "datetimeoffset (" ++ show i ++ ")"
+        go (DBTimestamp i)       = "datetime2 (" ++ show i ++ ")"
+        go DBDate                = "date"
+        go (DBTime i)            = "time (" ++ show i ++ ")"
         -- go DBUuid             = "UUID"
         -- go DBJson             = "JSON"
         -- go DBJsonB            = "JSONB"        
         -- go (DBArray t)        = go t ++ "[]"
-        go (DBNullable t)     = go t
-        go (DBTypeName t)     = T.unpack (doubleQuote (T.pack t))
-        go (DBCustomType t _) = go t
-        go _                  = error "Panic: not implemented"
+        go (DBNullable t)        = go t
+        go (DBTypeName t args)   = T.unpack (doubleQuote t) ++ ppArgs args
+        go (DBCustomType t _)    = go t
+        go _                     = error "Panic: not implemented"
 
+        ppArgs []  = ""
+        ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"
+
+        ppArg (TextArg t)    = T.unpack t
+        ppArg (IntegerArg i) = show i

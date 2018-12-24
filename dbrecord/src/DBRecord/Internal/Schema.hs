@@ -158,65 +158,6 @@ type family TagEach (db :: tk) (ent :: [k]) :: [TagHK tk k] where
 type family UnTag (t :: TagHK k1 k) :: k where
   UnTag ('Tag _ a) = a
 
-data family Sing (a :: k)
-
-data instance Sing (s :: Symbol) where
-  SSym :: KnownSymbol s => Sing s
-
-data instance Sing (v :: Nat) where
-  SNat :: KnownNat v => Sing v
-
-data instance Sing (t :: *) where
-  STypeRep :: Typeable t => Sing (t :: *)
-
-data instance Sing (b :: Bool) where
-  STrue :: Sing 'True
-  SFalse :: Sing 'False
-
-data instance Sing (t :: Maybe k) where
-  SJust     :: Sing (a :: k) -> Sing ('Just a)
-  SNothing  :: Sing 'Nothing
-
-data instance Sing (t :: (k1, k2)) where
-  STuple :: Sing (a :: k1) -> Sing (b :: k2) -> Sing '(a, b)
-
-data instance Sing (xs :: [k]) where
-  SNil  :: Sing '[]
-  SCons :: Sing x -> Sing xs -> Sing (x ': xs)
-
-data instance Sing (t :: DBTypeK) where
-  SDBInt4        :: Sing 'DBInt4
-  SDBInt8        :: Sing 'DBInt8
-  SDBInt2        :: Sing 'DBInt2
-  SDBFloat4      :: Sing 'DBFloat4
-  SDBFloat8      :: Sing 'DBFloat8
-  SDBBool        :: Sing 'DBBool
-  SDBNumeric     :: Sing n1 -> Sing n2 -> Sing ('DBNumeric n1 n2)
-  SDBChar        :: Sing n -> Sing ('DBChar n)
-  SDBText        :: Sing 'DBText
-  SDBCiText      :: Sing 'DBCiText
-  SDBDate        :: Sing 'DBDate
-  SDBTime        :: Sing 'DBTime
-  SDBTimestamp   :: Sing 'DBTimestamp
-  SDBTimestamptz :: Sing 'DBTimestamptz
-  SDBUuid        :: Sing 'DBUuid
-  SDBByteArr     :: Sing 'DBByteArr
-  SDBJson        :: Sing 'DBJson
-  SDBJsonB       :: Sing 'DBJsonB
-  SDBInterval    :: Sing 'DBInterval
-  SDBArray       :: Sing a -> Sing ('DBArray a)
-  SDBNullable    :: Sing a -> Sing ('DBNullable a)
-  SDBCustomType  :: Sing t -> Sing dbt -> Sing b -> Sing ('DBCustomType t dbt b)
-  SDBTypeName    :: Sing sym -> Sing ('DBTypeName sym)
-
-data instance Sing (db :: DbK) where
-  SPostgres  :: Sing 'Postgres
-  SMySQL     :: Sing 'MySQL
-  SSQLite    :: Sing 'SQLite
-  SCassandra :: Sing 'Cassandra
-  SPresto    :: Sing 'Presto
-  SMSSQL     :: Sing 'MSSQL
-  
 data instance Sing (a :: TagHK tk k) where
   STag :: Sing tag -> Sing a -> Sing ('Tag tag a)
 
@@ -240,117 +181,10 @@ data instance Sing (t :: TypeName Symbol) where
 data instance Sing (tm :: UDTypeMappings) where
   SEnumType :: Sing (tn :: Symbol) -> Sing (dcons :: [Symbol]) -> Sing ('EnumType tn dcons)
 
-class SingI (a :: k) where
-  sing :: Sing a
-
-instance SingI 'True where
-  sing = STrue
-
-instance SingI 'False where
-  sing = SFalse
-
-instance SingI 'DBInt4 where
-  sing = SDBInt4
-
-instance SingI 'DBInt8 where
-  sing = SDBInt8
-
-instance SingI 'DBInt2 where
-  sing = SDBInt2
-
-instance SingI 'DBFloat4 where
-  sing = SDBFloat4
-
-instance SingI 'DBFloat8 where
-  sing = SDBFloat8
-
-instance SingI 'DBBool where
-  sing = SDBBool
-
-instance ( SingI n1
-         , SingI n2
-         ) => SingI ('DBNumeric n1 n2) where
-  sing = SDBNumeric sing sing
-
-instance (SingI n) => SingI ('DBChar n) where
-  sing = SDBChar sing
-
-instance SingI 'DBText where
-  sing = SDBText
-
-instance SingI 'DBCiText where
-  sing = SDBCiText
-
-instance SingI 'DBDate where
-  sing = SDBDate
-
-instance SingI 'DBTime where
-  sing = SDBTime
-
-instance SingI 'DBTimestamp where
-  sing = SDBTimestamp
-
-instance SingI 'DBTimestamptz where
-  sing = SDBTimestamptz
-
-instance SingI 'DBUuid where
-  sing = SDBUuid
-
-instance SingI 'DBByteArr where
-  sing = SDBByteArr
-
-instance SingI 'DBJson where
-  sing = SDBJson
-
-instance SingI 'DBJsonB where
-  sing = SDBJsonB
-
-instance SingI 'DBInterval where
-  sing = SDBInterval
-
-instance (SingI dbt) => SingI ('DBArray dbt) where
-  sing = SDBArray sing
-
-instance (SingI dbt) => SingI ('DBNullable dbt) where
-  sing = SDBNullable sing
-
-instance ( SingI t
-         , SingI dbt
-         , SingI b
-         ) => SingI ('DBCustomType t dbt b) where
-  sing = SDBCustomType sing sing sing
-
-instance (SingI sym) => SingI ('DBTypeName sym) where
-  sing = SDBTypeName sing
-  
-instance (SingI a, SingI b) => SingI ( '(a, b)) where
-  sing = STuple sing sing
-
-instance (SingI a) => SingI ('Just a) where
-  sing = SJust sing
-
-instance SingI 'Nothing where
-  sing = SNothing
-
-instance SingI '[] where
-  sing = SNil
-
-instance (SingI x, SingI xs) => SingI (x ': xs) where
-  sing = SCons sing sing
-
-instance (KnownSymbol sy) => SingI (sy :: Symbol) where
-  sing = SSym
-
-instance (KnownNat n) => SingI (n :: Nat) where
-  sing = SNat
-
 instance ( SingI a
          , SingI tag
          ) => SingI ('Tag tag a)  where
   sing = STag sing sing
-
-instance (Typeable t) => SingI (t :: *) where
-  sing = STypeRep
 
 instance (SingI uniqFlds, SingI uniqOn) => SingI ('UniqueOn uniqFlds uniqOn) where
   sing = SUniqueOn sing sing 
@@ -379,56 +213,11 @@ instance ( SingI cols
          ) => SingI ('CheckOn cols cname) where
   sing = SCheck sing sing
 
-instance SingI 'Postgres where
-  sing = SPostgres
-
-instance SingI 'MySQL where
-  sing = SMySQL
-
-instance SingI 'SQLite where
-  sing = SSQLite
-
-instance SingI 'Cassandra where
-  sing = SCassandra
-
-instance SingI 'Presto where
-  sing = SPresto
-
-instance SingI 'MSSQL where
-  sing = SMSSQL
-
 instance ( SingI tn
          , SingI dcons
          ) => SingI ('EnumType tn dcons) where
   sing = SEnumType sing sing
   
-class SingE (a :: k) where
-  type Demote a :: *
-  fromSing :: Sing a -> Demote (Any :: k)
-
-instance SingE (b :: Bool) where
-  type Demote b = Bool
-  fromSing STrue  = True
-  fromSing SFalse = False
-
-instance SingE (sy :: Symbol) where
-  type Demote sy = T.Text
-  fromSing SSym = T.pack (symbolVal (Proxy :: Proxy sy))
-
-instance SingE (n :: Nat) where
-  type Demote n = Integer
-  fromSing SNat = natVal (Proxy :: Proxy n)
-
-type family Fst (tup :: (k1, k2)) :: k1 where
-  Fst '(a, b) = a
-
-type family Snd (tup :: (k1, k2)) :: k2 where
-  Snd '(a, b) = b
-
-type family MaybeCtx (ctx :: k -> Constraint) (m :: Maybe k) :: Constraint where
-  MaybeCtx ctx ('Just m) = ctx m
-  MaybeCtx _   'Nothing  = ()
-
 type family UqCtx (ctx :: Symbol -> Constraint) (uq :: UniqueCT) :: Constraint where
   UqCtx ctx ('UniqueOn uniqFlds uniqOn) = (All ctx uniqFlds, ctx uniqOn)
 
@@ -449,28 +238,12 @@ type family FKCtxTyN (ctx :: Symbol -> Constraint) (fk :: ForeignRef (TypeName S
   FKCtxTyN ctx ('Ref col reft name)            = ( ctx col, SingE reft, ctx name
                                                  )
 
-instance ( SingE (Fst tup)
-         , SingE (Snd tup)
-         ) => SingE (tup :: (k1, k2)) where
-  type Demote (tup :: (k1, k2)) = (Demote (Any :: k1), Demote (Any :: k2))
-  fromSing (STuple x y) = (fromSing x, fromSing y)
+type family TagDBTypeCtx (taggedDbt :: TagHK DbK DBTypeK) where
+  TagDBTypeCtx ('Tag dbT dbTy) = (SingE dbTy)
 
-instance (MaybeCtx SingE m) => SingE (m :: Maybe k) where
-  type Demote (m :: Maybe k) = Maybe (Demote (Any :: k))
-  fromSing SNothing   = Nothing
-  fromSing (SJust x)  = Just (fromSing x)
-  
-instance All SingE xs => SingE (xs :: [k]) where
-  type Demote (xs :: [k]) = [Demote (Any :: k)]
-  fromSing SNil         = []
-  fromSing (SCons x xs) = fromSing x : fromSing xs
-
-type family DBTypeCtx (taggedDbt :: TagHK DbK DBTypeK) where
-  DBTypeCtx ('Tag dbT dbTy) = (SingDBType dbT dbTy)
-
-instance (DBTypeCtx taggedDbt) => SingE (taggedDbt :: TagHK DbK DBTypeK) where
+instance (TagDBTypeCtx taggedDbt) => SingE (taggedDbt :: TagHK DbK DBTypeK) where
   type Demote taggedDbt     = Type.DBType
-  fromSing (STag sdb stype) = showDBTypeSing sdb stype
+  fromSing (STag sdb stype) = fromSing stype
 
 type family UDTCtx (taggedDbt :: UDTypeMappings) where
   UDTCtx ('EnumType tn dcons) = (SingE tn, SingE dcons)
@@ -481,9 +254,9 @@ instance (UDTCtx udt) => SingE (udt :: UDTypeMappings) where
     EnumTypeNM (fromSing stn) (fromSing sdcons)
 
 showDBTypeSing :: forall db dbTy.
-                   ( SingDBType db dbTy
+                   ( DBTypeCtx dbTy
                    ) => Sing (db :: DbK) -> Sing (dbTy :: DBTypeK) -> Type.DBType
-showDBTypeSing dbK dbT = unliftDBType (reproxy dbK) (reproxy dbT)
+showDBTypeSing dbK dbT = fromSing dbT
 
 instance (UqCtx SingE uq) => SingE (uq :: UniqueCT) where
   type Demote (uq :: UniqueCT)         = (Demote (Any :: [Symbol]), Demote (Any :: Symbol))
@@ -512,15 +285,6 @@ instance ( FKCtxTyN SingE fk
   fromSing (SRef coln reft fkname) =
     let cols = [fromSing coln]
     in RefByD (fromSing fkname) cols (fromSing reft) cols
-
-instance SingE (db :: DbK) where
-  type Demote db = DbK
-  fromSing SPostgres  = Postgres
-  fromSing SMySQL     = MySQL
-  fromSing SSQLite    = SQLite
-  fromSing SCassandra = Cassandra
-  fromSing SPresto    = Presto
-  fromSing SMSSQL     = MSSQL
 
 type family GetPMT (rep :: * -> *) :: TypeName Symbol where
   GetPMT (D1 ('MetaData tyName modName pkgName _) _) =
@@ -739,14 +503,14 @@ data IgnoredCol
   | IgnoreExcept [Symbol]
   | IgnoreNone
 
-data Def (db :: *) (tab :: k) (fn :: Symbol) = forall v.Def (Expr '[] v)
+data Def (db :: *) (tab :: k) (fn :: Symbol) = forall v.Def (PQ.Expr '[] v)
 
-def :: forall (fn :: Symbol) (tab :: *) (db :: *) v.(ValidateDBFld tab fn v) => Expr '[] v -> Def db tab fn
+def :: forall (fn :: Symbol) (tab :: *) (db :: *) v.(ValidateDBFld tab fn v) => PQ.Expr '[] v -> Def db tab fn
 def = Def
 
 instance ( ValidateDBFld tab un a
          , un ~ fn
-         , v ~ Expr '[] a
+         , v ~ PQ.Expr '[] a
          ) => IsLabel un (v -> Def db (tab :: *) fn) where
 #if __GLASGOW_HASKELL__ > 800
   fromLabel v = def @un @tab v
@@ -789,8 +553,8 @@ type family UnifyCheck (tab :: *) (cn :: Symbol) (flds :: [*]) (args :: Maybe [S
   UnifyCheck tab cn flds ('Just args) val = UnifyOrErr (SeqEither (MkCheckFn tab args val flds)) val
   
 type family MkCheckFn (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: [Either ErrorMessage *] where
-  MkCheckFn tab (fn ': fs) chkFun flds = Note (ColNotFoundMsg fn tab) (FMapMaybe (Expr flds) (FindField flds fn)) ': MkCheckFn tab fs chkFun flds
-  MkCheckFn tab '[] r flds = '[ 'Right (Expr flds Bool)]
+  MkCheckFn tab (fn ': fs) chkFun flds = Note (ColNotFoundMsg fn tab) (FMapMaybe (PQ.Expr flds) (FindField flds fn)) ': MkCheckFn tab fs chkFun flds
+  MkCheckFn tab '[] r flds = '[ 'Right (PQ.Expr flds Bool)]
 
 instance ( un ~ cn
          , args ~ LookupCheck (Check db tab) cn
@@ -909,19 +673,19 @@ class ApCheckExpr (chkOns :: [Symbol]) (chkName :: Symbol) val where
 
 instance ( ApCheckExpr chkOns chkName b
          , KnownSymbol chkOn
-         ) => ApCheckExpr (chkOn ': chkOns) chkName (Expr sc a -> b) where
+         ) => ApCheckExpr (chkOn ': chkOns) chkName (PQ.Expr sc a -> b) where
   apCheckExpr _ pChkN cis chkMaps v =
-    let colE = unsafeCol [dbColN]
+    let colE = PQ.unsafeCol [dbColN]
         colN = T.pack (symbolVal (Proxy @chkOn))
         dbColN = getDbColumnName cis colN
     in  apCheckExpr (Proxy @chkOns) pChkN cis chkMaps (v colE)
 
-instance (KnownSymbol chkName) => ApCheckExpr '[] chkName (Expr sc a) where
-  apCheckExpr _ _ _ chkMaps e = (dbChkName, getExpr e)
+instance (KnownSymbol chkName) => ApCheckExpr '[] chkName (PQ.Expr sc a) where
+  apCheckExpr _ _ _ chkMaps e = (dbChkName, PQ.getExpr e)
     where dbChkName = getDbCheckName chkMaps (T.pack (symbolVal (Proxy @chkName)))
 
 defExpr :: forall db tab fld. (KnownSymbol fld) => [ColumnInfo] -> Def db tab fld -> (T.Text, PQ.PrimExpr)
-defExpr cis (Def (Expr e)) = (dbColN, e)
+defExpr cis (Def (PQ.Expr e)) = (dbColN, e)
   where dbColN = getDbColumnName cis (T.pack (symbolVal (Proxy @fld)))
 
 -- Value level counterparts
@@ -1302,12 +1066,12 @@ headTypeNameInfo :: forall db ty.
                       , SingI (TypeMappings db ty)
                       , UDTCtx (TypeMappings db ty)
                       , Generic ty
-                      , SingDBType (DB db) (GetDBTypeRep (DB db) ty)
+                      , DBTypeCtx (GetDBTypeRep (DB db) ty)
+                      , SingI (GetDBTypeRep (DB db) ty)
                       ) => Proxy db -> Sing (ty :: *) -> TypeNameInfo
 headTypeNameInfo pdb _ =
   let tnm = fromSing (sing :: Sing (TypeMappings db ty))
-      tnv = unliftDBType (Proxy :: Proxy (DB db))
-                         (Proxy :: Proxy (GetDBTypeRep (DB db) ty))
+      tnv = fromSing (sing :: Sing (GetDBTypeRep (DB db) ty))
   in  mkTypeNameInfo tnv tnm
 
 type family AllUDCtx db tys :: Constraint where
@@ -1316,7 +1080,8 @@ type family AllUDCtx db tys :: Constraint where
                             , UDTCtx (TypeMappings db ty)
                             , AllUDCtx db tys
                             , Generic ty
-                            , SingDBType (DB db) (GetDBTypeRep (DB db) ty)
+                            , DBTypeCtx (GetDBTypeRep (DB db) ty)
+                            , SingI (GetDBTypeRep (DB db) ty)
                             )
   AllUDCtx db '[]         = ()                                  
 
@@ -1670,8 +1435,9 @@ col :: forall (db :: *) (tab :: *) (col :: Symbol) (a :: *) sc.
   , SingI (ColumnNames db tab)
   , SingE (OriginalTableFieldInfo db tab)
   , SingI (OriginalTableFieldInfo db tab)
-  ) => Proxy (DBTag db tab col) -> Expr sc a
-col _ = Expr (PQ.AttrExpr sym)
+  , sc ~ OriginalTableFields tab
+  ) => Proxy (DBTag db tab col) -> PQ.Expr sc a
+col _ = PQ.Expr (PQ.AttrExpr sym)
   where sym = maybe (error "Panic: Empty col @col_") id (PQ.toSym [dbColN])
         dbColN = _dbName (_columnNameInfo (getColumnInfo (headColInfos (Proxy @db) (Proxy @tab)) fld))
         fld = T.pack (symbolVal (Proxy @col))
@@ -1758,3 +1524,64 @@ ppDatabaseInfo di =
   "Tables 
 -}  
 
+{-
+
+number {
+
+int      - DBInt4
+bigint   - DBInt8
+smallint - DBInt2
+
+real             - DBFloat4
+double precision - DBFloat8
+
+float(1 - 24)  - real
+float(25 - 53) - double precision
+float          - double precision
+
+-- precision > 0, scale >= 0
+NUMERIC(precision, scale)
+NUMERIC(precision)
+NUMERIC
+
+decimal & numeric are equivalent.
+
+money - 8 byte
+}
+
+char {
+
+character varying(n), varchar(n)
+character(n), char(n)
+text
+}
+
+binary : bytea
+
+datetime {
+
+timestamp [p] / timestamp without time zone [p] { p in 0 - 6 }
+timestamptz [p] / timestamp with time zone [p] { 0 - 6 }
+
+date
+
+time [ (p) ] [ without time zone ]
+time [ (p) ] with time zone
+
+interval [ fields ] [ (p) ] , fields in interval
+
+//
+
+geometry
+network
+bit string
+text search
+enum types
+composite types
+range types
+domain types
+oid ?
+pg_lsn 
+
+--
+-}
