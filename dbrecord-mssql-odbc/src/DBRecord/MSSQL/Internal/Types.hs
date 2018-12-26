@@ -25,14 +25,17 @@ type instance CustomDBTypeRep 'Type.MSSQL (Varsized n Text) = 'Type.DBVarchar ('
 instance EqExpr ByteString where
   a .== b = binOp PQ.OpEq a b
 
-instance EqExpr (Type.CustomType a) where
+instance EqExpr (Type.CustomType (Sized n Text)) where
+  a .== b = binOp PQ.OpEq a b
+
+instance EqExpr (Type.CustomType (Varsized n Text)) where
   a .== b = binOp PQ.OpEq a b
 
 instance IsString (Expr sc (Sized n Text)) where
-  fromString = coerceExpr . text . pack
+  fromString = coerceExpr . annotateMSSQL . mssqltext . pack
 
 instance IsString (Expr sc (Varsized n Text)) where
-  fromString = coerceExpr . text . pack
+  fromString = coerceExpr . annotateMSSQL . mssqltext  . pack
 
 instance (IsString (Expr sc a)
          ) => IsString (Expr sc (Type.CustomType a)) where

@@ -40,7 +40,7 @@ sqlExpr =
             e <-  binSqlExpr <|> prefixSqlExpr <|> termSqlExpr
             op <- eitherP (symbol "OVER" *> word) postfixOp
             case op of
-              Left w -> pure (WindowSqlExpr w e)
+              Left w -> pure (NamedWindowSqlExpr w e)
               Right op -> pure (PostfixSqlExpr op e)
 
           prefixSqlExpr = do

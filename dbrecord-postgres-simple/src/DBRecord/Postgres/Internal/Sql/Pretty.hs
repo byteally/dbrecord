@@ -50,6 +50,7 @@ ppSelectWith from tabDoc =
   $$  ppWhere (DML.criteria from)
   $$  ppWindows (windows from)  
   $$  ppGroupBy (groupby from)
+  $$  ppHaving (having from)  
   $$  ppOrderBy (orderby from)
   $$  ppLimit (limit from)
   $$  ppOffset (offset from)
@@ -143,6 +144,13 @@ ppGroupBy (Just exprs) = go (toList exprs)
     go es = text "GROUP BY" <+> ppGroupAttrs es
     ppGroupAttrs es = commaV (ppPGExpr . deliteral) es
 
+ppHaving :: [SqlExpr] -> Doc
+ppHaving []    = empty
+ppHaving exprs = go (toList exprs)
+  where
+    go es = text "HAVING" <+> ppGroupAttrs es
+    ppGroupAttrs es = commaV (ppMSSQLExpr . deliteral) es
+
 ppOrderBy :: [(SqlExpr,SqlOrder)] -> Doc
 ppOrderBy []   = empty
 ppOrderBy ords = text "ORDER BY" <+> commaV ppOrd ords
@@ -213,7 +221,10 @@ ppPGExpr expr =
     DefaultSqlExpr    -> text "DEFAULT"
     ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppPGExpr es)
     ExistsSqlExpr s     -> text "EXISTS" <+> parens (ppSelect s)
-    WindowSqlExpr w e -> ppPGExpr e <+> text "OVER" <+> text w 
+    NamedWindowSqlExpr w e -> ppPGExpr e <+> text "OVER" <+> text w
+    AnonWindowSqlExpr p o e -> ppPGExpr e <+> text "OVER" <+> parens (partPP p <> ppOrderBy o)
+      where partPP     [] = empty
+            partPP     xs = text "PARTITION BY" <+> (commaH ppPGExpr xs <> space)
 
 ppInsert :: SqlInsert -> Doc
 ppInsert (SqlInsert table names values rets)

@@ -36,10 +36,12 @@ partition = Partition . (:[]) . getExpr
 window :: Partition sc -> Order sc -> Window w sc
 window pe oe = Window (PQ.WindowPart (getPartExprs pe) (getOrder oe))
 
+windowExpr :: Partition sc -> Order sc -> Expr sc a -> Expr sc a
+windowExpr ps os = Expr . PQ.AnonWindowExpr (getPartExprs ps) (getOrder os) . getExpr
+
 {-
 -- We trust the binary input
 instance Binary (Window w sc) where
   put = put . getPartitions
   get = Window <$> get
-
 -}

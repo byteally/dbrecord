@@ -53,6 +53,9 @@ instance ConstExpr Text where
 instance ConstExpr Int where
   constExpr = exprFromInteger . fromIntegral
 
+instance ConstExpr SB.ByteString where
+  constExpr = bytes
+
 instance ConstExpr t => ConstExpr (fn ::: t) where
   constExpr (Field v) = coerce $ constExpr v
 
@@ -136,7 +139,7 @@ instance ( NumExpr a
   (+)      = binOp PQ.OpPlus
   (-)      = binOp PQ.OpMinus
   abs      = unOp PQ.OpAbs
-  negate   = unOp PQ.OpAbs
+  negate   = unOp PQ.OpNegate
   signum a = case_ [ (a .== 0, 0)
                    , (a .<  0, (-1))
                    , (a .>  0, 1)
@@ -211,6 +214,15 @@ instance (EqExpr t) => EqExpr (fld ::: t) where
 instance EqExpr UTCTime where
   a .== b = binOp PQ.OpEq a b
 
+instance EqExpr Integer where
+  a .== b = binOp PQ.OpEq a b
+
+instance EqExpr Float where
+  a .== b = binOp PQ.OpEq a b
+
+instance EqExpr Double where
+  a .== b = binOp PQ.OpEq a b
+
 class (EqExpr a) => OrdExpr a where
   (.>) :: Expr sc a -> Expr sc a -> Expr sc Bool
   (.<)  :: Expr sc a -> Expr sc a -> Expr sc Bool
@@ -244,6 +256,15 @@ instance (OrdExpr a) => OrdExpr (Maybe a) where
   a .<= b = binOp PQ.OpLtEq a b
 
 instance OrdExpr UTCTime where
+  a .<= b = binOp PQ.OpLtEq a b
+
+instance OrdExpr Integer where
+  a .<= b = binOp PQ.OpLtEq a b
+
+instance OrdExpr Float where
+  a .<= b = binOp PQ.OpLtEq a b
+
+instance OrdExpr Double where
   a .<= b = binOp PQ.OpLtEq a b
 
 infixr 3 .&&
@@ -440,6 +461,9 @@ toJson = lazyJson . A.encode
 toJsonStr :: (ToJSON a, Typeable a) => a -> Expr sc (JsonStr a)
 toJsonStr = strToJsonStr . lazyDecodeUtf8 . A.encode
 
+bytes :: SB.ByteString -> Expr sc SB.ByteString
+bytes = Expr . PQ.ConstExpr . PQ.Byte
+
 addInterval :: Expr sc Interval -> Expr sc Interval -> Expr sc Interval
 addInterval e1 e2 = binOp PQ.OpPlus e1 e2
 
@@ -474,6 +498,14 @@ l %? r = binOp (PQ.OpOther "%") l r
 coalesce :: Expr sc a -> Expr sc (Maybe a) -> Expr sc a
 coalesce (Expr d) (Expr opt) =
   Expr (PQ.FunExpr "COALESCE" [opt, d])
+
+sum :: (NumExpr a) => Expr sc a -> Expr sc a
+sum = Expr . PQ.FunExpr "sum" . singleton . getExpr
+  where singleton x = [x]
+
+avg :: (FractionalExpr a) => Expr sc a -> Expr sc a
+avg = Expr . PQ.FunExpr "avg" . singleton . getExpr
+  where singleton x = [x]
 
 instance EqExpr Bool where
   a .== b = binOp PQ.OpEq a b

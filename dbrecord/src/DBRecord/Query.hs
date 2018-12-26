@@ -49,6 +49,7 @@ module DBRecord.Query
        , HasTransaction (..)
        , DBTag
        , rawClauses
+       , getBaseTable
        ) where
 
 import DBRecord.Schema
@@ -314,10 +315,8 @@ getAll' :: forall db tab driver cfg.
            , HasQuery driver
            , FromDBRow driver tab             
            ) => Clauses -> DBM db [tab]
-getAll' cls = do
-  let tabId = getTableId (Proxy @db) (Proxy @tab)
-      tabFlds = getTableProjections (Proxy @db) (Proxy @tab)
-  runQuery tabId (cls { projections = tabFlds })
+getAll' cls =
+  rawClauses cls
 
 rawClauses :: forall db tab driver cfg.
              ( Table db tab
@@ -330,8 +329,8 @@ rawClauses :: forall db tab driver cfg.
              ) => PQ.Clauses -> DBM db [tab]
 rawClauses cls = do
   let tabId = getTableId (Proxy @db) (Proxy @tab)
-  runQuery tabId cls
-  
+  runQuery (BaseTable tabId cls)
+
 {-
 count :: forall tab db driver cfg.
   ( Table db tab
@@ -358,9 +357,8 @@ runQuery :: ( MonadIO (DBM db)
              , MonadReader (driver cfg) (DBM db)
              , HasQuery driver
              , FromDBRow driver tab
-             ) => TableId -> Clauses -> DBM db [tab]
-runQuery tabId cls = do
-  let primQ = BaseTable tabId cls
+             ) => PrimQuery -> DBM db [tab]
+runQuery primQ = do
   driver <- ask
   liftIO $ dbQuery driver primQ
 
@@ -673,3 +671,12 @@ getTableId pdb ptab =
               , PQ.tableName = dbTabName
               }
 
+getBaseTable :: forall db tab.
+                ( SingCtx db tab
+                , SingCtxDb db
+                ) => Proxy db -> Proxy tab -> PrimQuery
+getBaseTable _ _ =
+  let tabId = getTableId (Proxy @db) (Proxy @tab)
+      tabFlds = getTableProjections (Proxy @db) (Proxy @tab)      
+  in  BaseTable tabId (clauses { projections = tabFlds })
+  

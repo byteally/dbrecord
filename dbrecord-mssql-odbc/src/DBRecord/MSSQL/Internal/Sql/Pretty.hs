@@ -37,7 +37,8 @@ ppSelect select = case select of
   SqlProduct sqSels selectFrom -> ppSelectWith selectFrom (ppProduct sqSels) 
   SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTable tab)
   SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (ppJoin joinSt)
-  SqlBin binSt selectFrom      -> ppSelectWith selectFrom (ppSelectBinary binSt)  
+  SqlBin binSt selectFrom      -> ppSelectWith selectFrom (ppSelectBinary binSt)
+  SqlCTE withs sql selectFrom  -> ppSelectWith selectFrom (ppSelectCTE withs sql)  
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
   -- SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
 
@@ -84,24 +85,33 @@ ppBinOp op = text $ case op of
   Intersect    -> "INTERSECT"
   IntersectAll -> "INTERSECTALL"
 
+ppSelectCTE :: [SqlWith] -> SqlSelect -> Doc
+ppSelectCTE = undefined
+
 ppJoin :: Join -> Doc
 ppJoin joinSt = ppJoinedTabs
   where ppJoinedTabs = parens (   
                        ppSelect s1
-                   $$  ppJoinType (jJoinType joinSt)
+                   $$  ppJoinType (jJoinType joinSt) (jLateral joinSt)
                    $$  ppSelect s2
-                   $$  text "ON"
-                   $$  ppMSSQLExpr (jCond joinSt)
+                   $$  ppOn (jCond joinSt)
                    )
                    
         (s1, s2) = jTables joinSt
+        ppOn Nothing  = empty
+        ppOn (Just e) =   text "ON"
+                      $$  ppMSSQLExpr e
 
-ppJoinType :: JoinType -> Doc
-ppJoinType LeftJoin   = text "LEFT OUTER JOIN"
-ppJoinType RightJoin  = text "RIGHT OUTER JOIN"
-ppJoinType FullJoin   = text "FULL OUTER JOIN"
-ppJoinType InnerJoin  = text "INNER JOIN"
 
+ppJoinType :: JoinType -> Lateral -> Doc
+ppJoinType LeftJoin  False = text "LEFT OUTER JOIN"
+ppJoinType RightJoin False = text "RIGHT OUTER JOIN"
+ppJoinType FullJoin  False = text "FULL OUTER JOIN"
+ppJoinType InnerJoin False = text "INNER JOIN"
+ppJoinType CrossJoin False = text "CROSS JOIN"
+ppJoinType LeftJoin  True  = text "OUTER APPLY"
+ppJoinType CrossJoin True  = text "CROSS APPLY"
+ppJoinType _ _ = error "Panic: impossible case @ppJoinType"
 
 ppSelectValues :: SqlValues -> Doc
 ppSelectValues v = text "SELECT"
@@ -216,7 +226,11 @@ ppMSSQLExpr expr =
     DefaultSqlExpr    -> text "DEFAULT"
     ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppMSSQLExpr es)
     ExistsSqlExpr s     -> text "EXISTS" <+> parens (ppSelect s)
-    WindowSqlExpr w e -> ppMSSQLExpr e <+> text "OVER" <+> text w
+    NamedWindowSqlExpr w e -> ppMSSQLExpr e <+> text "OVER" <+> text w
+    AnonWindowSqlExpr p o e -> ppMSSQLExpr e <+> text "OVER" <+> parens (partPP p <> ppOrderBy o)
+      where partPP     [] = empty
+            partPP     xs = text "PARTITION BY" <+> (commaH ppMSSQLExpr xs <> space)
+
 
 
   where ppOp "MOD" = text "%"
@@ -321,33 +335,34 @@ renderUpdate = render . ppUpdate
 
 --
 
--- NOTE: Untested. 
 ppMSSQLType :: DBType -> String
 ppMSSQLType = go
-  where go DBInt2             = "smallint"
-        go DBInt4             = "int"
-        go DBInt8             = "bigint"
-        go (DBNumeric p s)    = "numeric (" ++ show p ++ ", " ++ show s ++ ")"
-        go (DBFloat n)        = "float (" ++ show n ++ ")"
-        go (DBChar i)         = "nchar (" ++ show i ++ ")"
-        go (DBVarchar i)      = "nvarchar (" ++ show i ++ ")"        
-        go DBText             = "ntext"
-        go (DBBinary i)       = "binary (" ++ show i ++ ")"
+  where go DBInt2                   = "smallint"
+        go DBInt4                   = "int"
+        go DBInt8                   = "bigint"
+        go (DBNumeric p s)          = "numeric (" ++ show p ++ ", " ++ show s ++ ")"
+        go (DBFloat n)              = "float (" ++ show n ++ ")"
+        go (DBChar i)               = "nchar (" ++ show i ++ ")"
+        go (DBVarchar (Left _))     = "nvarchar (max)"
+        go (DBVarchar (Right i))    = "nvarchar (" ++ show i ++ ")"                
+        go DBText                   = "ntext"
+        go (DBBinary i)             = "binary (" ++ show i ++ ")"
         go (DBVarbinary (Left Max)) = "varbinary (max)"
         go (DBVarbinary (Right i))  = "varbinary (" ++ show i ++ ")"
                                      
-        go (DBTimestamptz i)     = "datetimeoffset (" ++ show i ++ ")"
-        go (DBTimestamp i)       = "datetime2 (" ++ show i ++ ")"
-        go DBDate                = "date"
-        go (DBTime i)            = "time (" ++ show i ++ ")"
+        go (DBTimestamptz i)        = "datetimeoffset (" ++ show i ++ ")"
+        go (DBTimestamp i)          = "datetime2 (" ++ show i ++ ")"
+        go DBDate                   = "date"
+        go (DBTime i)               = "time (" ++ show i ++ ")"
         -- go DBUuid             = "UUID"
         -- go DBJson             = "JSON"
         -- go DBJsonB            = "JSONB"        
         -- go (DBArray t)        = go t ++ "[]"
-        go (DBNullable t)        = go t
-        go (DBTypeName t args)   = T.unpack (doubleQuote t) ++ ppArgs args
-        go (DBCustomType t _)    = go t
-        go _                     = error "Panic: not implemented"
+        go (DBBit i)                = "bit (" ++ show i ++ ")"
+        go (DBNullable t)           = go t
+        go (DBTypeName t args)      = T.unpack (doubleQuote t) ++ ppArgs args
+        go (DBCustomType t _)       = go t
+        go t                        = error $ "Panic: not implemented : " ++ show t
 
         ppArgs []  = ""
         ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"

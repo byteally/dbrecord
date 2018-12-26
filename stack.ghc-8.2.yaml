@@ -1,0 +1,9 @@
+resolver: lts-11.22
+packages:
+- dbrecord
+- dbrecord-postgres-simple
+- dbrecord-mysql-haskell
+- dbrecord-mongo
+- dbrecord-mssql-odbc
+- dbrecord-sqlite-simple
+extra-deps: []

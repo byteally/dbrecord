@@ -6,12 +6,16 @@ import DBRecord.Query
 import qualified DBRecord.MSSQL.Internal.Sql.Pretty as MSSQL
 import qualified DBRecord.Internal.Sql.SqlGen as MSSQL
 import Control.Monad.Reader
+import qualified DBRecord.Internal.PrimQuery as PQ
 
 data MSSQL cfg where
   MSSQL :: MSSQL cfg
 
 type instance FromDBRow MSSQL a = ()
 type instance ToDBRow MSSQL a   = ()
+
+renderQuery :: PQ.PrimQuery -> String
+renderQuery = MSSQL.renderQuery . MSSQL.sql
 
 instance HasUpdateRet MSSQL where
   dbUpdateRet MSSQL updateQ = do
@@ -27,7 +31,7 @@ instance HasUpdate MSSQL where
 
 instance HasQuery MSSQL where
   dbQuery MSSQL primQ = do
-    let sqlQ= MSSQL.renderQuery $ MSSQL.sql primQ
+    let sqlQ= renderQuery primQ
     putStrLn sqlQ
     return []
 

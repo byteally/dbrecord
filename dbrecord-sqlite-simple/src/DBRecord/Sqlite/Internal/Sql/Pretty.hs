@@ -87,7 +87,7 @@ ppJoin :: Join -> Doc
 ppJoin joinSt = ppJoinedTabs
   where ppJoinedTabs = parens (   
                        ppSelect s1
-                   $$  ppJoinType (jJoinType joinSt)
+                   $$  ppJoinType (jJoinType joinSt) (jLateral joinSt)
                    $$  ppSelect s2
                    $$  text "ON"
                    $$  ppSqliteExpr (jCond joinSt)
@@ -95,12 +95,17 @@ ppJoin joinSt = ppJoinedTabs
                    
         (s1, s2) = jTables joinSt
 
-ppJoinType :: JoinType -> Doc
-ppJoinType LeftJoin   = text "LEFT OUTER JOIN"
-ppJoinType RightJoin  = text "RIGHT OUTER JOIN"
-ppJoinType FullJoin   = text "FULL OUTER JOIN"
-ppJoinType InnerJoin  = text "INNER JOIN"
-
+ppJoinType :: JoinType -> Lateral -> Doc
+ppJoinType LeftJoin  True = text "LEFT OUTER JOIN LATERAL"
+ppJoinType RightJoin True = text "RIGHT OUTER JOIN LATERAL"
+ppJoinType FullJoin  True = text "FULL OUTER JOIN LATERAL"
+ppJoinType InnerJoin True = text "INNER JOIN LATERAL"
+ppJoinType CrossJoin True = text "CROSS JOIN LATERAL"
+ppJoinType LeftJoin  False = text "LEFT OUTER JOIN"
+ppJoinType RightJoin False = text "RIGHT OUTER JOIN"
+ppJoinType FullJoin  False = text "FULL OUTER JOIN"
+ppJoinType InnerJoin False = text "INNER JOIN"
+ppJoinType CrossJoin False = text "CROSS JOIN"
 
 ppSelectValues :: SqlValues -> Doc
 ppSelectValues v = text "SELECT"

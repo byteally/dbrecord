@@ -10,16 +10,20 @@ import DBRecord.Internal.DBTypes (DBType)
 type TableName = Text
 type Name      = Text
 
+type Lateral = Bool
+
 data Join = Join
   { jJoinType :: JoinType
+  , jLateral  :: Lateral
   , jTables :: (SqlSelect, SqlSelect)
-  , jCond :: SqlExpr
+  , jCond :: Maybe SqlExpr
   } deriving (Show, Read, Eq)
 
 data JoinType = LeftJoin
               | RightJoin
               | FullJoin
               | InnerJoin
+              | CrossJoin
               deriving (Show, Read, Eq)
 
 data SqlTable = SqlTable
@@ -64,11 +68,15 @@ data SqlDelete = SqlDelete SqlTable [SqlExpr]
 
 type Alias = Maybe String
 
-data SqlSelect = SqlProduct [SqlSelect] SelectFrom -- ^ product
-               | SqlSelect SqlTable SelectFrom     -- ^ base case
-               | SqlJoin Join SelectFrom           -- ^ join
-               | SqlBin Binary SelectFrom          -- ^ binary
-               | SqlValues SqlValues Alias         -- ^ values
+data SqlWith = SqlWith SqlName [SqlName] SqlSelect
+             deriving (Show, Read, Eq)
+
+data SqlSelect = SqlProduct [SqlSelect] SelectFrom      -- ^ product
+               | SqlSelect SqlTable SelectFrom          -- ^ base case
+               | SqlJoin Join SelectFrom                -- ^ join
+               | SqlBin Binary SelectFrom               -- ^ binary
+               | SqlCTE [SqlWith] SqlSelect SelectFrom  -- ^ CTEs
+               | SqlValues SqlValues Alias              -- ^ values
                  deriving (Show, Read,Eq)
 
 data SelectFrom = SelectFrom
@@ -129,7 +137,8 @@ data SqlExpr = ColumnSqlExpr  SqlColumn
              | CastSqlExpr DBType SqlExpr
              | CompositeSqlExpr SqlExpr String
              | ArraySqlExpr [SqlExpr]
-             | WindowSqlExpr String SqlExpr  
+             | NamedWindowSqlExpr String SqlExpr
+             | AnonWindowSqlExpr [SqlExpr] [(SqlExpr, SqlOrder)] SqlExpr
              | DefaultSqlExpr
              deriving (Show, Read, Eq)
 

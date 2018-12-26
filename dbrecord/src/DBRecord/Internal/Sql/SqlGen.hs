@@ -39,6 +39,7 @@ sqlQueryGenerator = PQ.PrimQueryFold
   , PQ.product   = product
   , PQ.join      = join
   , PQ.binary    = binary
+  , PQ.cte       = cte
   -- , PQ.values    = values
   -- , PQ.label     = label
   -- , PQ.relExpr   = relExpr
@@ -99,15 +100,23 @@ product :: NEL.NonEmpty SqlSelect -> PQ.Clauses -> SqlSelect
 product tabs cs = SqlProduct (NEL.toList tabs) $            
   (baseClauses cs) { DML.alias = T.unpack <$> (PQ.alias cs) } 
 
-join :: PQ.JoinType -> PQ.PrimExpr -> SqlSelect -> SqlSelect -> PQ.Clauses -> SqlSelect
-join jt e q1 q2 cs = SqlJoin (Join (joinType' jt) (q1, q2) (toSqlExpr e))
-                              ((baseClauses cs) { DML.alias  = (T.unpack <$> (PQ.alias cs)) })
+cte :: [PQ.WithExpr SqlSelect] -> SqlSelect -> PQ.Clauses -> SqlSelect
+cte withs s cs =
+  SqlCTE (map toSqlWith withs) s $
+    (baseClauses cs) { DML.alias = T.unpack <$> (PQ.alias cs) }
+
+  where toSqlWith (PQ.WithExpr tab cols p) = SqlWith tab cols p
+
+join :: PQ.JoinType -> PQ.Lateral -> Maybe PQ.PrimExpr -> SqlSelect -> SqlSelect -> PQ.Clauses -> SqlSelect
+join jt l e q1 q2 cs = SqlJoin (Join (joinType' jt) l (q1, q2) (fmap toSqlExpr e))
+                                ((baseClauses cs) { DML.alias  = (T.unpack <$> (PQ.alias cs)) })
                      
   where joinType' :: PQ.JoinType -> JoinType
         joinType' PQ.LeftJoin  = LeftJoin
         joinType' PQ.RightJoin = RightJoin
         joinType' PQ.FullJoin  = FullJoin
         joinType' PQ.InnerJoin = InnerJoin
+        joinType' PQ.CrossJoin = CrossJoin
 
 binary :: PQ.BinType -> SqlSelect -> SqlSelect -> PQ.Clauses -> SqlSelect
 binary bt q1 q2 cs = SqlBin (Binary (selectBinOp' bt) q1 q2)
@@ -232,7 +241,10 @@ defaultSqlExpr gen expr = case expr of
   PQ.CastExpr typ e1     -> CastSqlExpr typ (sqlExpr gen e1)
   PQ.DefaultInsertExpr   -> DefaultSqlExpr
   PQ.ArrayExpr es        -> ArraySqlExpr (map (sqlExpr gen) es)
-  PQ.WindowExpr w e      -> WindowSqlExpr (T.unpack w) (sqlExpr gen e)
+  PQ.NamedWindowExpr w e -> NamedWindowSqlExpr (T.unpack w) (sqlExpr gen e)
+  PQ.AnonWindowExpr p o e -> AnonWindowSqlExpr (map (sqlExpr gen) p)
+                                              (map (sqlOrder gen) o)
+                                              (sqlExpr gen e)
   _                      -> error "Panic: Unexpected flatcomposite"
   
 showBinOp :: PQ.BinOp -> String
@@ -404,7 +416,8 @@ primExprGen expr = case expr of
   CastSqlExpr typ se             -> PQ.CastExpr typ (primExprGen se)
   DefaultSqlExpr                 -> PQ.DefaultInsertExpr
   ArraySqlExpr ses               -> PQ.ArrayExpr (map primExprGen ses)
-  WindowSqlExpr w se             -> PQ.WindowExpr (T.pack w) (primExprGen se)
+  NamedWindowSqlExpr w se        -> PQ.NamedWindowExpr (T.pack w) (primExprGen se)
+  AnonWindowSqlExpr ps os se     -> error "Panic: not implemented for AnonWindowSqlExpr"
   BinSqlExpr op sel ser          -> binPrimExprGen op sel ser
   PrefixSqlExpr op se            -> prefixPrimExprGen op se
   PostfixSqlExpr op se           -> postfixPrimExprGen op se
