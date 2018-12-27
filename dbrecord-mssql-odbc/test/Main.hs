@@ -34,6 +34,7 @@ data Artist = Artist { artistId  :: Int
                      } deriving (Generic)
 
 data TestMSDB deriving (Generic)
+data TestMSDB1 deriving (Generic)
 
 instance Database TestMSDB where
   type DB TestMSDB = 'Type.MSSQL
@@ -41,7 +42,7 @@ instance Database TestMSDB where
   type Tables TestMSDB = '[ Album
                           , Artist
                           ]
-  
+
 instance Table TestMSDB Album where
   type TableName TestMSDB Album    = "Album"  
   type ColumnNames TestMSDB Album  = '[ '("albumId"  , "AlbumId"  )
@@ -231,10 +232,39 @@ main = runSession (MSSQLConfig ()) $ runDB @TestMSDB $ do
              artist = getBaseTable (Proxy :: Proxy TestMSDB) (Proxy :: Proxy Artist)
              albumAndArtist1 = rawJoin PQ.LeftJoin True Nothing album artist
              albumAndArtist2 = rawJoin PQ.CrossJoin True Nothing album artist
-         -- Product
+             albumAndArtist3 = rawJoin PQ.InnerJoin False (Just (1 .== (1 :: LocExpr Int))) album artist
+             albumAndArtist4 = rawJoin PQ.LeftJoin False (Just (1 .== (1 :: LocExpr Int))) album artist
+             albumAndArtist5 = rawJoin PQ.RightJoin False (Just (1 .== (1 :: LocExpr Int))) album artist
+             albumAndArtist6 = rawJoin PQ.FullJoin False (Just (1 .== (1 :: LocExpr Int))) album artist
+             albumAndArtist7 = rawJoin PQ.CrossJoin False Nothing album artist                          
          dumpQuery albumAndArtist1
          dumpQuery albumAndArtist2         
+         dumpQuery albumAndArtist3         
+         dumpQuery albumAndArtist4         
+         dumpQuery albumAndArtist5         
+         dumpQuery albumAndArtist6
+         dumpQuery albumAndArtist7         
+         -- Product
 
+         -- CTE
+         let ctedExp = rawCte [ PQ.WithExpr "ArtistCTE1" ["x", "y"] artist
+                              , PQ.WithExpr "ArtistCTE2" ["x", "y"] artist
+                              ] album
+         dumpQuery ctedExp
+
+         -- Subquery
+         let subqi = PQ.modifyClause 
+                    (const (PQ.clauses { PQ.projections =
+                                         [ ("sum", PQ.FunExpr "sum" [getExpr albumId]) ]                                                                                                     }
+                           )
+                    ) (getBaseTable (Proxy @TestMSDB) (Proxy @Album))
+             subq = rawClauses @TestMSDB @Album
+                    (PQ.clauses { PQ.projections =
+                                    [ ("inner", PQ.TableExpr subqi) ]                                                                                                                 }
+                    )
+         -- _ <- subq
+                    
+         
          pure ()
 
 
@@ -254,3 +284,35 @@ rawJoin jt lt e pql pqr =
   in PQ.Join jt lt (fmap getExpr e) (PQ.modifyClause (\a -> a { PQ.alias = Just "P" }) pql)
                                     (PQ.modifyClause (\a -> a { PQ.alias = Just "Q"}) pqr) cls
 
+
+rawCte :: [PQ.WithExpr PQ.PrimQuery] -> PQ.PrimQuery -> PQ.PrimQuery
+rawCte pqs pq = PQ.CTE pqs pq
+
+{-
+- With guarentees :
+  * should be at top
+  * no order by etc.
+
+AST simplification
+BaseTable accepting a table expression
+
+
+- migration
+ - name clashes due to camel casing
+-}
+
+{-
+instance Database TestMSDB1 where
+  type DB TestMSDB1 = 'Type.MSSQL
+  type Schema TestMSDB1 = "dbo"  
+  type Tables TestMSDB1 = '[ 
+                          ]
+
+instance Table TestMSDB1 Album where
+  type TableName TestMSDB1 Album    = "Album"  
+  type ColumnNames TestMSDB1 Album  = '[ '("albumId"  , "AlbumId"  )
+                                      , '("title"    , "Title"    )
+                                      , '("artistId" , "ArtistId" )
+                                      ]
+-}
+  

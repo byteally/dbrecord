@@ -100,11 +100,10 @@ product :: NEL.NonEmpty SqlSelect -> PQ.Clauses -> SqlSelect
 product tabs cs = SqlProduct (NEL.toList tabs) $            
   (baseClauses cs) { DML.alias = T.unpack <$> (PQ.alias cs) } 
 
-cte :: [PQ.WithExpr SqlSelect] -> SqlSelect -> PQ.Clauses -> SqlSelect
-cte withs s cs =
-  SqlCTE (map toSqlWith withs) s $
-    (baseClauses cs) { DML.alias = T.unpack <$> (PQ.alias cs) }
-
+cte :: [PQ.WithExpr SqlSelect] -> SqlSelect -> SqlSelect
+cte withs s =
+  SqlCTE (map toSqlWith withs) s
+  
   where toSqlWith (PQ.WithExpr tab cols p) = SqlWith tab cols p
 
 join :: PQ.JoinType -> PQ.Lateral -> Maybe PQ.PrimExpr -> SqlSelect -> SqlSelect -> PQ.Clauses -> SqlSelect
@@ -241,6 +240,7 @@ defaultSqlExpr gen expr = case expr of
   PQ.CastExpr typ e1     -> CastSqlExpr typ (sqlExpr gen e1)
   PQ.DefaultInsertExpr   -> DefaultSqlExpr
   PQ.ArrayExpr es        -> ArraySqlExpr (map (sqlExpr gen) es)
+  PQ.TableExpr te        -> TableSqlExpr (sql te)
   PQ.NamedWindowExpr w e -> NamedWindowSqlExpr (T.unpack w) (sqlExpr gen e)
   PQ.AnonWindowExpr p o e -> AnonWindowSqlExpr (map (sqlExpr gen) p)
                                               (map (sqlOrder gen) o)
@@ -416,6 +416,7 @@ primExprGen expr = case expr of
   CastSqlExpr typ se             -> PQ.CastExpr typ (primExprGen se)
   DefaultSqlExpr                 -> PQ.DefaultInsertExpr
   ArraySqlExpr ses               -> PQ.ArrayExpr (map primExprGen ses)
+  TableSqlExpr sq                -> PQ.TableExpr (primQueryGen sq)  
   NamedWindowSqlExpr w se        -> PQ.NamedWindowExpr (T.pack w) (primExprGen se)
   AnonWindowSqlExpr ps os se     -> error "Panic: not implemented for AnonWindowSqlExpr"
   BinSqlExpr op sel ser          -> binPrimExprGen op sel ser
@@ -556,9 +557,9 @@ pqMappingFail e = error $ "Panic: No mapping for SqlExpr :" ++ show e ++ " to Pr
   PQ.ArrayExpr es        -> ArraySqlExpr (map (sqlExpr gen) es)
   PQ.WindowExpr w e      -> WindowSqlExpr (T.unpack w) (sqlExpr gen e)
 
-primQueryGen :: SqlExpr -> PQ.PrimQuery
-primQueryGen = undefined
 -}
+primQueryGen :: SqlSelect -> PQ.PrimQuery
+primQueryGen = undefined
 
 {-
 data Sql

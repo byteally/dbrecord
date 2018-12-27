@@ -41,10 +41,10 @@ data JoinType = LeftJoin
               | FullJoin
               | InnerJoin
               | CrossJoin
-              deriving (Show, Read, Generic)
+              deriving (Show, Read, Generic, Eq, Ord)
 
 data BinType = Union | Intersection | Except | UnionAll | IntersectionAll | ExceptAll
-             deriving (Show, Read, Generic)
+             deriving (Show, Read, Generic, Eq, Ord)
 
 data Sym = Sym { symPrefix :: [Text]
                , symField  :: Text
@@ -53,24 +53,24 @@ data Sym = Sym { symPrefix :: [Text]
 type Lateral = Bool
 
 data WithExpr p = WithExpr TableName [Attribute] p
-              deriving (Show, Read, Generic)
+              deriving (Show, Read, Generic, Eq, Ord)
 
 data PrimQuery = BaseTable TableId Clauses
                | Product (NEL.NonEmpty PrimQuery) Clauses
                | Join JoinType Lateral (Maybe PrimExpr) PrimQuery PrimQuery Clauses
                | Binary BinType PrimQuery PrimQuery Clauses
-               | CTE [WithExpr PrimQuery] PrimQuery Clauses
+               | CTE [WithExpr PrimQuery] PrimQuery
                -- Values
-               deriving (Show, Read, Generic)
+               deriving (Show, Read, Generic, Eq, Ord)
 
 data InsertQuery = InsertQuery TableId [Attribute] (NEL.NonEmpty [PrimExpr]) [PrimExpr]
-                 deriving (Show, Read, Generic)
+                 deriving (Show, Read, Generic, Eq, Ord)
 
 data UpdateQuery = UpdateQuery TableId [PrimExpr] Assoc [PrimExpr]
-                 deriving (Show, Read, Generic)
+                 deriving (Show, Read, Generic, Eq, Ord)
 
 data DeleteQuery = DeleteQuery TableId [PrimExpr]
-                 deriving (Show, Read, Generic)
+                 deriving (Show, Read, Generic, Eq, Ord)
 
 type Projection = (Sym, PrimExpr)
 
@@ -83,7 +83,7 @@ data Clauses = Clauses { projections :: [Projection]
                        , limit       :: Maybe PrimExpr
                        , offset      :: Maybe PrimExpr
                        , alias       :: Maybe Text  
-                       } deriving (Show, Read, Generic)
+                       } deriving (Show, Read, Generic, Eq, Ord)
 
 clauses :: Clauses
 clauses =
@@ -101,17 +101,17 @@ clauses =
 data WindowClause = WindowClause
   { windowName    :: Text
   , wpartitionbys :: WindowPart
-  } deriving (Show, Read, Generic)
+  } deriving (Show, Read, Generic, Eq, Ord)
 
 data WindowPart = WindowPart
   { wpartExpr :: [PrimExpr]
   , worderbys :: [OrderExpr]
-  } deriving (Show, Read, Generic)
+  } deriving (Show, Read, Generic, Eq, Ord)
              
 data TableId = TableId
   { schema :: Name
   , tableName :: TableName
-  } deriving (Show, Read, Generic)
+  } deriving (Show, Read, Generic, Eq, Ord)
 
 data Lit = Null
          | Default
@@ -181,14 +181,15 @@ data PrimExpr = AttrExpr Sym -- Eg?
               | ParamExpr (Maybe Name) PrimExpr
               | FunExpr Name [PrimExpr]
               | CastExpr DBType PrimExpr -- ^ Cast an expression to a given type.
-              | DefaultInsertExpr -- Indicate that we want to insert the
-                -- default value into a column.
+              | DefaultInsertExpr   -- Indicate that we want to insert the
+                                    -- default value into a column.
                                     -- TODO: I'm not sure this belongs
                                     -- here.  Perhaps a special type is
                                     -- needed for insert expressions.
               | ArrayExpr [PrimExpr] -- ^ ARRAY[..]
               | NamedWindowExpr WindowName PrimExpr -- OVER
-              | AnonWindowExpr [PrimExpr] [OrderExpr] PrimExpr -- OVER 
+              | AnonWindowExpr [PrimExpr] [OrderExpr] PrimExpr -- OVER
+              | TableExpr PrimQuery
               | FlatComposite [(Text, PrimExpr)]
               deriving (Read, Show, Generic, Eq, Ord)
 
@@ -207,6 +208,7 @@ instance Uniplate PrimExpr where
   uniplate (CastExpr n pe)        = plate CastExpr |- n |* pe
   uniplate (DefaultInsertExpr)    = plate DefaultInsertExpr
   uniplate (ArrayExpr pes)        = plate ArrayExpr ||* pes
+  uniplate (TableExpr p)          = plate TableExpr |- p
   uniplate (NamedWindowExpr n pe) = plate NamedWindowExpr |- n |* pe
   uniplate (AnonWindowExpr p o e) = plate AnonWindowExpr ||* p |- o |* e
   uniplate (FlatComposite tpes)   = plate FlatComposite ||+ tpes
@@ -223,7 +225,7 @@ data PrimQueryFold p = PrimQueryFold
   , product   :: NEL.NonEmpty p -> Clauses -> p
   , join      :: JoinType -> Lateral -> Maybe PrimExpr -> p -> p -> Clauses -> p
   , binary    :: BinType  -> p -> p -> Clauses -> p
-  , cte       :: [WithExpr p] -> p -> Clauses -> p
+  , cte       :: [WithExpr p] -> p -> p
   
   -- , values    :: [Sym] -> (NEL.NonEmpty [PrimExpr]) -> p
   -- , label     :: String -> p -> p
@@ -249,7 +251,7 @@ foldPrimQuery f = fix fold
           BaseTable ti cs          -> baseTable f ti cs
           Product qs cs            -> product   f (fmap self qs) cs
           Join j lt cond q1 q2 cs  -> join      f j lt cond (self q1) (self q2) cs
-          CTE wexps pq cs          -> cte      f (fmap (go self) wexps) (self pq) cs
+          CTE wexps pq             -> cte      f (fmap (go self) wexps) (self pq)
           Binary b q1 q2 cs        -> binary  f b (self q1) (self q2) cs
           -- Values ss pes             -> values    f ss pes
           -- Label l pq                -> label     f l (self pq)
@@ -341,7 +343,8 @@ modifyClause f pq = case pq of
   Product qs cs           -> Product qs (f cs)
   Join j lt cond q1 q2 cs -> Join j lt cond q1 q2 (f cs)
   Binary bt q1 q2 cs      -> Binary bt q1 q2 (f cs)
-  CTE wexprs pq cs        -> CTE wexprs pq (f cs)
+  -- NOTE: no modification on CTEs
+  CTE wexprs pq           -> CTE wexprs pq
 
 getClause :: PrimQuery -> Clauses
 getClause pq = case pq of
@@ -349,7 +352,8 @@ getClause pq = case pq of
   Product _ cs         -> cs
   Join _ _ _ _ _ cs    -> cs
   Binary _ _ _  cs     -> cs
-  CTE _ _ cs           -> cs
+  _                    -> error "panic: Not implemented for CTE"
+  -- CTE _ _              -> cs
 
 toSym :: [T.Text] -> Maybe Sym
 toSym flds = case flds of

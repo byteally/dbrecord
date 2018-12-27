@@ -44,7 +44,7 @@ sqlExpr =
             e <-  binSqlExpr <|> prefixSqlExpr <|> termSqlExpr
             op <- eitherP (symbol "OVER" *> word) postfixOp
             case op of
-              Left w -> pure (WindowSqlExpr w e)
+              Left w -> pure (NamedWindowSqlExpr w e)
               Right op -> pure (PostfixSqlExpr op e)
 
           prefixSqlExpr = do
@@ -314,12 +314,21 @@ parsePGType nullInfo sz = wrapNullable nullInfo . go
         go "timestamp"                 = case szDateTimePrecision sz of
                                            Just v  -> DBTimestamp v
                                            Nothing -> DBTimestamp 6
+        go "timestamp without time zone"
+                                       = case szDateTimePrecision sz of
+                                           Just v  -> DBTimestamp v
+                                           Nothing -> DBTimestamp 6
+                                           
         go "time with time zone"       = case szDateTimePrecision sz of
                                            Just v  -> DBTimetz v
                                            Nothing -> DBTimetz 6
         go "time"                      = case szDateTimePrecision sz of
                                            Just v  -> DBTime v
+                                           Nothing -> DBTime 6
+        go "time without time zone"    = case szDateTimePrecision sz of
+                                           Just v  -> DBTime v
                                            Nothing -> DBTime 6                                           
+                                           
         go "interval"                  = case szIntervalPrecision sz of
                                            Just v -> DBInterval Nothing v
                                            Nothing -> DBInterval Nothing 6

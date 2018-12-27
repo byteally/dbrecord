@@ -23,7 +23,7 @@ import qualified Data.Text as T
 import Data.Foldable (toList)
 import Data.Monoid ((<>))
 import Data.List (intersperse)
-import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
+import Text.PrettyPrint.HughesPJ (Doc, ($$), ($+$), (<+>), text, empty,
                                   parens, comma, punctuate,
                                   hcat, vcat, brackets, doubleQuotes,
                                    hsep, equals, char, empty, render,
@@ -38,7 +38,7 @@ ppSelect select = case select of
   SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTable tab)
   SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (ppJoin joinSt)
   SqlBin binSt selectFrom      -> ppSelectWith selectFrom (ppSelectBinary binSt)
-  SqlCTE withs sql selectFrom  -> ppSelectWith selectFrom (ppSelectCTE withs sql)  
+  SqlCTE withs sql             -> ppSelectCTE withs sql
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
   -- SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
 
@@ -86,7 +86,14 @@ ppBinOp op = text $ case op of
   IntersectAll -> "INTERSECTALL"
 
 ppSelectCTE :: [SqlWith] -> SqlSelect -> Doc
-ppSelectCTE = undefined
+ppSelectCTE sqWiths sel = text "WITH" <+> commaV ppSqlWith sqWiths
+                         $$ ppSelect sel
+  where ppSqlWith (SqlWith tabn attrs isel) =
+              text (T.unpack tabn) <+> ppAttrs attrs
+          $$  text "AS"
+          $$  ppSelect isel
+        ppAttrs [] = empty
+        ppAttrs as = parens . commaH (text . T.unpack) $ as
 
 ppJoin :: Join -> Doc
 ppJoin joinSt = ppJoinedTabs
@@ -225,6 +232,7 @@ ppMSSQLExpr expr =
     CastSqlExpr typ e -> text "CAST" <> parens (ppMSSQLExpr e <+> text "AS" <+> text (ppMSSQLType typ))
     DefaultSqlExpr    -> text "DEFAULT"
     ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppMSSQLExpr es)
+    TableSqlExpr sql -> parens (ppSelect sql)
     ExistsSqlExpr s     -> text "EXISTS" <+> parens (ppSelect s)
     NamedWindowSqlExpr w e -> ppMSSQLExpr e <+> text "OVER" <+> text w
     AnonWindowSqlExpr p o e -> ppMSSQLExpr e <+> text "OVER" <+> parens (partPP p <> ppOrderBy o)

@@ -75,7 +75,7 @@ data SqlSelect = SqlProduct [SqlSelect] SelectFrom      -- ^ product
                | SqlSelect SqlTable SelectFrom          -- ^ base case
                | SqlJoin Join SelectFrom                -- ^ join
                | SqlBin Binary SelectFrom               -- ^ binary
-               | SqlCTE [SqlWith] SqlSelect SelectFrom  -- ^ CTEs
+               | SqlCTE [SqlWith] SqlSelect             -- ^ CTEs
                | SqlValues SqlValues Alias              -- ^ values
                  deriving (Show, Read,Eq)
 
@@ -137,6 +137,7 @@ data SqlExpr = ColumnSqlExpr  SqlColumn
              | CastSqlExpr DBType SqlExpr
              | CompositeSqlExpr SqlExpr String
              | ArraySqlExpr [SqlExpr]
+             | TableSqlExpr SqlSelect
              | NamedWindowSqlExpr String SqlExpr
              | AnonWindowSqlExpr [SqlExpr] [(SqlExpr, SqlOrder)] SqlExpr
              | DefaultSqlExpr

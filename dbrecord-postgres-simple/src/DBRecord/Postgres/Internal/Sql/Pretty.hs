@@ -88,13 +88,20 @@ ppJoin :: Join -> Doc
 ppJoin joinSt = ppJoinedTabs
   where ppJoinedTabs = parens (   
                        ppSelect s1
-                   $$  ppJoinType (jJoinType joinSt)
+                   $$  ppJoinType (jJoinType joinSt) <> ppLateral (jLateral joinSt)
                    $$  ppSelect s2
-                   $$  text "ON"
-                   $$  ppPGExpr (jCond joinSt)
+                   $$  ppOn (jCond joinSt)
                    )
                    
         (s1, s2) = jTables joinSt
+        ppOn Nothing  = empty
+        ppOn (Just e) =   text "ON"
+                      $$  ppPGExpr e
+        
+
+ppLateral :: Lateral -> Doc
+ppLateral True = space <> text "lateral" <> space
+ppLateral False = empty
 
 ppJoinType :: JoinType -> Doc
 ppJoinType LeftJoin   = text "LEFT OUTER JOIN"
@@ -149,7 +156,7 @@ ppHaving []    = empty
 ppHaving exprs = go (toList exprs)
   where
     go es = text "HAVING" <+> ppGroupAttrs es
-    ppGroupAttrs es = commaV (ppMSSQLExpr . deliteral) es
+    ppGroupAttrs es = commaV (ppPGExpr . deliteral) es
 
 ppOrderBy :: [(SqlExpr,SqlOrder)] -> Doc
 ppOrderBy []   = empty
@@ -220,6 +227,7 @@ ppPGExpr expr =
     CastSqlExpr typ e -> text "CAST" <> parens (ppPGExpr e <+> text "AS" <+> text (ppPGType typ))
     DefaultSqlExpr    -> text "DEFAULT"
     ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppPGExpr es)
+    TableSqlExpr sql -> parens (ppSelect sql)    
     ExistsSqlExpr s     -> text "EXISTS" <+> parens (ppSelect s)
     NamedWindowSqlExpr w e -> ppPGExpr e <+> text "OVER" <+> text w
     AnonWindowSqlExpr p o e -> ppPGExpr e <+> text "OVER" <+> parens (partPP p <> ppOrderBy o)
