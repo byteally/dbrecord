@@ -1,21 +1,21 @@
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
-{-# LANGUAGE ScopedTypeVariables     #-}
-{-# LANGUAGE ExplicitForAll          #-}
-{-# LANGUAGE KindSignatures          #-}
-{-# LANGUAGE TypeFamilyDependencies  #-}
-{-# LANGUAGE FlexibleContexts        #-}
-{-# LANGUAGE ConstraintKinds         #-}
-{-# LANGUAGE DataKinds               #-}
-{-# LANGUAGE TypeOperators           #-}
-{-# LANGUAGE UndecidableInstances    #-}
+{-# LANGUAGE ScopedTypeVariables           #-}
+{-# LANGUAGE ExplicitForAll                #-}
+{-# LANGUAGE KindSignatures                #-}
+{-# LANGUAGE TypeFamilyDependencies        #-}
+{-# LANGUAGE FlexibleContexts              #-}
+{-# LANGUAGE ConstraintKinds               #-}
+{-# LANGUAGE DataKinds                     #-}
+{-# LANGUAGE TypeOperators                 #-}
+{-# LANGUAGE UndecidableInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving    #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE PatternSynonyms    #-}
-{-# LANGUAGE ViewPatterns    #-}
-{-# LANGUAGE GADTs           #-}
-{-# LANGUAGE FlexibleInstances           #-}
-{-# LANGUAGE MultiParamTypeClasses           #-}
-{-# LANGUAGE FunctionalDependencies          #-}
+{-# LANGUAGE TypeApplications              #-}
+{-# LANGUAGE PatternSynonyms               #-}
+{-# LANGUAGE ViewPatterns                  #-}
+{-# LANGUAGE GADTs                         #-}
+{-# LANGUAGE FlexibleInstances             #-}
+{-# LANGUAGE MultiParamTypeClasses         #-}
+{-# LANGUAGE FunctionalDependencies        #-}
 
 -- | 
 
@@ -329,7 +329,7 @@ rawClauses :: forall db tab driver cfg.
              ) => PQ.Clauses -> DBM db [tab]
 rawClauses cls = do
   let tabId = getTableId (Proxy @db) (Proxy @tab)
-  runQuery (BaseTable tabId cls)
+  runQuery (Table (TableName tabId) cls)
 
 {-
 count :: forall tab db driver cfg.
@@ -678,5 +678,5 @@ getBaseTable :: forall db tab.
 getBaseTable _ _ =
   let tabId = getTableId (Proxy @db) (Proxy @tab)
       tabFlds = getTableProjections (Proxy @db) (Proxy @tab)      
-  in  BaseTable tabId (clauses { projections = tabFlds })
+  in  Table (TableName tabId) (clauses { projections = tabFlds })
   

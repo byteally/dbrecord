@@ -15,7 +15,7 @@ type Lateral = Bool
 data Join = Join
   { jJoinType :: JoinType
   , jLateral  :: Lateral
-  , jTables :: (SqlSelect, SqlSelect)
+  , jTables :: (SqlTableExpr, SqlTableExpr)
   , jCond :: Maybe SqlExpr
   } deriving (Show, Read, Eq)
 
@@ -26,7 +26,7 @@ data JoinType = LeftJoin
               | CrossJoin
               deriving (Show, Read, Eq)
 
-data SqlTable = SqlTable
+data SqlTableName = SqlTableName
   { sqlTableSchemaName :: Maybe String
   , sqlTableName       :: String
   } deriving (Show, Read, Eq)
@@ -57,24 +57,29 @@ data SqlNullOrd = SqlNullsFirst
                 | SqlNullsLast
                 deriving (Show, Read, Eq)
 
-data SqlInsert = SqlInsert SqlTable [SqlColumn] (NEL.NonEmpty [SqlExpr]) [SqlExpr]
+data SqlInsert = SqlInsert SqlTableName [SqlColumn] (NEL.NonEmpty [SqlExpr]) [SqlExpr]
                  deriving (Show, Read, Eq)
                           
-data SqlUpdate = SqlUpdate SqlTable [(SqlColumn,SqlExpr)] [SqlExpr] [SqlExpr]
+data SqlUpdate = SqlUpdate SqlTableName [(SqlColumn,SqlExpr)] [SqlExpr] [SqlExpr]
                  deriving (Show, Read, Eq)
                           
-data SqlDelete = SqlDelete SqlTable [SqlExpr]
+data SqlDelete = SqlDelete SqlTableName [SqlExpr]
                  deriving (Show, Read, Eq)
 
 type Alias = Maybe String
 
+data SqlTableExpr = NestedSqlSelect SqlSelect
+                  | SqlTabName SqlTableName
+                  | SqlTabFun SqlName [SqlName]
+                  deriving (Eq, Show, Read)
+
 data SqlWith = SqlWith SqlName [SqlName] SqlSelect
              deriving (Show, Read, Eq)
 
-data SqlSelect = SqlProduct [SqlSelect] SelectFrom      -- ^ product
-               | SqlSelect SqlTable SelectFrom          -- ^ base case
+data SqlSelect = SqlProduct [SqlTableExpr] SelectFrom      -- ^ product
+               | SqlSelect SqlTableExpr SelectFrom          -- ^ base case
                | SqlJoin Join SelectFrom                -- ^ join
-               | SqlBin Binary SelectFrom               -- ^ binary
+               | SqlBin Binary                          -- ^ binary
                | SqlCTE [SqlWith] SqlSelect             -- ^ CTEs
                | SqlValues SqlValues Alias              -- ^ values
                  deriving (Show, Read,Eq)
@@ -114,17 +119,16 @@ data SqlValues = SqlVals
   } deriving (Show, Read, Eq)
   
 data Binary = Binary
-  {
-    bOp :: SelectBinOp
+  { bOp :: SelectBinOp
   , bSelect1 :: SqlSelect
   , bSelect2 :: SqlSelect
   } deriving (Show, Read, Eq)
 
 data SqlExpr = ColumnSqlExpr  SqlColumn
              -- | OidSqlExpr     SqlOidName
-             | BinSqlExpr     String SqlExpr SqlExpr
-             | PrefixSqlExpr  String SqlExpr
-             | PostfixSqlExpr String SqlExpr
+             | BinSqlExpr     BinOp SqlExpr SqlExpr
+             | PrefixSqlExpr  UnOp  SqlExpr
+             | PostfixSqlExpr UnOp SqlExpr
              | FunSqlExpr     String [SqlExpr]
              | AggrFunSqlExpr String [SqlExpr] [(SqlExpr, SqlOrder)]  -- ^ Aggregate functions separate from normal functions.
              | ConstSqlExpr   LitSql
@@ -163,3 +167,25 @@ data LitSql = NullSql
             deriving (Eq, Show, Read, Generic)
 
 
+data BinOp = OpEq | OpLt | OpLtEq | OpGt | OpGtEq | OpNotEq
+           | OpAnd | OpOr
+           | OpLike | OpIn
+           | OpOther String  
+           | OpCat
+           | OpPlus | OpMinus | OpMul | OpDiv | OpMod
+           | OpBitNot | OpBitAnd | OpBitOr | OpBitXor
+           | OpAsg | OpAtTimeZone
+           deriving (Show, Read, Generic, Eq, Ord)
+
+data UnOp = OpNot
+          | OpIsNull
+          | OpIsNotNull
+          | OpLength
+          | OpAbs
+          | OpNegate
+          | OpLower
+          | OpUpper
+          | OpOtherPrefix String
+          | OpOtherPostfix String
+          | OpOtherFun String          
+          deriving (Show, Read, Generic, Eq, Ord)

@@ -35,7 +35,7 @@ import qualified Data.List as L
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
   SqlProduct sqSels selectFrom -> ppSelectWith selectFrom (ppProduct sqSels) 
-  SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTable tab)
+  SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTableName tab)
   SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (ppJoin joinSt)
   SqlBin binSt selectFrom      -> ppSelectWith selectFrom (ppSelectBinary binSt)
   SqlCTE withs sql             -> ppSelectCTE withs sql
@@ -79,11 +79,11 @@ ppSelectBinary bin = ppSelect (bSelect1 bin)
 ppBinOp :: SelectBinOp -> Doc
 ppBinOp op = text $ case op of
   Union        -> "UNION"
-  UnionAll     -> "UNIONALL"
+  UnionAll     -> "UNION ALL"
   Except       -> "EXCEPT"
-  ExceptAll    -> "EXCEPTALL"
+  ExceptAll    -> error "Panic: EXCEPT ALL not supported in MSSQL"
   Intersect    -> "INTERSECT"
-  IntersectAll -> "INTERSECTALL"
+  IntersectAll -> error "Panic: INTERSECT ALL not supported in MSSQL"
 
 ppSelectCTE :: [SqlWith] -> SqlSelect -> Doc
 ppSelectCTE sqWiths sel = text "WITH" <+> commaV ppSqlWith sqWiths
@@ -200,8 +200,8 @@ ppColumn (SqlColumn s) =
     (x : xs) -> doubleQuotes (text x) <> char '.' <> ppAliasedCol xs
     _        -> error "Panic: Column cannot be empty"
 
-ppTable :: SqlTable -> Doc
-ppTable st = case sqlTableSchemaName st of
+ppTableName :: SqlTableName -> Doc
+ppTableName st = case sqlTableSchemaName st of
     Just sn -> doubleQuotes (text sn) <> text "." <> tname
     Nothing -> tname
   where
@@ -249,7 +249,7 @@ ppMSSQLExpr expr =
 
 ppInsert :: SqlInsert -> Doc
 ppInsert (SqlInsert table names values rets)
-    = text "INSERT INTO" <+> ppTable table
+    = text "INSERT INTO" <+> ppTableName table
       <+> parens (commaV ppColumn names)
       $$ text "VALUES" <+> commaV (\v -> parens (commaV ppMSSQLExpr v))
                                   (toList values)
@@ -257,7 +257,7 @@ ppInsert (SqlInsert table names values rets)
 
 ppUpdate :: SqlUpdate -> Doc
 ppUpdate (SqlUpdate table assigns criteria rets)
-        = text "UPDATE" <+> ppTable table
+        = text "UPDATE" <+> ppTableName table
         $$ text "SET" <+> commaV ppAssign assigns
         $$ ppWhere criteria
         $$ ppReturning rets
@@ -266,7 +266,7 @@ ppUpdate (SqlUpdate table assigns criteria rets)
 
 ppDelete :: SqlDelete -> Doc
 ppDelete (SqlDelete table criteria) =
-    text "DELETE FROM" <+> ppTable table $$ ppWhere criteria
+    text "DELETE FROM" <+> ppTableName table $$ ppWhere criteria
     
 ppReturning :: [SqlExpr] -> Doc
 ppReturning []   = empty

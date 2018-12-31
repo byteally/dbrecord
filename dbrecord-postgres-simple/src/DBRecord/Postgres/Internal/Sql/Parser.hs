@@ -20,6 +20,10 @@ import DBRecord.Internal.DBTypes (DBType (..))
 import DBRecord.Internal.Types (Max (..))
 
 sqlExpr :: Parser SqlExpr
+sqlExpr = undefined
+
+{-
+sqlExpr :: Parser SqlExpr
 sqlExpr =
   (
    postfixOrWindowExpr <|>
@@ -29,7 +33,7 @@ sqlExpr =
    termSqlExpr)        -- <*
    -- endOfInput
 
-    where binSqlExpr = do
+    where binSqlExpr = 
             e1 <- termSqlExpr
             b  <- binOp
             case b of
@@ -267,7 +271,7 @@ literal =
           stringLit  = (StringSql . T.pack) <$> quoted word
           oidLit     = (StringSql . T.pack) <$> quoted (doubleQuoted identifier)
           
-
+-}
 data SizeInfo = SizeInfo { szCharacterLength :: Maybe Integer
                          , szNumericPrecision :: Maybe Integer
                          , szNumericScale :: Maybe Integer

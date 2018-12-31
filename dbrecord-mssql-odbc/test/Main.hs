@@ -262,8 +262,22 @@ main = runSession (MSSQLConfig ()) $ runDB @TestMSDB $ do
                     (PQ.clauses { PQ.projections =
                                     [ ("inner", PQ.TableExpr subqi) ]                                                                                                                 }
                     )
-         -- _ <- subq
-                    
+         _ <- subq
+         -- binary ops
+         let unionq = rawBinary PQ.Union artist artist
+             interq = rawBinary PQ.Intersection artist artist
+             unionallq = rawBinary PQ.UnionAll artist artist
+             interallq = rawBinary PQ.IntersectionAll artist artist
+             exceptq = rawBinary PQ.Except artist artist
+             exceptallq = rawBinary PQ.ExceptAll artist artist
+             
+         dumpQuery unionq
+         dumpQuery unionallq
+         dumpQuery interq
+         -- dumpQuery interallq         
+         dumpQuery exceptq
+         -- dumpQuery exceptallq
+         
          
          pure ()
 
@@ -287,6 +301,9 @@ rawJoin jt lt e pql pqr =
 
 rawCte :: [PQ.WithExpr PQ.PrimQuery] -> PQ.PrimQuery -> PQ.PrimQuery
 rawCte pqs pq = PQ.CTE pqs pq
+
+rawBinary :: PQ.BinType -> PQ.PrimQuery -> PQ.PrimQuery -> PQ.PrimQuery
+rawBinary bt pq1 pq2 = PQ.Binary bt pq1 pq2 PQ.clauses
 
 {-
 - With guarentees :
@@ -316,3 +333,18 @@ instance Table TestMSDB1 Album where
                                       ]
 -}
   
+
+{-
+
+| Table TableExpr Clauses
+| Product (NEL.NonEmpty TableExpr) Clauses
+| Join  JoinType Lateral (Maybe PrimExpr) TableExpr TableExpr Clauses
+| Binary BinType PrimQuery PrimQuery
+| CTE [WithExpr PrimQuery] PrimQuery
+
+
+TableExpr =
+  PrimQueryExpr PrimQuery
+| TableName     TableId
+| Table functions
+-}

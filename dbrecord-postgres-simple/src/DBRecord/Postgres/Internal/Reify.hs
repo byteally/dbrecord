@@ -163,7 +163,7 @@ toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo
                               )
 
         -- NOTE: Not null also comes up as constraints
-        isNotNullCk tcis chkOn (PQ.UnExpr PQ.OpIsNotNull (PQ.BaseTableAttrExpr coln)) =
+        isNotNullCk tcis chkOn (PQ.PostfixExpr PQ.OpIsNotNull (PQ.BaseTableAttrExpr coln)) =
           maybe False (const True) $ do
             tcis' <- HM.lookup chkOn tcis
             L.find (\tci -> (tci ^. columnNameInfo . dbName) == coln) tcis'          

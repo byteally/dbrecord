@@ -13,12 +13,12 @@ import Data.Text          (Text)
 import Data.ByteString    (ByteString)
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
-import Data.Binary
-import Data.Aeson (FromJSON (..), ToJSON (..))
-import qualified Data.Aeson as A
-import Data.Text.Encoding (decodeUtf8, encodeUtf8)
+-- import Data.Binary
+-- import Data.Aeson (FromJSON (..), ToJSON (..))
+-- import qualified Data.Aeson as A
+-- import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import GHC.Generics
-import qualified Data.ByteString.Base64 as B64
+-- import qualified Data.ByteString.Base64 as B64
 import Data.Generics.Uniplate.Direct
 import DBRecord.Internal.DBTypes
 import Data.String
@@ -52,14 +52,22 @@ data Sym = Sym { symPrefix :: [Text]
 
 type Lateral = Bool
 
+data CTE p q = CTE [WithExpr p] q
+             deriving (Show, Read, Generic, Eq, Ord)
+
 data WithExpr p = WithExpr TableName [Attribute] p
               deriving (Show, Read, Generic, Eq, Ord)
 
-data PrimQuery = BaseTable TableId Clauses
-               | Product (NEL.NonEmpty PrimQuery) Clauses
-               | Join JoinType Lateral (Maybe PrimExpr) PrimQuery PrimQuery Clauses
-               | Binary BinType PrimQuery PrimQuery Clauses
-               | CTE [WithExpr PrimQuery] PrimQuery
+data TableExpr p = PrimQuery p
+                 | TableName TableId
+                 | TableFun  Name [Attribute]
+                 deriving (Show, Read, Generic, Eq, Ord)
+
+data PrimQuery = Table (TableExpr PrimQuery) Clauses
+               | Product (NEL.NonEmpty (TableExpr PrimQuery)) Clauses
+               | Join JoinType Lateral (Maybe PrimExpr) (TableExpr PrimQuery) (TableExpr PrimQuery) Clauses
+               | Binary BinType PrimQuery PrimQuery
+               | CTEQuery (CTE PrimQuery PrimQuery)
                -- Values
                deriving (Show, Read, Generic, Eq, Ord)
 
@@ -141,8 +149,9 @@ data UnOp = OpNot
           | OpNegate
           | OpLower
           | OpUpper
-          | UnOpOtherPrefix String
-          | UnOpOtherFun String
+          | OpOtherPrefix String
+          | OpOtherPostfix String
+          | OpOtherFun String
           deriving (Show, Read, Generic, Eq, Ord)
 
 data AggrOp = AggrCount | AggrSum | AggrAvg | AggrMin | AggrMax
@@ -173,7 +182,8 @@ data PrimExpr = AttrExpr Sym -- Eg?
               | BaseTableAttrExpr Attribute
               | CompositeExpr     PrimExpr Attribute -- ^ Composite Type Query
               | BinExpr   BinOp PrimExpr PrimExpr
-              | UnExpr    UnOp PrimExpr
+              | PrefixExpr   UnOp PrimExpr
+              | PostfixExpr  UnOp PrimExpr
               | AggrExpr  AggrOp PrimExpr [OrderExpr] -- ^ Only for internals
               | ConstExpr Lit
               | CaseExpr [(PrimExpr,PrimExpr)] PrimExpr
@@ -198,7 +208,8 @@ instance Uniplate PrimExpr where
   uniplate (BaseTableAttrExpr b)  = plate BaseTableAttrExpr |- b
   uniplate (CompositeExpr pe a)   = plate CompositeExpr |* pe |- a
   uniplate (BinExpr bop pe1 pe2)  = plate BinExpr |- bop |* pe1 |* pe2
-  uniplate (UnExpr uop pe)        = plate UnExpr |- uop |* pe
+  uniplate (PrefixExpr uop pe)    = plate PrefixExpr |- uop |* pe
+  uniplate (PostfixExpr uop pe)   = plate PostfixExpr |- uop |* pe  
   uniplate (AggrExpr aop pe oes)  = plate AggrExpr |- aop |* pe ||+ oes
   uniplate (ConstExpr l)          = plate ConstExpr |- l
   uniplate (CaseExpr alts def)    = plate CaseExpr |- alts |* def -- TODO: alts
@@ -221,11 +232,11 @@ instance Biplate OrderExpr PrimExpr where
   biplate (OrderExpr oop pe) = plate OrderExpr |- oop |* pe
 
 data PrimQueryFold p = PrimQueryFold
-  { baseTable :: TableId -> Clauses -> p
-  , product   :: NEL.NonEmpty p -> Clauses -> p
-  , join      :: JoinType -> Lateral -> Maybe PrimExpr -> p -> p -> Clauses -> p
-  , binary    :: BinType  -> p -> p -> Clauses -> p
-  , cte       :: [WithExpr p] -> p -> p
+  { table     :: TableExpr p -> Clauses -> p
+  , product   :: NEL.NonEmpty (TableExpr p) -> Clauses -> p
+  , join      :: JoinType -> Lateral -> Maybe PrimExpr -> TableExpr p -> TableExpr p -> Clauses -> p
+  , binary    :: BinType  -> p -> p -> p
+  , cte       :: CTE p p -> p
   
   -- , values    :: [Sym] -> (NEL.NonEmpty [PrimExpr]) -> p
   -- , label     :: String -> p -> p
@@ -235,12 +246,12 @@ data PrimQueryFold p = PrimQueryFold
 
 primQueryFoldDefault :: PrimQueryFold PrimQuery
 primQueryFoldDefault = PrimQueryFold
-  { baseTable = BaseTable
+  { table     = Table
   , product   = Product
   , join      = Join
-  -- , values    = Values
   , binary    = Binary
-  , cte       = CTE
+  , cte       = CTEQuery
+  -- , values    = Values                
   -- , label     = Label
   -- , relExpr   = RelExpr
   }
@@ -248,17 +259,22 @@ primQueryFoldDefault = PrimQueryFold
 foldPrimQuery :: PrimQueryFold p -> PrimQuery -> p
 foldPrimQuery f = fix fold
   where fold self primQ = case primQ of
-          BaseTable ti cs          -> baseTable f ti cs
-          Product qs cs            -> product   f (fmap self qs) cs
-          Join j lt cond q1 q2 cs  -> join      f j lt cond (self q1) (self q2) cs
-          CTE wexps pq             -> cte      f (fmap (go self) wexps) (self pq)
-          Binary b q1 q2 cs        -> binary  f b (self q1) (self q2) cs
+          Table ti cs              -> table     f (goTExpr self ti) cs
+          Product qs cs            -> product   f (fmap (goTExpr self) qs) cs
+          Join j lt cond q1 q2 cs  -> join      f j lt cond (goTExpr self q1) (goTExpr self q2) cs
+          CTEQuery ctev            -> cte       f (goCTE self ctev)
+          Binary b q1 q2           -> binary    f b (self q1) (self q2)
           -- Values ss pes             -> values    f ss pes
           -- Label l pq                -> label     f l (self pq)
           -- RelExpr pe syms           -> relExpr   f pe syms
 
-        go f (WithExpr tn attrs pq) = WithExpr tn attrs (f pq)
-        
+        goCTE self (CTE wexps pq)          = CTE (map (goWith self) wexps) (self pq)
+        goWith self (WithExpr tn attrs pq) = WithExpr tn attrs (self pq)
+
+        goTExpr self (PrimQuery p)      = PrimQuery (self p)
+        goTExpr _    (TableName t)      = TableName t
+        goTExpr _    (TableFun n attrs) = TableFun n attrs
+                  
 fix :: (t -> t) -> t
 fix g = let x = g x in x
 
@@ -313,22 +329,22 @@ inverseBinOp _ = Nothing
 normaliseExpr :: PrimExpr -> PrimExpr
 normaliseExpr = transform go
   where
-    go orig@(UnExpr OpNot (BinExpr bop pe1 pe2)) = case inverseBinOp bop of
+    go orig@(PrefixExpr OpNot (BinExpr bop pe1 pe2)) = case inverseBinOp bop of
       Just revOp -> BinExpr revOp pe1 pe2
       Nothing    -> orig
     go origExpr@(BinExpr OpAnd org1@(BinExpr OpLtEq pe1 pe2) pe3) = case pe3 of
       BinExpr OpNotEq pe31 pe32
         | pe1 == pe31 && pe2 == pe32 -> BinExpr OpLt org1 pe2
         | otherwise                  -> origExpr
-      UnExpr OpNot (BinExpr OpEq pe31 pe32)
+      PrefixExpr OpNot (BinExpr OpEq pe31 pe32)
         | pe1 == pe31 && pe2 == pe32 -> BinExpr OpLt org1 pe2
         | otherwise                  -> origExpr
       _                              -> origExpr
-    go origExpr@(BinExpr OpOr org1@(UnExpr OpNot (BinExpr OpLtEq pe1 pe2)) pe3) = case pe3 of
+    go origExpr@(BinExpr OpOr org1@(PrefixExpr OpNot (BinExpr OpLtEq pe1 pe2)) pe3) = case pe3 of
       BinExpr OpEq pe31 pe32
         | pe1 == pe31 && pe2 == pe32 -> BinExpr OpGtEq org1 pe2
         | otherwise                  -> origExpr
-      UnExpr OpNot (BinExpr OpNotEq pe31 pe32)
+      PrefixExpr OpNot (BinExpr OpNotEq pe31 pe32)
         | pe1 == pe31 && pe2 == pe32 -> BinExpr OpGtEq org1 pe2
         | otherwise                  -> origExpr
       _                              -> origExpr
@@ -339,21 +355,19 @@ renderSym (Sym pfx fld) = T.intercalate "." (pfx ++ [fld])
 
 modifyClause :: (Clauses -> Clauses) -> PrimQuery -> PrimQuery
 modifyClause f pq = case pq of
-  BaseTable t cs          -> BaseTable t (f cs)
+  Table t cs              -> Table t (f cs)
   Product qs cs           -> Product qs (f cs)
   Join j lt cond q1 q2 cs -> Join j lt cond q1 q2 (f cs)
-  Binary bt q1 q2 cs      -> Binary bt q1 q2 (f cs)
-  -- NOTE: no modification on CTEs
-  CTE wexprs pq           -> CTE wexprs pq
+  
+  -- NOTE: no modification on Binary and CTEs
+  _                       -> pq
 
 getClause :: PrimQuery -> Clauses
 getClause pq = case pq of
-  BaseTable _ cs       -> cs
+  Table _ cs           -> cs
   Product _ cs         -> cs
   Join _ _ _ _ _ cs    -> cs
-  Binary _ _ _  cs     -> cs
-  _                    -> error "panic: Not implemented for CTE"
-  -- CTE _ _              -> cs
+  _                    -> error "panic: Not implemented for CTE / Binary"
 
 toSym :: [T.Text] -> Maybe Sym
 toSym flds = case flds of

@@ -34,9 +34,9 @@ import qualified Data.List as L
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
   SqlProduct sqSels selectFrom -> ppSelectWith selectFrom (ppProduct sqSels) 
-  SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTable tab)
+  SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTableExpr tab)
   SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (ppJoin joinSt)
-  SqlBin binSt selectFrom      -> ppSelectWith selectFrom (ppSelectBinary binSt)  
+  SqlBin binSt                 -> ppSelectBinary binSt
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
   -- SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
 
@@ -55,7 +55,7 @@ ppSelectWith from tabDoc =
   $$  ppLimit (limit from)
   $$  ppOffset (offset from)
 
-ppProduct :: [SqlSelect] -> Doc
+ppProduct :: [SqlTableExpr] -> Doc
 ppProduct = ppTables
 
 ppAttrs :: SelectAttrs -> Doc
@@ -66,17 +66,17 @@ nameAs :: (SqlExpr, Maybe SqlColumn) -> Doc
 nameAs (expr, name) = ppAs (fmap unColumn name) (ppPGExpr expr)
   where unColumn (SqlColumn s) = ppAliasedCol (map T.unpack s)
         
-ppTables :: [SqlSelect] -> Doc
+ppTables :: [SqlTableExpr] -> Doc
 ppTables []   = empty
-ppTables tabs = commaV ppSelect tabs
+ppTables tabs = commaV ppTableExpr tabs
 
 ppSelectBinary :: Binary -> Doc
 ppSelectBinary bin = ppSelect (bSelect1 bin)
-                    $$ ppBinOp (bOp bin)
+                    $$ ppSelBinOp (bOp bin)
                     $$ ppSelect (bSelect2 bin)
 
-ppBinOp :: SelectBinOp -> Doc
-ppBinOp op = text $ case op of
+ppSelBinOp :: SelectBinOp -> Doc
+ppSelBinOp op = text $ case op of
   Union        -> "UNION"
   UnionAll     -> "UNIONALL"
   Except       -> "EXCEPT"
@@ -87,9 +87,9 @@ ppBinOp op = text $ case op of
 ppJoin :: Join -> Doc
 ppJoin joinSt = ppJoinedTabs
   where ppJoinedTabs = parens (   
-                       ppSelect s1
+                       ppTableExpr s1
                    $$  ppJoinType (jJoinType joinSt) <> ppLateral (jLateral joinSt)
-                   $$  ppSelect s2
+                   $$  ppTableExpr s2
                    $$  ppOn (jCond joinSt)
                    )
                    
@@ -195,8 +195,16 @@ ppColumn (SqlColumn s) =
     (x : xs) -> doubleQuotes (text x) <> char '.' <> ppAliasedCol xs
     _        -> error "Panic: Column cannot be empty"
 
-ppTable :: SqlTable -> Doc
-ppTable st = case sqlTableSchemaName st of
+ppTableExpr :: SqlTableExpr -> Doc
+ppTableExpr (NestedSqlSelect sql)     = ppSelect sql
+ppTableExpr (SqlTabName sqltab)       = ppTableName sqltab
+ppTableExpr (SqlTabFun funName args)  = ppTableFun funName args
+
+ppTableFun :: SqlName -> [SqlName] -> Doc
+ppTableFun funN args = text (T.unpack funN) <> parens (hsep (map (text . T.unpack) args))
+
+ppTableName :: SqlTableName -> Doc
+ppTableName st = case sqlTableSchemaName st of
     Just sn -> doubleQuotes (text sn) <> text "." <> tname
     Nothing -> tname
   where
@@ -209,9 +217,9 @@ ppPGExpr expr =
     -- OidSqlExpr s        -> ppOid s
     CompositeSqlExpr s x -> parens (ppPGExpr s) <> text "." <> text x
     ParensSqlExpr e -> parens (ppPGExpr e)
-    BinSqlExpr op e1 e2 -> ppPGExpr e1 <+> text op <+> ppPGExpr e2
-    PrefixSqlExpr op e  -> text op <+> ppPGExpr e
-    PostfixSqlExpr op e -> ppPGExpr e <+> text op
+    BinSqlExpr op e1 e2 -> ppPGExpr e1 <+> ppBinOp op <+> ppPGExpr e2
+    PrefixSqlExpr op e  -> ppPrefixExpr op e
+    PostfixSqlExpr op e -> ppPostfixExpr op e
     FunSqlExpr f es     -> text f <> parens (commaH ppPGExpr es)
     AggrFunSqlExpr f es ord -> text f <> parens (commaH ppPGExpr es <+> ppOrderBy ord)
     ConstSqlExpr c      -> ppLiteral c
@@ -234,9 +242,55 @@ ppPGExpr expr =
       where partPP     [] = empty
             partPP     xs = text "PARTITION BY" <+> (commaH ppPGExpr xs <> space)
 
+ppBinOp :: BinOp -> Doc
+ppBinOp = text . go
+  where go OpEq         = "="
+        go OpLt         = "<"
+        go OpLtEq       = "<="
+        go OpGt         = ">"
+        go OpGtEq       = ">="
+        go OpNotEq      = "<>"
+        go OpAnd        = "AND"
+        go OpOr         = "OR"
+        go OpLike       = "LIKE"
+        go OpIn         = "IN"
+        go (OpOther s)  = s
+        go OpCat        = "||"
+        go OpPlus       = "+"
+        go OpMinus      = "-"
+        go OpMul        = "*"
+        go OpDiv        = "/"
+        go OpMod        = "MOD"
+        go OpBitNot     = "~"
+        go OpBitAnd     = "&"
+        go OpBitOr      = "|"
+        go OpBitXor     = "^"
+        go OpAsg        = "="
+        go OpAtTimeZone = "AT TIME ZONE"
+
+ppPrefixExpr :: UnOp -> SqlExpr -> Doc
+ppPrefixExpr op e = go op
+  where go OpNot              = text "NOT" <> parens (ppPGExpr e)
+        go OpLength           = text "LENGTH" <> parens (ppPGExpr e)
+        go OpAbs              = text "@" <> parens (ppPGExpr e)
+        go OpNegate           = text "-" <> parens (ppPGExpr e)
+        go OpLower            = text "LOWER" <> parens (ppPGExpr e)
+        go OpUpper            = text "UPPER" <> parens (ppPGExpr e)
+        go (OpOtherFun s)     = text s <> parens (ppPGExpr e)
+        go (OpOtherPrefix s)  = text s <+> (ppPGExpr e)
+        go _                  = error "Panic: unsupported combination @ppPrefixExpr"
+
+ppPostfixExpr :: UnOp -> SqlExpr -> Doc
+ppPostfixExpr op e = go op
+  where go OpIsNull           = ppPGExpr e <+> text "IS NULL"
+        go OpIsNotNull        = ppPGExpr e <+> text "IS NOT NULL"
+        go (OpOtherPostfix s) = ppPGExpr e <+> text s 
+        
+        go _              = error "Panic: unsupported combination @ppPostfixExpr"
+
 ppInsert :: SqlInsert -> Doc
 ppInsert (SqlInsert table names values rets)
-    = text "INSERT INTO" <+> ppTable table
+    = text "INSERT INTO" <+> ppTableName table
       <+> parens (commaV ppColumn names)
       $$ text "VALUES" <+> commaV (\v -> parens (commaV ppPGExpr v))
                                   (toList values)
@@ -244,7 +298,7 @@ ppInsert (SqlInsert table names values rets)
 
 ppUpdate :: SqlUpdate -> Doc
 ppUpdate (SqlUpdate table assigns criteria rets)
-        = text "UPDATE" <+> ppTable table
+        = text "UPDATE" <+> ppTableName table
         $$ text "SET" <+> commaV ppAssign assigns
         $$ ppWhere criteria
         $$ ppReturning rets
@@ -253,7 +307,7 @@ ppUpdate (SqlUpdate table assigns criteria rets)
 
 ppDelete :: SqlDelete -> Doc
 ppDelete (SqlDelete table criteria) =
-    text "DELETE FROM" <+> ppTable table $$ ppWhere criteria
+    text "DELETE FROM" <+> ppTableName table $$ ppWhere criteria
     
 ppReturning :: [SqlExpr] -> Doc
 ppReturning []   = empty

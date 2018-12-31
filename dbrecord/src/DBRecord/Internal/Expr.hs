@@ -92,8 +92,11 @@ instance ( KnownSymbol fn1
 binOp :: PQ.BinOp -> Expr sc a -> Expr sc b -> Expr sc c
 binOp op (Expr lhs) (Expr rhs) = Expr (PQ.BinExpr op lhs rhs)
 
-unOp :: PQ.UnOp -> Expr sc a -> Expr sc b
-unOp op (Expr expr) = Expr (PQ.UnExpr op expr)
+prefixOp :: PQ.UnOp -> Expr sc a -> Expr sc b
+prefixOp op (Expr expr) = Expr (PQ.PrefixExpr op expr)
+
+postfixOp :: PQ.UnOp -> Expr sc a -> Expr sc b
+postfixOp op (Expr expr) = Expr (PQ.PostfixExpr op expr)
 
 unsafeCast :: DBType -> Expr sc a -> Expr sc b
 unsafeCast castTo (Expr expr) = Expr $ PQ.CastExpr castTo expr
@@ -138,8 +141,8 @@ instance ( NumExpr a
   (*)      = binOp PQ.OpMul
   (+)      = binOp PQ.OpPlus
   (-)      = binOp PQ.OpMinus
-  abs      = unOp PQ.OpAbs
-  negate   = unOp PQ.OpNegate
+  abs      = prefixOp PQ.OpAbs
+  negate   = prefixOp PQ.OpNegate
   signum a = case_ [ (a .== 0, 0)
                    , (a .<  0, (-1))
                    , (a .>  0, 1)
@@ -276,13 +279,13 @@ infixr 3 .||
 (.||) a b = binOp PQ.OpOr a b
 
 not_ :: Expr sc Bool -> Expr sc Bool
-not_ = unOp PQ.OpNot
+not_ = prefixOp PQ.OpNot
 
 isNull :: Expr sc (Maybe a) -> Expr sc Bool
-isNull = unOp PQ.OpIsNull
+isNull = postfixOp PQ.OpIsNull
 
 isNotNull :: Expr sc (Maybe a) -> Expr sc Bool
-isNotNull = unOp PQ.OpIsNotNull
+isNotNull = postfixOp PQ.OpIsNotNull
 
 nothing :: Expr sc (Maybe a)
 nothing = Expr $ PQ.ConstExpr PQ.Null
@@ -318,10 +321,10 @@ like :: Expr sc T.Text -> Expr sc T.Text -> Expr sc Bool
 like = binOp PQ.OpLike
 
 lower :: Expr sc T.Text -> Expr sc T.Text
-lower = unOp PQ.OpLower
+lower = prefixOp PQ.OpLower
 
 upper :: Expr sc T.Text -> Expr sc T.Text
-upper = unOp PQ.OpUpper
+upper = prefixOp PQ.OpUpper
 
 ors :: Foldable f => f (Expr sc Bool) -> Expr sc Bool
 ors = F.foldl' (.||) false
@@ -427,23 +430,23 @@ interval :: Interval -> Expr sc Interval
 interval (Interval e) = annotateType (literalExpr (PQ.Other e))
 
 hours :: Int -> Expr sc Interval
-hours i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
+hours i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " hours\'"
 
 months :: Int -> Expr sc Interval
-months i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
+months i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " months\'"
 
 days :: Int -> Expr sc Interval
-days i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
+days i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " days\'"
 
 minutes :: Int -> Expr sc Interval
-minutes i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
+minutes i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " minutes\'"
 
 seconds :: Int -> Expr sc Interval
-seconds i = unOp (PQ.UnOpOtherPrefix "interval") (literalExpr (PQ.Other txt))
+seconds i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " seconds\'"
 
 strToJson :: (Typeable a) => String -> Expr sc (Json a)

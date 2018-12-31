@@ -17,7 +17,6 @@ import qualified DBRecord.Internal.Sql.DML as DML
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import qualified Data.Maybe as M
-import qualified Debug.Trace as DT
 import qualified DBRecord.Internal.PrimQuery as PQ
 
 sql :: PQ.PrimQuery -> SqlSelect
@@ -35,7 +34,7 @@ insertSql = PQ.foldInsertQuery sqlInsertGenerator
 
 sqlQueryGenerator :: PQ.PrimQueryFold SqlSelect
 sqlQueryGenerator = PQ.PrimQueryFold
-  { PQ.baseTable = baseTable
+  { PQ.table     = table
   , PQ.product   = product
   , PQ.join      = join
   , PQ.binary    = binary
@@ -47,17 +46,17 @@ sqlQueryGenerator = PQ.PrimQueryFold
 
 sqlUpdateGenerator :: PQ.UpdateQueryFold SqlUpdate
 sqlUpdateGenerator = PQ.UpdateQueryFold
-  {PQ.updateQ = \tabId -> sqlUpdate defaultSqlGenerator $ toSqlTable tabId
+  {PQ.updateQ = \tabId -> sqlUpdate defaultSqlGenerator $ toSqlTableName tabId
   }
 
 sqlDeleteGenerator :: PQ.DeleteQueryFold SqlDelete
 sqlDeleteGenerator = PQ.DeleteQueryFold
-  { PQ.deleteQ = \tabId -> sqlDelete defaultSqlGenerator $ toSqlTable tabId
+  { PQ.deleteQ = \tabId -> sqlDelete defaultSqlGenerator $ toSqlTableName tabId
   }
 
 sqlInsertGenerator :: PQ.InsertQueryFold SqlInsert
 sqlInsertGenerator = PQ.InsertQueryFold
-  { PQ.insertQ = \tabId -> sqlInsert defaultSqlGenerator $ toSqlTable tabId
+  { PQ.insertQ = \tabId -> sqlInsert defaultSqlGenerator $ toSqlTableName tabId
   }  
 
 
@@ -89,25 +88,30 @@ baseClauses cs =
               , orderby  = map toSqlOrder (PQ.orderbys cs)
               }
 
-baseTable :: PQ.TableId -> PQ.Clauses -> SqlSelect
-baseTable tabId cs = SqlSelect (toSqlTable tabId) $ 
+table :: PQ.TableExpr SqlSelect -> PQ.Clauses -> SqlSelect
+table tab cs = SqlSelect (toSqlTable tab) $ 
   (baseClauses cs) { DML.alias  = (T.unpack <$> (PQ.alias cs)) }
 
-toSqlTable :: PQ.TableId -> SqlTable
-toSqlTable (PQ.TableId s tn) = SqlTable (Just (T.unpack s)) (T.unpack tn)
+toSqlTable :: PQ.TableExpr SqlSelect -> SqlTableExpr
+toSqlTable (PQ.TableName tabId)     = SqlTabName (toSqlTableName tabId)
+toSqlTable (PQ.TableFun name attrs) = SqlTabFun name attrs
+toSqlTable (PQ.PrimQuery sq)        = NestedSqlSelect sq
 
-product :: NEL.NonEmpty SqlSelect -> PQ.Clauses -> SqlSelect
-product tabs cs = SqlProduct (NEL.toList tabs) $            
+toSqlTableName :: PQ.TableId -> SqlTableName
+toSqlTableName (PQ.TableId s tn) = SqlTableName (Just (T.unpack s)) (T.unpack tn)
+
+product :: NEL.NonEmpty (PQ.TableExpr SqlSelect) -> PQ.Clauses -> SqlSelect
+product tabs cs = SqlProduct (map toSqlTable $ NEL.toList tabs) $            
   (baseClauses cs) { DML.alias = T.unpack <$> (PQ.alias cs) } 
 
-cte :: [PQ.WithExpr SqlSelect] -> SqlSelect -> SqlSelect
-cte withs s =
+cte :: PQ.CTE SqlSelect SqlSelect -> SqlSelect
+cte (PQ.CTE withs s) =
   SqlCTE (map toSqlWith withs) s
   
   where toSqlWith (PQ.WithExpr tab cols p) = SqlWith tab cols p
 
-join :: PQ.JoinType -> PQ.Lateral -> Maybe PQ.PrimExpr -> SqlSelect -> SqlSelect -> PQ.Clauses -> SqlSelect
-join jt l e q1 q2 cs = SqlJoin (Join (joinType' jt) l (q1, q2) (fmap toSqlExpr e))
+join :: PQ.JoinType -> PQ.Lateral -> Maybe PQ.PrimExpr -> PQ.TableExpr SqlSelect -> PQ.TableExpr SqlSelect -> PQ.Clauses -> SqlSelect
+join jt l e q1 q2 cs = SqlJoin (Join (joinType' jt) l (toSqlTable q1, toSqlTable q2) (fmap toSqlExpr e))
                                 ((baseClauses cs) { DML.alias  = (T.unpack <$> (PQ.alias cs)) })
                      
   where joinType' :: PQ.JoinType -> JoinType
@@ -117,9 +121,10 @@ join jt l e q1 q2 cs = SqlJoin (Join (joinType' jt) l (q1, q2) (fmap toSqlExpr e
         joinType' PQ.InnerJoin = InnerJoin
         joinType' PQ.CrossJoin = CrossJoin
 
-binary :: PQ.BinType -> SqlSelect -> SqlSelect -> PQ.Clauses -> SqlSelect
-binary bt q1 q2 cs = SqlBin (Binary (selectBinOp' bt) q1 q2)
-                                     ((baseClauses cs) { DML.alias  = (T.unpack <$> (PQ.alias cs)) })
+binary :: PQ.BinType -> SqlSelect -> SqlSelect -> SqlSelect
+binary bt q1 q2 = SqlBin (Binary (selectBinOp' bt)
+                                  q1 q2
+                         )
                      
   where selectBinOp' :: PQ.BinType -> SelectBinOp
         selectBinOp' PQ.Union           = Union
@@ -150,7 +155,6 @@ sqlPartition :: SqlGenerator -> PQ.WindowPart -> WindowPart
 sqlPartition gen (PQ.WindowPart es oes) =
   WindowPart (map (sqlExpr gen) es) (map (sqlOrder gen) oes)
 
--- TODO: should be sqlExpr
 toSqlExpr :: PQ.PrimExpr -> SqlExpr
 toSqlExpr = sqlExpr defaultSqlGenerator
 
@@ -162,9 +166,9 @@ toSqlWindow = sqlWindow defaultSqlGenerator
 
 data SqlGenerator = SqlGenerator
     {
-     sqlUpdate      :: SqlTable -> [PQ.PrimExpr] -> PQ.Assoc -> [PQ.PrimExpr] -> SqlUpdate,
-     sqlDelete      :: SqlTable -> [PQ.PrimExpr] -> SqlDelete,
-     sqlInsert      :: SqlTable -> [PQ.Attribute] -> NEL.NonEmpty [PQ.PrimExpr] -> [PQ.PrimExpr] -> SqlInsert,
+     sqlUpdate      :: SqlTableName -> [PQ.PrimExpr] -> PQ.Assoc -> [PQ.PrimExpr] -> SqlUpdate,
+     sqlDelete      :: SqlTableName -> [PQ.PrimExpr] -> SqlDelete,
+     sqlInsert      :: SqlTableName -> [PQ.Attribute] -> NEL.NonEmpty [PQ.PrimExpr] -> [PQ.PrimExpr] -> SqlInsert,
      sqlExpr        :: PQ.PrimExpr -> SqlExpr,
      sqlLiteral     :: PQ.Lit -> LitSql,
      -- | Turn a string into a quoted string. Quote characters
@@ -207,9 +211,12 @@ defaultSqlExpr gen expr = case expr of
           (_, _, PQ.ConstExpr _)                                      -> (paren leftE, rightE)
           (_, PQ.ConstExpr _, _)                                      -> (leftE, paren rightE)
           _                                                           -> (paren leftE, paren rightE)
-    in BinSqlExpr (showBinOp op) expL expR
+    in BinSqlExpr (sqlBinOp op) expL expR
        
-  PQ.UnExpr op e         ->
+  PQ.PrefixExpr op e         -> PrefixSqlExpr (sqlUnOp op) (sqlExpr gen e)
+  PQ.PostfixExpr op e        -> PostfixSqlExpr (sqlUnOp op) (sqlExpr gen e)  
+
+{-  
     let (op',t) = sqlUnOp op
         e' = sqlExpr gen e
     in case t of
@@ -217,7 +224,7 @@ defaultSqlExpr gen expr = case expr of
       UnOpPrefix  -> PrefixSqlExpr op' e'      
       UnOpPrefixParen  -> PrefixSqlExpr op' (ParensSqlExpr e')
       UnOpPostfix -> PostfixSqlExpr op' e'
-
+-}
   PQ.AggrExpr op e ord   ->
     let op'  = showAggrOp op
         e'   = sqlExpr gen e
@@ -247,44 +254,43 @@ defaultSqlExpr gen expr = case expr of
                                               (sqlExpr gen e)
   _                      -> error "Panic: Unexpected flatcomposite"
   
-showBinOp :: PQ.BinOp -> String
-showBinOp  PQ.OpEq         = "="
-showBinOp  PQ.OpLt         = "<"
-showBinOp  PQ.OpLtEq       = "<="
-showBinOp  PQ.OpGt         = ">"
-showBinOp  PQ.OpGtEq       = ">="
-showBinOp  PQ.OpNotEq      = "<>"
-showBinOp  PQ.OpAnd        = "AND"
-showBinOp  PQ.OpOr         = "OR"
-showBinOp  PQ.OpLike       = "LIKE"
-showBinOp  PQ.OpIn         = "IN"
-showBinOp  (PQ.OpOther s)  = s
-showBinOp  PQ.OpCat        = "||"
-showBinOp  PQ.OpPlus       = "+"
-showBinOp  PQ.OpMinus      = "-"
-showBinOp  PQ.OpMul        = "*"
-showBinOp  PQ.OpDiv        = "/"
-showBinOp  PQ.OpMod        = "MOD"
-showBinOp  PQ.OpBitNot     = "~"
-showBinOp  PQ.OpBitAnd     = "&"
-showBinOp  PQ.OpBitOr      = "|"
-showBinOp  PQ.OpBitXor     = "^"
-showBinOp  PQ.OpAsg        = "="
-showBinOp  PQ.OpAtTimeZone = "AT TIME ZONE"
+sqlBinOp :: PQ.BinOp -> BinOp
+sqlBinOp  PQ.OpEq         = OpEq
+sqlBinOp  PQ.OpLt         = OpLt
+sqlBinOp  PQ.OpLtEq       = OpLtEq
+sqlBinOp  PQ.OpGt         = OpGt
+sqlBinOp  PQ.OpGtEq       = OpGtEq
+sqlBinOp  PQ.OpNotEq      = OpNotEq
+sqlBinOp  PQ.OpAnd        = OpAnd
+sqlBinOp  PQ.OpOr         = OpOr
+sqlBinOp  PQ.OpLike       = OpLike
+sqlBinOp  PQ.OpIn         = OpIn
+sqlBinOp  (PQ.OpOther s)  = OpOther s
+sqlBinOp  PQ.OpCat        = OpCat
+sqlBinOp  PQ.OpPlus       = OpPlus
+sqlBinOp  PQ.OpMinus      = OpMinus
+sqlBinOp  PQ.OpMul        = OpMul
+sqlBinOp  PQ.OpDiv        = OpDiv
+sqlBinOp  PQ.OpMod        = OpMod
+sqlBinOp  PQ.OpBitNot     = OpBitNot
+sqlBinOp  PQ.OpBitAnd     = OpBitAnd
+sqlBinOp  PQ.OpBitOr      = OpBitOr
+sqlBinOp  PQ.OpBitXor     = OpBitXor
+sqlBinOp  PQ.OpAsg        = OpAsg
+sqlBinOp  PQ.OpAtTimeZone = OpAtTimeZone
 
-data UnOpType = UnOpFun | UnOpPrefix | UnOpPrefixParen | UnOpPostfix
-
-sqlUnOp :: PQ.UnOp -> (String,UnOpType)
-sqlUnOp  PQ.OpNot         = ("NOT", UnOpPrefixParen)
-sqlUnOp  PQ.OpIsNull      = ("IS NULL", UnOpPostfix)
-sqlUnOp  PQ.OpIsNotNull   = ("IS NOT NULL", UnOpPostfix)
-sqlUnOp  PQ.OpLength      = ("LENGTH", UnOpFun)
-sqlUnOp  PQ.OpAbs         = ("@", UnOpFun)
-sqlUnOp  PQ.OpNegate      = ("-", UnOpFun)
-sqlUnOp  PQ.OpLower       = ("LOWER", UnOpFun)
-sqlUnOp  PQ.OpUpper       = ("UPPER", UnOpFun)
-sqlUnOp  (PQ.UnOpOtherFun s) = (s, UnOpFun)
-sqlUnOp  (PQ.UnOpOtherPrefix s) = (s, UnOpPrefix)
+sqlUnOp :: PQ.UnOp -> UnOp
+sqlUnOp  PQ.OpNot              = OpNot
+sqlUnOp  PQ.OpIsNull           = OpIsNull 
+sqlUnOp  PQ.OpIsNotNull        = OpIsNotNull 
+sqlUnOp  PQ.OpLength           = OpLength
+sqlUnOp  PQ.OpAbs              = OpAbs
+sqlUnOp  PQ.OpNegate           = OpNegate 
+sqlUnOp  PQ.OpLower            = OpLower 
+sqlUnOp  PQ.OpUpper            = OpUpper
+sqlUnOp  (PQ.OpOtherPostfix s) = OpOtherPostfix s 
+sqlUnOp  (PQ.OpOtherPrefix s)  = OpOtherPrefix s
+sqlUnOp  (PQ.OpOtherFun s)     = OpOtherFun s
 
 showAggrOp :: PQ.AggrOp -> String
 showAggrOp PQ.AggrCount          = "COUNT"
@@ -352,7 +358,7 @@ binQuote :: ByteString -> String
 binQuote s = "E'\\\\x" ++ BS8.unpack (Base16.encode s) ++ "'"
 
 defaultSqlUpdate :: SqlGenerator
-                   -> SqlTable   -- ^ Table to update
+                   -> SqlTableName   -- ^ Table to update
                    -> [PQ.PrimExpr] -- ^ Conditions which must all be true for a row
                                  --   to be updated.
                    -> PQ.Assoc -- ^ Update the data with this.
@@ -363,7 +369,7 @@ defaultSqlUpdate gen tbl criteria assigns rets
 
 
 defaultSqlInsert :: SqlGenerator
-                   -> SqlTable
+                   -> SqlTableName
                    -> [PQ.Attribute]
                    -> NEL.NonEmpty [PQ.PrimExpr]
                    -> [PQ.PrimExpr] -- ^ Returning these expressions.
@@ -372,7 +378,7 @@ defaultSqlInsert gen tbl attrs exprs rets =
   SqlInsert tbl (map toSqlColumn attrs) ((fmap . map) (sqlExpr gen) exprs) (map (sqlExpr gen) rets)
 
 defaultSqlDelete :: SqlGenerator
-                   -> SqlTable
+                   -> SqlTableName
                    -> [PQ.PrimExpr] -- ^ Criteria which must all be true for a row
                                  --   to be deleted.
                    -> SqlDelete
@@ -418,10 +424,10 @@ primExprGen expr = case expr of
   ArraySqlExpr ses               -> PQ.ArrayExpr (map primExprGen ses)
   TableSqlExpr sq                -> PQ.TableExpr (primQueryGen sq)  
   NamedWindowSqlExpr w se        -> PQ.NamedWindowExpr (T.pack w) (primExprGen se)
-  AnonWindowSqlExpr ps os se     -> error "Panic: not implemented for AnonWindowSqlExpr"
-  BinSqlExpr op sel ser          -> binPrimExprGen op sel ser
-  PrefixSqlExpr op se            -> prefixPrimExprGen op se
-  PostfixSqlExpr op se           -> postfixPrimExprGen op se
+  AnonWindowSqlExpr ps os se     -> error "TODO: not implemented for AnonWindowSqlExpr"
+  BinSqlExpr op sel ser          -> error "TODO: not implemented for BinSqlExpr" 
+  PrefixSqlExpr op se            -> error "TODO: not implemented for PrefixSqlExpr" 
+  PostfixSqlExpr op se           -> error "TODO: not implemented for PostfixSqlExpr" 
   ParensSqlExpr se               -> primExprGen se
   ConstSqlExpr c                 -> constPrimExprGen c
   AggrFunSqlExpr n ses ords      -> aggrFunPrimExprGen n ses ords
@@ -430,6 +436,7 @@ primExprGen expr = case expr of
 funPrimExprGen :: String -> [SqlExpr] -> PQ.PrimExpr
 funPrimExprGen n ses = PQ.FunExpr (T.pack n) (map primExprGen ses)
 
+{-
 binPrimExprGen :: String -> SqlExpr -> SqlExpr -> PQ.PrimExpr
 binPrimExprGen binOp l r = PQ.BinExpr binPrimExpr (primExprGen l) (primExprGen r)
   where binPrimExpr = case binOp of
@@ -471,6 +478,7 @@ postfixPrimExprGen op e =
     where primOp "IS NULL"     = PQ.OpIsNull
           primOp "IS NOT NULL" = PQ.OpIsNotNull
           primOp _             = error "Panic: not a known postfix operator"
+-}
 
 constPrimExprGen :: LitSql -> PQ.PrimExpr
 constPrimExprGen lsq = PQ.ConstExpr $ 

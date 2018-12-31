@@ -271,15 +271,15 @@ type family GetDBTypeRep db t where
 
 type family GetMSSQLTypeRep (t :: *) = (r :: Type.DBTypeK) | r -> t where
   GetMSSQLTypeRep Int                = 'Type.DBInt8
-  GetMSSQLTypeRep Int8               = 'Type.DBNumeric 3 0
-  GetMSSQLTypeRep Int16              = 'Type.DBInt2
-  GetMSSQLTypeRep Int32              = 'Type.DBInt4
-  GetMSSQLTypeRep Int64              = 'Type.DBInt8
-  GetMSSQLTypeRep Word               = 'Type.DBNumeric 20 0
-  GetMSSQLTypeRep Word8              = 'Type.DBNumeric 3 0
-  GetMSSQLTypeRep Word16             = 'Type.DBNumeric 5 0
-  GetMSSQLTypeRep Word32             = 'Type.DBNumeric 10 0
-  GetMSSQLTypeRep Word64             = 'Type.DBNumeric 20 0
+  -- GetMSSQLTypeRep Int8               = 'Type.DBNumeric 3 0
+  -- GetMSSQLTypeRep Int16              = 'Type.DBInt2
+  -- GetMSSQLTypeRep Int32              = 'Type.DBInt4
+  -- GetMSSQLTypeRep Int64              = 'Type.DBInt8
+  -- GetMSSQLTypeRep Word               = 'Type.DBNumeric 20 0
+  -- GetMSSQLTypeRep Word8              = 'Type.DBNumeric 3 0
+  -- GetMSSQLTypeRep Word16             = 'Type.DBNumeric 5 0
+  -- GetMSSQLTypeRep Word32             = 'Type.DBNumeric 10 0
+  -- GetMSSQLTypeRep Word64             = 'Type.DBNumeric 20 0
   GetMSSQLTypeRep Float              = 'Type.DBFloat 24
   GetMSSQLTypeRep Double             = 'Type.DBFloat 53
   GetMSSQLTypeRep Char               = 'Type.DBChar 1
