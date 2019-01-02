@@ -20,7 +20,7 @@ typeName :: DBType -> TypeName
 typeName = TypeName . T.pack . ppSqliteType
 
 customTypeName :: T.Text -> TypeName
-customTypeName = TypeName . T.pack . ppSqliteType . DBTypeName . T.unpack
+customTypeName = TypeName . T.pack . ppSqliteType . flip DBTypeName []
 
 escQuote :: Text -> Text
 escQuote = escapeBy (Just '\'')

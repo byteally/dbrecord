@@ -35,9 +35,9 @@ import qualified Data.List as L
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
   SqlProduct sqSels selectFrom -> ppSelectWith selectFrom (ppProduct sqSels) 
-  SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTableName tab)
+  SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTableExpr tab)
   SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (ppJoin joinSt)
-  SqlBin binSt selectFrom      -> ppSelectWith selectFrom (ppSelectBinary binSt)
+  SqlBin binSt                 -> ppSelectBinary binSt
   SqlCTE withs sql             -> ppSelectCTE withs sql
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
   -- SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
@@ -56,7 +56,7 @@ ppSelectWith from tabDoc =
   $$  ppOrderBy (orderby from)
   $$  ppOffsetFetch (offset from) (limit from)
 
-ppProduct :: [SqlSelect] -> Doc
+ppProduct :: [SqlTableExpr] -> Doc
 ppProduct = ppTables
 
 ppAttrs :: SelectAttrs -> Doc
@@ -67,17 +67,17 @@ nameAs :: (SqlExpr, Maybe SqlColumn) -> Doc
 nameAs (expr, name) = ppAs (fmap unColumn name) (ppMSSQLExpr expr)
   where unColumn (SqlColumn s) = ppAliasedCol (map T.unpack s)
         
-ppTables :: [SqlSelect] -> Doc
+ppTables :: [SqlTableExpr] -> Doc
 ppTables []   = empty
-ppTables tabs = commaV ppSelect tabs
+ppTables tabs = commaV ppTableExpr tabs
 
 ppSelectBinary :: Binary -> Doc
 ppSelectBinary bin = ppSelect (bSelect1 bin)
-                    $$ ppBinOp (bOp bin)
+                    $$ ppSelectBinOp (bOp bin)
                     $$ ppSelect (bSelect2 bin)
 
-ppBinOp :: SelectBinOp -> Doc
-ppBinOp op = text $ case op of
+ppSelectBinOp :: SelectBinOp -> Doc
+ppSelectBinOp op = text $ case op of
   Union        -> "UNION"
   UnionAll     -> "UNION ALL"
   Except       -> "EXCEPT"
@@ -98,9 +98,9 @@ ppSelectCTE sqWiths sel = text "WITH" <+> commaV ppSqlWith sqWiths
 ppJoin :: Join -> Doc
 ppJoin joinSt = ppJoinedTabs
   where ppJoinedTabs = parens (   
-                       ppSelect s1
+                       ppTableExpr s1
                    $$  ppJoinType (jJoinType joinSt) (jLateral joinSt)
-                   $$  ppSelect s2
+                   $$  ppTableExpr s2
                    $$  ppOn (jCond joinSt)
                    )
                    
@@ -108,7 +108,6 @@ ppJoin joinSt = ppJoinedTabs
         ppOn Nothing  = empty
         ppOn (Just e) =   text "ON"
                       $$  ppMSSQLExpr e
-
 
 ppJoinType :: JoinType -> Lateral -> Doc
 ppJoinType LeftJoin  False = text "LEFT OUTER JOIN"
@@ -200,6 +199,15 @@ ppColumn (SqlColumn s) =
     (x : xs) -> doubleQuotes (text x) <> char '.' <> ppAliasedCol xs
     _        -> error "Panic: Column cannot be empty"
 
+
+ppTableExpr :: SqlTableExpr -> Doc
+ppTableExpr (NestedSqlSelect sql)     = ppSelect sql
+ppTableExpr (SqlTabName sqltab)       = ppTableName sqltab
+ppTableExpr (SqlTabFun funName args)  = ppTableFun funName args
+
+ppTableFun :: SqlName -> [SqlName] -> Doc
+ppTableFun funN args = text (T.unpack funN) <> parens (hsep (map (text . T.unpack) args))
+
 ppTableName :: SqlTableName -> Doc
 ppTableName st = case sqlTableSchemaName st of
     Just sn -> doubleQuotes (text sn) <> text "." <> tname
@@ -214,10 +222,10 @@ ppMSSQLExpr expr =
     -- OidSqlExpr s        -> ppOid s
     CompositeSqlExpr s x -> parens (ppMSSQLExpr s) <> text "." <> text x
     ParensSqlExpr e -> parens (ppMSSQLExpr e)
-    BinSqlExpr op e1 e2 -> ppMSSQLExpr e1 <+> ppOp op <+> ppMSSQLExpr e2
-    PrefixSqlExpr op e  -> text op <+> ppMSSQLExpr e
-    PostfixSqlExpr op e -> ppMSSQLExpr e <+> text op
-    FunSqlExpr f es     -> ppFunName f <> parens (commaH ppMSSQLExpr es)
+    BinSqlExpr op e1 e2 -> ppMSSQLExpr e1 <+> ppBinOp op <+> ppMSSQLExpr e2
+    PrefixSqlExpr op e  -> ppPrefixExpr op e
+    PostfixSqlExpr op e -> ppPostfixExpr op e
+    FunSqlExpr f es     -> text f <> parens (commaH ppMSSQLExpr es)
     AggrFunSqlExpr f es ord -> text f <> parens (commaH ppMSSQLExpr es <+> ppOrderBy ord)
     ConstSqlExpr c      -> ppLiteral c
     CaseSqlExpr cs el   -> text "CASE" <> space <> vcat (toList (fmap ppWhen cs))
@@ -239,13 +247,51 @@ ppMSSQLExpr expr =
       where partPP     [] = empty
             partPP     xs = text "PARTITION BY" <+> (commaH ppMSSQLExpr xs <> space)
 
+ppBinOp :: BinOp -> Doc
+ppBinOp = text . go
+  where go OpEq         = "="
+        go OpLt         = "<"
+        go OpLtEq       = "<="
+        go OpGt         = ">"
+        go OpGtEq       = ">="
+        go OpNotEq      = "<>"
+        go OpAnd        = "AND"
+        go OpOr         = "OR"
+        go OpLike       = "LIKE"
+        go OpIn         = "IN"
+        go (OpOther s)  = s
+        go OpCat        = "||"
+        go OpPlus       = "+"
+        go OpMinus      = "-"
+        go OpMul        = "*"
+        go OpDiv        = "/"
+        go OpMod        = "%"
+        go OpBitNot     = "~"
+        go OpBitAnd     = "&"
+        go OpBitOr      = "|"
+        go OpBitXor     = "^"
+        go OpAsg        = "="
+        go OpAtTimeZone = "AT TIME ZONE"
 
+ppPrefixExpr :: UnOp -> SqlExpr -> Doc
+ppPrefixExpr op e = go op
+  where go OpNot              = text "NOT" <> parens (ppMSSQLExpr e)
+        go OpLength           = text "LENGTH" <> parens (ppMSSQLExpr e)
+        go OpAbs              = text "ABS" <> parens (ppMSSQLExpr e)
+        go OpNegate           = text "-" <> parens (ppMSSQLExpr e)
+        go OpLower            = text "LOWER" <> parens (ppMSSQLExpr e)
+        go OpUpper            = text "UPPER" <> parens (ppMSSQLExpr e)
+        go (OpOtherFun s)     = text s <> parens (ppMSSQLExpr e)
+        go (OpOtherPrefix s)  = text s <+> (ppMSSQLExpr e)
+        go _                  = error "Panic: unsupported combination @ppPrefixExpr"
 
-  where ppOp "MOD" = text "%"
-        ppOp  v    = text v
-
-        ppFunName "@" = text "abs"
-        ppFunName v   = text v
+ppPostfixExpr :: UnOp -> SqlExpr -> Doc
+ppPostfixExpr op e = go op
+  where go OpIsNull           = ppMSSQLExpr e <+> text "IS NULL"
+        go OpIsNotNull        = ppMSSQLExpr e <+> text "IS NOT NULL"
+        go (OpOtherPostfix s) = ppMSSQLExpr e <+> text s 
+        
+        go _              = error "Panic: unsupported combination @ppPostfixExpr"
 
 ppInsert :: SqlInsert -> Doc
 ppInsert (SqlInsert table names values rets)

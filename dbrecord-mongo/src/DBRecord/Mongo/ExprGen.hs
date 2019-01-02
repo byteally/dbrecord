@@ -17,20 +17,21 @@ mongoQuery = PQ.foldPrimQuery mongoQueryGenerator
 
 mongoQueryGenerator :: PQ.PrimQueryFold MongoSelect
 mongoQueryGenerator = PQ.PrimQueryFold
-  { PQ.baseTable = baseTable
+  { PQ.table = table
 --  , PQ.product
   }
 
-baseTable :: PQ.TableId -> PQ.Clauses -> MongoSelect
-baseTable tabId cs = (select (map toMongoExpr (PQ.criteria cs)) (toMongoTable tabId))
+table :: PQ.TableExpr MongoSelect -> PQ.Clauses -> MongoSelect
+table tab cs = (select (map toMongoExpr (PQ.criteria cs)) (toMongoTable tab))
   { project = map toMongoBinding (PQ.projections cs)
   , skip = undefined -- maybe 0 fromIntegral $ PQ.offset cs
   , limit = undefined -- maybe 0 fromIntegral $ PQ.limit cs
   , sort = concatMap toMongoOrder (PQ.orderbys cs)
   }
 
-toMongoTable :: PQ.TableId -> MongoTable
-toMongoTable (PQ.TableId s tn) = tn
+toMongoTable :: PQ.TableExpr MongoSelect -> MongoTable
+toMongoTable (PQ.TableName (PQ.TableId s tn)) = tn
+toMongoTable _ = error "TODO: unimplemented @toMongoTable"
 
 toMongoOrder :: PQ.OrderExpr -> MongoOrder
 toMongoOrder = undefined
@@ -63,7 +64,7 @@ defaultMongoExpr gen expr = case expr of
       leftE = mongoExpr gen e1
       rightE = mongoExpr gen e2
     in ("leftE") =: ((showMongoBinOp op) =: rightE)
-  PQ.UnExpr op e         -> undefined
+  -- PQ.UnExpr op e         -> undefined
 
 
 data MongoQueryType

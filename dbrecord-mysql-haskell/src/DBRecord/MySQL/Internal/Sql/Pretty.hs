@@ -9,8 +9,8 @@ module DBRecord.MySQL.Internal.Sql.Pretty
   , renderDelete
   , renderInsert
   , renderUpdate
-  , ppSqliteExpr
-  , ppSqliteType
+  , ppMysqlExpr
+  , ppMysqlType
   ) where
 
 import           Data.ByteString (ByteString)
@@ -30,13 +30,16 @@ import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   quotes, space)
 import DBRecord.Schema.Interface
 import DBRecord.Internal.DBTypes
+import qualified Data.List as L
+
 
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
   SqlProduct sqSels selectFrom -> ppSelectWith selectFrom (ppProduct sqSels) 
-  SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTable tab)
+  SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTableExpr tab)
   SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (ppJoin joinSt)
-  SqlBin binSt selectFrom      -> ppSelectWith selectFrom (ppSelectBinary binSt)  
+  SqlBin binSt                 -> ppSelectBinary binSt
+  SqlCTE withs sql             -> ppSelectCTE withs sql
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
   -- SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
 
@@ -50,11 +53,12 @@ ppSelectWith from tabDoc =
   $$  ppWhere (DML.criteria from)
   $$  ppWindows (windows from)  
   $$  ppGroupBy (groupby from)
+  $$  ppHaving (having from)  
   $$  ppOrderBy (orderby from)
   $$  ppLimit (limit from)
   $$  ppOffset (offset from)
 
-ppProduct :: [SqlSelect] -> Doc
+ppProduct :: [SqlTableExpr] -> Doc
 ppProduct = ppTables
 
 ppAttrs :: SelectAttrs -> Doc
@@ -62,20 +66,20 @@ ppAttrs All            = text "*"
 ppAttrs (Columns cols) = (commaV nameAs . toList) cols
 
 nameAs :: (SqlExpr, Maybe SqlColumn) -> Doc
-nameAs (expr, name) = ppAs (fmap unColumn name) (ppSqliteExpr expr)
+nameAs (expr, name) = ppAs (fmap unColumn name) (ppMysqlExpr expr)
   where unColumn (SqlColumn s) = ppAliasedCol (map T.unpack s)
         
-ppTables :: [SqlSelect] -> Doc
+ppTables :: [SqlTableExpr] -> Doc
 ppTables []   = empty
-ppTables tabs = commaV ppSelect tabs
+ppTables tabs = commaV ppTableExpr tabs
 
 ppSelectBinary :: Binary -> Doc
 ppSelectBinary bin = ppSelect (bSelect1 bin)
-                    $$ ppBinOp (bOp bin)
+                    $$ ppSelectBinOp (bOp bin)
                     $$ ppSelect (bSelect2 bin)
 
-ppBinOp :: SelectBinOp -> Doc
-ppBinOp op = text $ case op of
+ppSelectBinOp :: SelectBinOp -> Doc
+ppSelectBinOp op = text $ case op of
   Union        -> "UNION"
   UnionAll     -> "UNIONALL"
   Except       -> "EXCEPT"
@@ -83,23 +87,38 @@ ppBinOp op = text $ case op of
   Intersect    -> "INTERSECT"
   IntersectAll -> "INTERSECTALL"
 
+ppSelectCTE :: [SqlWith] -> SqlSelect -> Doc
+ppSelectCTE sqWiths sel = text "WITH" <+> commaV ppSqlWith sqWiths
+                         $$ ppSelect sel
+  where ppSqlWith (SqlWith tabn attrs isel) =
+              text (T.unpack tabn) <+> ppAttrs attrs
+          $$  text "AS"
+          $$  ppSelect isel
+        ppAttrs [] = empty
+        ppAttrs as = parens . commaH (text . T.unpack) $ as
+
 ppJoin :: Join -> Doc
 ppJoin joinSt = ppJoinedTabs
   where ppJoinedTabs = parens (   
-                       ppSelect s1
-                   $$  ppJoinType (jJoinType joinSt)
-                   $$  ppSelect s2
-                   $$  text "ON"
-                   $$  ppSqliteExpr (jCond joinSt)
+                       ppTableExpr s1
+                   $$  ppJoinType (jJoinType joinSt) (jLateral joinSt)
+                   $$  ppTableExpr s2
+                   $$  ppOn (jCond joinSt)
                    )
                    
         (s1, s2) = jTables joinSt
+        ppOn Nothing  = empty
+        ppOn (Just e) =   text "ON"
+                      $$  ppMysqlExpr e
+        
 
-ppJoinType :: JoinType -> Doc
-ppJoinType LeftJoin   = text "LEFT OUTER JOIN"
-ppJoinType RightJoin  = text "RIGHT OUTER JOIN"
-ppJoinType FullJoin   = text "FULL OUTER JOIN"
-ppJoinType InnerJoin  = text "INNER JOIN"
+ppJoinType :: JoinType -> Lateral -> Doc
+ppJoinType LeftJoin   False = text "LEFT OUTER JOIN"
+ppJoinType RightJoin  False = text "RIGHT OUTER JOIN"
+ppJoinType FullJoin   False = text "FULL OUTER JOIN"
+ppJoinType InnerJoin  False = text "INNER JOIN"
+ppJoinType CrossJoin  False = text "CROSS JOIN"
+ppJoinType  _         True  = error "Panic: impossible case @ppJoinType"
 
 
 ppSelectValues :: SqlValues -> Doc
@@ -112,7 +131,7 @@ ppValues :: [[SqlExpr]] -> Doc
 ppValues vals = ppAs (Just (text "V")) (parens (text "VALUES" $$ commaV ppValuesRow vals))
 
 ppValuesRow :: [SqlExpr] -> Doc
-ppValuesRow = parens . commaH ppSqliteExpr
+ppValuesRow = parens . commaH ppMysqlExpr
 
 ppWindows :: [WindowExpr] -> Doc
 ppWindows [] = empty
@@ -127,28 +146,35 @@ ppPartition :: WindowPart -> Doc
 ppPartition (WindowPart [] [])
   = empty
 ppPartition (WindowPart es [])
-  = text "PARTITION BY" <+> commaH ppSqliteExpr es
+  = text "PARTITION BY" <+> commaH ppMysqlExpr es
 ppPartition (WindowPart es oeds)
-  = text "PARTITION BY" <+> commaH ppSqliteExpr es <+> text "ORDER BY" <+> commaH ppOrd oeds
+  = text "PARTITION BY" <+> commaH ppMysqlExpr es <+> text "ORDER BY" <+> commaH ppOrd oeds
   
 ppWhere :: [SqlExpr] -> Doc
 ppWhere []    = empty
 ppWhere exprs = text "WHERE" <+>  hsep (intersperse (text "AND")
-                                        (map (parens . ppSqliteExpr) exprs))
+                                        (map (parens . ppMysqlExpr) exprs))
 
 ppGroupBy :: Maybe (NEL.NonEmpty SqlExpr) -> Doc
 ppGroupBy Nothing      = empty
 ppGroupBy (Just exprs) = go (toList exprs)
   where
     go es = text "GROUP BY" <+> ppGroupAttrs es
-    ppGroupAttrs es = commaV (ppSqliteExpr . deliteral) es
+    ppGroupAttrs es = commaV (ppMysqlExpr . deliteral) es
+
+ppHaving :: [SqlExpr] -> Doc
+ppHaving []    = empty
+ppHaving exprs = go (toList exprs)
+  where
+    go es = text "HAVING" <+> ppGroupAttrs es
+    ppGroupAttrs es = commaV (ppMysqlExpr . deliteral) es
 
 ppOrderBy :: [(SqlExpr,SqlOrder)] -> Doc
 ppOrderBy []   = empty
 ppOrderBy ords = text "ORDER BY" <+> commaV ppOrd ords
 
 ppOrd :: (SqlExpr, SqlOrder) -> Doc
-ppOrd (e, o) = ppSqliteExpr (deliteral e)
+ppOrd (e, o) = ppMysqlExpr (deliteral e)
                     <+> ppOrdDir o
                     <+> ppNullOrd o
 
@@ -164,11 +190,11 @@ ppNullOrd sqlOrd = text $ case sqlNullOrd sqlOrd of
 
 ppLimit :: Maybe SqlExpr -> Doc
 ppLimit Nothing    = empty
-ppLimit (Just lmt) = text "LIMIT " <> ppSqliteExpr lmt
+ppLimit (Just lmt) = text "LIMIT " <> ppMysqlExpr lmt
 
 ppOffset :: Maybe SqlExpr -> Doc
 ppOffset Nothing    = empty
-ppOffset (Just off) = text "OFFSET " <> ppSqliteExpr off
+ppOffset (Just off) = text "OFFSET " <> ppMysqlExpr off
 
 -- ppOid :: SqlOidName -> Doc
 -- ppOid (SqlOidName n) = quotes (doubleQuotes (text (T.unpack n)))
@@ -180,67 +206,125 @@ ppColumn (SqlColumn s) =
     (x : xs) -> doubleQuotes (text x) <> char '.' <> ppAliasedCol xs
     _        -> error "Panic: Column cannot be empty"
 
-ppTable :: SqlTable -> Doc
-ppTable st = case sqlTableSchemaName st of
+ppTableExpr :: SqlTableExpr -> Doc
+ppTableExpr (NestedSqlSelect sql)     = ppSelect sql
+ppTableExpr (SqlTabName sqltab)       = ppTableName sqltab
+ppTableExpr (SqlTabFun funName args)  = ppTableFun funName args
+
+ppTableFun :: SqlName -> [SqlName] -> Doc
+ppTableFun funN args = text (T.unpack funN) <> parens (hsep (map (text . T.unpack) args))
+
+ppTableName :: SqlTableName -> Doc
+ppTableName st = case sqlTableSchemaName st of
     Just sn -> doubleQuotes (text sn) <> text "." <> tname
     Nothing -> tname
   where
     tname = doubleQuotes (text (sqlTableName st))
 
-ppSqliteExpr :: SqlExpr -> Doc
-ppSqliteExpr expr =
+ppMysqlExpr :: SqlExpr -> Doc
+ppMysqlExpr expr =
   case expr of
     ColumnSqlExpr c     -> ppColumn c
     -- OidSqlExpr s        -> ppOid s
-    CompositeSqlExpr s x -> parens (ppSqliteExpr s) <> text "." <> text x
-    ParensSqlExpr e -> parens (ppSqliteExpr e)
-    BinSqlExpr op e1 e2 -> ppSqliteExpr e1 <+> text op <+> ppSqliteExpr e2
-    PrefixSqlExpr op e  -> text op <+> ppSqliteExpr e
-    PostfixSqlExpr op e -> ppSqliteExpr e <+> text op
-    FunSqlExpr f es     -> text f <> parens (commaH ppSqliteExpr es)
-    AggrFunSqlExpr f es ord -> text f <> parens (commaH ppSqliteExpr es <+> ppOrderBy ord)
+    CompositeSqlExpr s x -> parens (ppMysqlExpr s) <> text "." <> text x
+    ParensSqlExpr e -> parens (ppMysqlExpr e)
+    BinSqlExpr op e1 e2 -> ppMysqlExpr e1 <+> ppBinOp op <+> ppMysqlExpr e2
+    PrefixSqlExpr op e  -> ppPrefixExpr op e
+    PostfixSqlExpr op e -> ppPostfixExpr op e
+    FunSqlExpr f es     -> text f <> parens (commaH ppMysqlExpr es)
+    AggrFunSqlExpr f es ord -> text f <> parens (commaH ppMysqlExpr es <+> ppOrderBy ord)
     ConstSqlExpr c      -> ppLiteral c
     CaseSqlExpr cs el   -> text "CASE" <> space <> vcat (toList (fmap ppWhen cs))
       <> ppElse el <> space <> text "END"
-      where ppWhen (w,t) = text "WHEN" <+> ppSqliteExpr w
-                       <+> text "THEN" <+> ppSqliteExpr t
-            ppElse (Just e) = space <> (text "ELSE" <+> ppSqliteExpr e)
+      where ppWhen (w,t) = text "WHEN" <+> ppMysqlExpr w
+                       <+> text "THEN" <+> ppMysqlExpr t
+            ppElse (Just e) = space <> (text "ELSE" <+> ppMysqlExpr e)
             ppElse Nothing  = space 
-    ListSqlExpr es      -> parens (commaH ppSqliteExpr es)
-    ParamSqlExpr _ v -> ppSqliteExpr v
+    ListSqlExpr es      -> parens (commaH ppMysqlExpr es)
+    ParamSqlExpr _ v -> ppMysqlExpr v
     PlaceHolderSqlExpr -> text "?"
-    CastSqlExpr typ e -> text "CAST" <> parens (ppSqliteExpr e <+> text "AS" <+> text typ)
+    CastSqlExpr typ e -> text "CAST" <> parens (ppMysqlExpr e <+> text "AS" <+> text (ppMysqlType typ))
     DefaultSqlExpr    -> text "DEFAULT"
-    ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppSqliteExpr es)
+    ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppMysqlExpr es)
     ExistsSqlExpr s     -> text "EXISTS" <+> parens (ppSelect s)
-    WindowSqlExpr w e -> ppSqliteExpr e <+> text "OVER" <+> text w 
+    NamedWindowSqlExpr w e -> ppMysqlExpr e <+> text "OVER" <+> text w
+    AnonWindowSqlExpr p o e -> ppMysqlExpr e <+> text "OVER" <+> parens (partPP p <> ppOrderBy o)
+      where partPP     [] = empty
+            partPP     xs = text "PARTITION BY" <+> (commaH ppMysqlExpr xs <> space)
+
+
+ppBinOp :: BinOp -> Doc
+ppBinOp = text . go
+  where go OpEq         = "="
+        go OpLt         = "<"
+        go OpLtEq       = "<="
+        go OpGt         = ">"
+        go OpGtEq       = ">="
+        go OpNotEq      = "<>"
+        go OpAnd        = "AND"
+        go OpOr         = "OR"
+        go OpLike       = "LIKE"
+        go OpIn         = "IN"
+        go (OpOther s)  = s
+        go OpCat        = "||"
+        go OpPlus       = "+"
+        go OpMinus      = "-"
+        go OpMul        = "*"
+        go OpDiv        = "/"
+        go OpMod        = "%"
+        go OpBitNot     = "~"
+        go OpBitAnd     = "&"
+        go OpBitOr      = "|"
+        go OpBitXor     = "^"
+        go OpAsg        = "="
+        go OpAtTimeZone = "AT TIME ZONE"
+
+ppPrefixExpr :: UnOp -> SqlExpr -> Doc
+ppPrefixExpr op e = go op
+  where go OpNot              = text "NOT" <> parens (ppMysqlExpr e)
+        go OpLength           = text "LENGTH" <> parens (ppMysqlExpr e)
+        go OpAbs              = text "ABS" <> parens (ppMysqlExpr e)
+        go OpNegate           = text "-" <> parens (ppMysqlExpr e)
+        go OpLower            = text "LOWER" <> parens (ppMysqlExpr e)
+        go OpUpper            = text "UPPER" <> parens (ppMysqlExpr e)
+        go (OpOtherFun s)     = text s <> parens (ppMysqlExpr e)
+        go (OpOtherPrefix s)  = text s <+> (ppMysqlExpr e)
+        go _                  = error "Panic: unsupported combination @ppPrefixExpr"
+
+ppPostfixExpr :: UnOp -> SqlExpr -> Doc
+ppPostfixExpr op e = go op
+  where go OpIsNull           = ppMysqlExpr e <+> text "IS NULL"
+        go OpIsNotNull        = ppMysqlExpr e <+> text "IS NOT NULL"
+        go (OpOtherPostfix s) = ppMysqlExpr e <+> text s 
+        
+        go _              = error "Panic: unsupported combination @ppPostfixExpr"
 
 ppInsert :: SqlInsert -> Doc
 ppInsert (SqlInsert table names values rets)
-    = text "INSERT INTO" <+> ppTable table
+    = text "INSERT INTO" <+> ppTableName table
       <+> parens (commaV ppColumn names)
-      $$ text "VALUES" <+> commaV (\v -> parens (commaV ppSqliteExpr v))
+      $$ text "VALUES" <+> commaV (\v -> parens (commaV ppMysqlExpr v))
                                   (toList values)
       $$ ppReturning rets
 
 ppUpdate :: SqlUpdate -> Doc
 ppUpdate (SqlUpdate table assigns criteria rets)
-        = text "UPDATE" <+> ppTable table
+        = text "UPDATE" <+> ppTableName table
         $$ text "SET" <+> commaV ppAssign assigns
         $$ ppWhere criteria
         $$ ppReturning rets
     where
-      ppAssign (c,e) = ppColumn c <+> equals <+> ppSqliteExpr e
+      ppAssign (c,e) = ppColumn c <+> equals <+> ppMysqlExpr e
 
 ppDelete :: SqlDelete -> Doc
 ppDelete (SqlDelete table criteria) =
-    text "DELETE FROM" <+> ppTable table $$ ppWhere criteria
+    text "DELETE FROM" <+> ppTableName table $$ ppWhere criteria
     
 ppReturning :: [SqlExpr] -> Doc
 ppReturning []   = empty
 ppReturning rets =
   text "RETURNING"
-  <+> commaV ppSqliteExpr (toList rets)
+  <+> commaV ppMysqlExpr (toList rets)
 
 deliteral :: SqlExpr -> SqlExpr
 deliteral expr@(ConstSqlExpr _) = FunSqlExpr "COALESCE" [expr]
@@ -313,30 +397,31 @@ renderUpdate = render . ppUpdate
 --
 
 -- NOTE: Untested. 
-ppSqliteType :: DBType -> String
-ppSqliteType = go
-  where go DBInt2             = "int"
-        go DBInt4             = "int"
-        go DBInt8             = "int"
-        go DBBool             = "int"
-        go DBFloat4           = "real"        
-        go DBFloat8           = "real"
-        -- go (DBChar i)         = "nchar (" ++ show i ++ " )"
-        go DBText             = "text"
-        -- TODO: fix size of varbinary
-        go DBByteArr          = "blob"
-        -- go DBTimestamptz      = "datetimeoffset"
-        -- go DBInterval         = "INTERVAL"
-        -- go DBCiText           = "CITEXT"
-        -- go DBDate             = "date"
-        -- go DBTime             = "time"
-        -- go DBTimestamp        = "datetime2"
-        -- go DBUuid             = "UUID"
-        -- go DBJson             = "JSON"
-        -- go DBJsonB            = "JSONB"        
-        -- go (DBArray t)        = go t ++ "[]"
-        go (DBNullable t)     = go t
-        go (DBTypeName t)     = T.unpack (doubleQuote (T.pack t))
-        go (DBCustomType t _) = go t
-        go _                  = error "Panic: not implemented"
+ppMysqlType :: DBType -> String
+ppMysqlType = go
+  where go DBInt2                   = "SMALLINT"
+        go DBInt4                   = "INT"
+        go DBInt8                   = "BIGINT"
+        go (DBNumeric p s)          = "NUMERIC (" ++ show p ++ ", " ++ show s ++ ")"
+        go (DBFloat n)              = "FLOAT (" ++ show n ++ ")"        
+        go (DBChar i)               = "CHAR (" ++ show i ++ " )"
+        go (DBVarchar i)            = "VARCHAR (" ++ show i ++ " )"
+        go (DBBinary i)             = "BINARY (" ++ show i ++ ")"
+        go (DBVarbinary (Right i))  = "VARBINARY (" ++ show i ++ ")"
+        go (DBTimestamp i)          = "DATETIME"
+        go DBDate                   = "DATE"
+        go (DBTime i)               = "TIME"
+        go (DBBit i)                = "BIT (" ++ show i ++ ")"        
+        
+        go (DBNullable t)           = go t
+        go (DBTypeName t args)      = T.unpack (doubleQuote t) ++ ppArgs args
+        go (DBCustomType t _)       = go t
+        go _                        = error "Panic: not implemented @ppMysqlType"
+
+        ppArgs []  = ""
+        ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"
+
+        ppArg (TextArg t)    = T.unpack t
+        ppArg (IntegerArg i) = show i
+
 

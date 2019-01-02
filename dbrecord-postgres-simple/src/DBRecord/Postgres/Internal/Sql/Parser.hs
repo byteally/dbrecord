@@ -18,11 +18,8 @@ import qualified Debug.Trace as DT
 import qualified Data.List.NonEmpty as NEL
 import DBRecord.Internal.DBTypes (DBType (..))
 import DBRecord.Internal.Types (Max (..))
+import Data.Functor (($>))
 
-sqlExpr :: Parser SqlExpr
-sqlExpr = undefined
-
-{-
 sqlExpr :: Parser SqlExpr
 sqlExpr =
   (
@@ -33,16 +30,16 @@ sqlExpr =
    termSqlExpr)        -- <*
    -- endOfInput
 
-    where binSqlExpr = 
+    where binSqlExpr = do
             e1 <- termSqlExpr
-            b  <- binOp
+            b  <- Left <$> binOp <|> Right <$> (symbol "::" $> ())
             case b of
-              "::" -> do
+              Right _ -> do
                 ty <- typeExpr
                 pure (CastSqlExpr ty e1)
-              _ -> do
+              Left op -> do
                 e2 <- sqlExpr
-                pure (BinSqlExpr b e1 e2)
+                pure (BinSqlExpr op e1 e2)
             
           postfixOrWindowExpr = do
             e <-  binSqlExpr <|> prefixSqlExpr <|> termSqlExpr
@@ -121,38 +118,43 @@ column = do
   hs <- (singleton <$> (char '.' *> (doubleQuoted identifier <|> identifier))) <|> (pure [])
   pure (SqlColumn (T.pack h : map T.pack hs))
 
--- TODO: Identify prefix operators  
-prefixOp :: Parser String
-prefixOp = symbol "NOT" *> pure "NOT"
+prefixOp :: Parser UnOp
+prefixOp =
+  symbol "NOT"    $> OpNot       <|>
+  symbol "LENGTH" $> OpLength    <|>
+  symbol "@"      $> OpAbs       <|>
+  symbol "-"      $> OpNegate    <|>
+  symbol "LOWER"  $> OpLower     <|>
+  symbol "UPPER"  $> OpUpper
+  -- NOTE: missing custom prefixes
 
--- TODO: Identify postfix operators  
-postfixOp :: Parser String
+postfixOp :: Parser UnOp
 postfixOp =
-  symbol "IS" *> symbol "NULL" *> pure "IS NULL"                      <|>
-  symbol "IS" *> symbol "NOT"  *> symbol "NULL" *> pure "IS NOT NULL"
-  
--- TODO: Identity binary operators
-binOp :: Parser String
-binOp = fmap T.unpack $ 
-  symbol "+"    <|>
-  symbol "="    <|>  
-  symbol "-"    <|>
-  symbol ">="   <|>
-  symbol "<="   <|>  
-  symbol ">"    <|>
-  symbol "<"    <|>
-  symbol "||"   <|>
-  symbol "AND"  <|>
-  symbol "OR"   <|>
-  symbol "LIKE" <|>
-  symbol "IN"   <|>      
-  symbol "/"    <|>    
-  symbol "*"    <|>  
-  symbol "~"    <|>    
-  symbol "&"    <|>
-  symbol "^"    <|>
-  symbol "::"   <|>  
-  symbol "AT"   
+  symbol "IS" *> symbol "NULL"                 $> OpIsNull    <|>
+  symbol "IS" *> symbol "NOT" *> symbol "NULL" $> OpIsNotNull
+  -- NOTE: missing custom postfixes
+
+binOp :: Parser BinOp
+binOp =  
+  symbol "+"    $> OpPlus   <|>
+  symbol "="    $> OpEq     <|>  
+  symbol "-"    $> OpMinus  <|>
+  symbol ">="   $> OpGtEq   <|>
+  symbol "<="   $> OpLtEq   <|>  
+  symbol ">"    $> OpGt     <|>
+  symbol "<"    $> OpLt     <|>
+  symbol "||"   $> OpCat    <|>
+  symbol "AND"  $> OpAnd    <|>
+  symbol "OR"   $> OpOr     <|>
+  symbol "LIKE" $> OpLike   <|>
+  symbol "IN"   $> OpIn     <|>      
+  symbol "/"    $> OpDiv    <|>    
+  symbol "*"    $> OpMul    <|>  
+  symbol "~"    $> OpBitNot <|>    
+  symbol "&"    $> OpBitAnd <|>
+  symbol "^"    $> OpBitXor <|>
+  -- symbol "::"   <|>  
+  symbol "AT" *> symbol "TIME" *> symbol "ZONE" $> OpAtTimeZone
 
 orderBy :: Parser [(SqlExpr, SqlOrder)]
 orderBy = option [] (symbol "ORDER" *> symbol "BY" *> sepByComma ord)
@@ -271,7 +273,6 @@ literal =
           stringLit  = (StringSql . T.pack) <$> quoted word
           oidLit     = (StringSql . T.pack) <$> quoted (doubleQuoted identifier)
           
--}
 data SizeInfo = SizeInfo { szCharacterLength :: Maybe Integer
                          , szNumericPrecision :: Maybe Integer
                          , szNumericScale :: Maybe Integer

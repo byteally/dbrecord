@@ -17,10 +17,10 @@ import DBRecord.Internal.Sql.SqlGen
 import DBRecord.MySQL.Internal.Sql.Pretty
 
 typeName :: DBType -> TypeName
-typeName = TypeName . T.pack . ppSqliteType
+typeName = TypeName . T.pack . ppMysqlType
 
 customTypeName :: T.Text -> TypeName
-customTypeName = TypeName . T.pack . ppSqliteType . DBTypeName . T.unpack
+customTypeName = TypeName . T.pack . ppMysqlType . flip DBTypeName []
 
 escQuote :: Text -> Text
 escQuote = escapeBy (Just '\'')
@@ -56,13 +56,13 @@ ppTypeName :: TypeName -> Doc
 ppTypeName (TypeName typeN) = text_ typeN
 
 ppColumnType :: ColType -> Doc
-ppColumnType (ColType tn) = text (ppSqliteType tn)
+ppColumnType (ColType tn) = text (ppMysqlType tn)
 
 ppCheckExpr :: CheckExpr -> Doc
-ppCheckExpr (CheckExpr e) = parens (ppSqliteExpr (genSqlExpr e))
+ppCheckExpr (CheckExpr e) = parens (ppMysqlExpr (genSqlExpr e))
 
 ppDefaultExpr :: DefExpr -> Doc
-ppDefaultExpr (DefExpr e) = parens (ppSqliteExpr (genSqlExpr e))
+ppDefaultExpr (DefExpr e) = parens (ppMysqlExpr (genSqlExpr e))
 
 ppEnumVal :: EnumVal -> Doc
 ppEnumVal (EnumVal e) = quotes e

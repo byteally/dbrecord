@@ -30,6 +30,7 @@ import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   quotes, space)
 import DBRecord.Schema.Interface
 import qualified Data.List as L
+import Data.Functor ((<$))
 
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
@@ -37,6 +38,7 @@ ppSelect select = case select of
   SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTableExpr tab)
   SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (ppJoin joinSt)
   SqlBin binSt                 -> ppSelectBinary binSt
+  SqlCTE withs sql             -> ppSelectCTE withs sql  
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
   -- SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
 
@@ -83,6 +85,16 @@ ppSelBinOp op = text $ case op of
   ExceptAll    -> "EXCEPTALL"
   Intersect    -> "INTERSECT"
   IntersectAll -> "INTERSECTALL"
+
+ppSelectCTE :: [SqlWith] -> SqlSelect -> Doc
+ppSelectCTE sqWiths sel = text "WITH" <+> commaV ppSqlWith sqWiths
+                         $$ ppSelect sel
+  where ppSqlWith (SqlWith tabn attrs isel) =
+              text (T.unpack tabn) <+> ppAttrs attrs
+          $$  text "AS"
+          $$  ppSelect isel
+        ppAttrs [] = empty
+        ppAttrs as = parens . commaH (text . T.unpack) $ as
 
 ppJoin :: Join -> Doc
 ppJoin joinSt = ppJoinedTabs

@@ -16,7 +16,8 @@ import qualified Data.List.NonEmpty as NEL
 import DBRecord.Internal.DBTypes (DBType (..))
 
 sqlExpr :: Parser SqlExpr
-sqlExpr =
+sqlExpr = undefined
+{-
   (
    postfixOrWindowExpr <|>
    binSqlExpr          <|>
@@ -47,6 +48,7 @@ sqlExpr =
             op <- prefixOp
             e <-  sqlExpr
             pure (PrefixSqlExpr op e)
+-}
 
 termSqlExpr :: Parser SqlExpr
 termSqlExpr =
@@ -167,8 +169,8 @@ sqlOrder = do
               )
   pure (SqlOrder dir nullOrd)
 
-typeExpr :: Parser String
-typeExpr = word
+typeExpr :: Parser DBType
+typeExpr = undefined
 
 ordDir :: Parser SqlOrder
 ordDir = undefined
