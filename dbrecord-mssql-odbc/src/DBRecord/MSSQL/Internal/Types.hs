@@ -14,6 +14,10 @@ import Data.ByteString (ByteString)
 import DBRecord.Internal.Types (DbK (..))
 import Data.Proxy
 
+newtype MSSQLDBM m (db :: *) a = MSSQLDBM { runPostgresDB :: ReaderT (MSSQLOdbc ()) m a}
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (PGS PGS.Connection))
+
+
 newtype Sized (n :: Nat) a    = Sized { getSized :: a }
                              deriving (Show, Eq, Generic)
 newtype Varsized (n :: Nat) a = Varsized { getVarsized :: a }

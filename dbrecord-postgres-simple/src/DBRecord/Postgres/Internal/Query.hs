@@ -11,6 +11,7 @@ import DBRecord.Query
 import Data.Pool (withResource)
 import Data.String
 import Control.Monad.Reader
+import Data.Pool
 
 type instance FromDBRow PGS a = FromRow a
 type instance ToDBRow   PGS a = ToRow a
@@ -20,12 +21,12 @@ data PGS cfg where
 
 instance Session PGS where
   data SessionConfig PGS cfg where
-    PGSConfig :: PG.Config_ -> SessionConfig PGS PGS.Connection
-  runSession (PGSConfig cfg) dbact =
-    withResource (PG.connectionPool cfg) $ \conn -> runReaderT dbact $ PGS conn
+    PGSConfig :: Pool PGS.Connection -> SessionConfig PGS PGS.Connection  
+  runSession (PGSConfig pool) dbact f =
+    withResource pool (\conn -> f (PGS conn) (runReaderT dbact $ PGS conn))
   
 instance HasTransaction PGS where
-  withTransaction (PGS conn) dbact = PGS.withTransaction conn dbact
+  withTransaction (PGS conn) = PGS.withTransaction conn
 
 instance HasUpdateRet PGS where
   dbUpdateRet (PGS conn) updateQ = do

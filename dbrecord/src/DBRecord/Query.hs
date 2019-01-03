@@ -16,6 +16,7 @@
 {-# LANGUAGE FlexibleInstances             #-}
 {-# LANGUAGE MultiParamTypeClasses         #-}
 {-# LANGUAGE FunctionalDependencies        #-}
+{-# LANGUAGE RankNTypes                    #-}
 
 -- | 
 
@@ -75,6 +76,7 @@ import Data.Functor.Identity
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import DBRecord.Internal.Lens ((^.))
+import Control.Exception hiding (TypeError)
 
 import GHC.Generics
 
@@ -161,16 +163,44 @@ class HasInsertRet (driver :: * -> *) where
   dbInsertRet :: (FromDBRow driver a) => driver cfg -> InsertQuery -> IO [a]
 
 class Session (driver :: * -> *) where
-  data SessionConfig (driver :: * -> *) cfg :: *
-  runSession :: SessionConfig driver cfg -> ReaderT (driver cfg) IO a -> IO a
+  data SessionConfig (driver :: * -> *) cfg :: *  
+  runSession :: SessionConfig driver cfg -> ReaderT (driver cfg) IO a -> (driver cfg -> IO a -> IO a) -> IO a
 
 class HasTransaction (driver :: * -> *) where
-  withTransaction :: driver cfg ->  IO a -> IO a
+  withTransaction :: driver cfg -> IO a -> IO a
 
-runTransaction :: (Session driver, HasTransaction driver) => SessionConfig driver cfg -> ReaderT (driver cfg) IO a -> IO a
-runTransaction sessionCfg dbact = runSession sessionCfg $ do
-  ReaderT (\cfg -> DBRecord.Query.withTransaction cfg $ runReaderT dbact cfg)
-  
+data Config driver cfg a = Config
+  { sessionConfig     :: SessionConfig driver cfg
+  , maxTries          :: Int
+  , beforeTransaction :: IO a
+  , onRetry           :: forall e . Exception e => e -> a -> IO ()
+  , afterTransaction  :: a -> IO ()
+  } 
+
+runTransaction :: forall driver cfg a. (Session driver, HasTransaction driver) => Config driver cfg a -> ReaderT (driver cfg) IO a -> IO a
+runTransaction cfg dbact = do
+  c <- beforeTransaction cfg
+  res <- withRetry c 1
+    $ runSession (sessionConfig cfg) dbact withTransaction
+  afterTransaction cfg c
+  return res
+  where
+    withRetry :: a -> Int -> IO a -> IO a
+    withRetry c n act = act `catchRecoverableExceptions` handler c n act
+    handler :: a -> Int -> IO a -> SomeException -> IO a
+    handler a n act (SomeException e) =
+      if n < maxTries cfg
+        then onRetry cfg e a >> withRetry a (n + 1) act
+        else throwIO e
+    catchRecoverableExceptions :: IO a -> (SomeException -> IO a) -> IO a
+    catchRecoverableExceptions action h = action `catches`
+      [ Handler $ \(e :: AsyncException)            -> throwIO e
+      , Handler $ \(e :: BlockedIndefinitelyOnSTM)  -> throwIO e
+      , Handler $ \(e :: BlockedIndefinitelyOnMVar) -> throwIO e
+      , Handler $ \(e :: Deadlock)                  -> throwIO e
+      , Handler $ \(e :: SomeException)             -> h e
+      ]
+
 class HasCol db tab sc (t :: *) where
   hasCol :: Proxy (DBTag db tab t) -> Proxy sc -> Expr sc t
 

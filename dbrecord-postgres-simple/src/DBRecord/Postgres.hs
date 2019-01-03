@@ -14,6 +14,8 @@ instance (FromJSON a, Typeable a) => FromField (Json a) where
 
 deriving instance FromField Interval  
 
+
+
 {-
 instance (ToJSON a, Typeable a) => ToField (Json a) where
   toField = toJSONField . getJson

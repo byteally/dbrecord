@@ -24,27 +24,28 @@ import           Control.Monad.Trans.Maybe    (MaybeT)
 import           Control.Monad.Trans.State    (StateT)
 import           Control.Monad.Trans.Writer   (WriterT)
 import           Data.Pool                    (withResource, createPool, Pool)
-import           Database.PostgreSQL.Simple (ConnectInfo (..), Connection)
-import qualified Database.PostgreSQL.Simple   as PG
+-- import           Database.PostgreSQL.Simple (ConnectInfo (..), Connection)
+-- import qualified Database.PostgreSQL.Simple   as PG
 import           System.IO                  (hPutStrLn, stderr)
 
+{-
 newtype PG a = PG { unPG :: ReaderT Connection IO a }
   deriving (Functor, Applicative, Monad, MonadReader Connection, MonadIO)
 
 unsafeIOToPG :: IO a -> PG a
 unsafeIOToPG = PG . liftIO
 
-data Config a = Config
-  { connectionPool    :: Pool Connection
+data Config conn a = Config
+  { connectionPool    :: Pool conn
   , maxTries          :: Int
   , beforeTransaction :: IO a
   , onRetry           :: forall e . Exception e => e -> a -> IO ()
   , afterTransaction  :: a -> IO ()
   } 
 
-type Config_ = Config ()
+type Config_ conn = Config conn ()
 
-makeConfig :: Pool Connection -> Config_
+makeConfig :: Pool conn -> Config_ conn
 makeConfig pc = Config
   { connectionPool    = pc
   , maxTries          = 3
@@ -53,7 +54,7 @@ makeConfig pc = Config
   , afterTransaction  = defaultAfterTransaction
   }
 
-defaultConfig :: ConnectInfo -> IO (Config ())
+defaultConfig :: ConnectInfo -> IO (Config Connection ())
 defaultConfig = fmap makeConfig . defaultPool
 
 defaultPool :: ConnectInfo -> IO (Pool Connection)
@@ -99,12 +100,12 @@ instance MonadPG m => MonadPG (IdentityT m) where
 unsafeIOToTransaction :: MonadPG m => IO a -> m a
 unsafeIOToTransaction = liftPG . unsafeIOToPG
 
-runTransaction' :: forall c a . PG a -> Config c -> IO a
-runTransaction' q cfg = do
+runTransaction' :: forall c a . Config c -> IO a -> IO a
+runTransaction' cfg q = do
   c <- beforeTransaction cfg
   res <- withRetry c 1
     $ withResource (connectionPool cfg)
-    $ \conn -> PG.withTransaction conn . flip runReaderT conn . unPG $ q
+    $ \conn -> DBRecord.Query.withTransaction conn q
   afterTransaction cfg c
   return res
   where
@@ -124,6 +125,8 @@ runTransaction' q cfg = do
       , Handler $ \(e :: SomeException)             -> h e
       ]
 
+
+{-
 class (Functor m, Applicative m, Monad m) => MonadTransaction m where
   runTransaction :: PG a -> m a
 
@@ -141,3 +144,5 @@ instance MonadTransaction m => MonadTransaction (ExceptT e m) where
 
 instance MonadTransaction m => MonadTransaction (MaybeT m) where
   runTransaction = lift . runTransaction
+-}
+-}

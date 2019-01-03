@@ -46,7 +46,7 @@ library
 
   default-language:    Haskell2010
 
-test-suite dbrecord-test
+test-suite dbrecord-mysql-haskell-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
