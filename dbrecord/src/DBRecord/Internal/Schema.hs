@@ -397,6 +397,9 @@ type family ValidateRefPk (reft :: *) (rkeys :: [Symbol]) (pkeys :: [Symbol]) ::
 type family MatchFkFields db tab reft (fkeys :: [Either Symbol *]) (rkeys :: [Either Symbol *]) :: Constraint where
   MatchFkFields db tab reft ('Right (fn1 ::: t) ': fkeys) ('Right (fn2 ::: t) ': rkeys)
     = MatchFkFields db tab reft fkeys rkeys
+  -- NOTE: only to handle nullable foreignkeys
+  MatchFkFields db tab reft ('Right (fn1 ::: Maybe t) ': fkeys) ('Right (fn2 ::: t) ': rkeys)
+    = MatchFkFields db tab reft fkeys rkeys      
   MatchFkFields db tab reft ('Right (fn1 ::: t1) ': fkeys) ('Right (fn2 ::: t2) ': rkeys)
     = ( TypeError ('Text "Type mismatch between foreign key and primary key"
                   ':$$: ('ShowType fn1) ':<>: 'Text ": " ':<>: ('ShowType t1)

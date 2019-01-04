@@ -38,6 +38,7 @@ library
                      -- , vector
                      -- , time              >= 1.5
                      , attoparsec
+                     , mssql-odbc
                      -- , unordered-containers >= 0.2
                      -- , uniplate             >= 1.6
                      -- , scientific        >= 0.3 

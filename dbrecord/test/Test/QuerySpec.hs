@@ -230,7 +230,6 @@ spec = describe "query" $
                                        , connectPassword = "mysecretpassword"
                                        }
   runPGMigration (Proxy :: Proxy TestDB) conn
-
   pure ()
 -}
 
@@ -239,7 +238,5 @@ Duplicate Fk Check
 -}
 
 {-
-
 NOT (\"age\" <= 0)
-
 -}

@@ -1,7 +1,5 @@
-
-
 {-# LANGUAGE DeriveGeneric #-}
-module Test.Chinook.Models.MediaType where
+module Chinook.Models.MediaType where
 
 import Data.Text
 import GHC.Generics

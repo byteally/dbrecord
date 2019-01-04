@@ -1,7 +1,5 @@
-
-
 {-# LANGUAGE DeriveGeneric #-}
-module Test.Chinook.Models.Invoice where
+module Chinook.Models.Invoice where
 import Data.Time.LocalTime
 import Data.Text
 import GHC.Generics

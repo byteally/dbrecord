@@ -18,23 +18,23 @@
            , OverloadedStrings
            , GeneralizedNewtypeDeriving
            , RankNTypes #-}
-module Test.Chinook.Sqlite.Database where
+module Chinook.Sqlite.Database where
 
 import DBRecord.Schema
 import DBRecord.Internal.DBTypes
 import GHC.Generics
 
-import Test.Chinook.Models.MediaType
-import Test.Chinook.Models.Track
-import Test.Chinook.Models.Employee
-import Test.Chinook.Models.PlaylistTrack
-import Test.Chinook.Models.Invoice
-import Test.Chinook.Models.Customer
-import Test.Chinook.Models.InvoiceLine
-import Test.Chinook.Models.Album
-import Test.Chinook.Models.Genre
-import Test.Chinook.Models.Playlist
-import Test.Chinook.Models.Artist
+import Chinook.Models.MediaType
+import Chinook.Models.Track
+import Chinook.Models.Employee
+import Chinook.Models.PlaylistTrack
+import Chinook.Models.Invoice
+import Chinook.Models.Customer
+import Chinook.Models.InvoiceLine
+import Chinook.Models.Album
+import Chinook.Models.Genre
+import Chinook.Models.Playlist
+import Chinook.Models.Artist
 
 data ChinookSqlite
   deriving Generic

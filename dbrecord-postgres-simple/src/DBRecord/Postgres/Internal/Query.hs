@@ -1,17 +1,23 @@
-{-# LANGUAGE GADTs        #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module DBRecord.Postgres.Internal.Query where
 
 import qualified DBRecord.Internal.Sql.SqlGen as PG
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
-import qualified DBRecord.Postgres.Internal.Transaction as PG
 import Database.PostgreSQL.Simple as PGS
 import Database.PostgreSQL.Simple.FromRow as PGS
 import DBRecord.Query
-import Data.Pool (withResource)
+import Data.Pool
 import Data.String
 import Control.Monad.Reader
-import Data.Pool
+
+newtype PostgresDBT m (db :: *) a = PostgresDBT { runPostgresDB :: ReaderT (PGS PGS.Connection) m a}
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (PGS PGS.Connection))
+
+type PostgresDB = PostgresDBT IO
 
 type instance FromDBRow PGS a = FromRow a
 type instance ToDBRow   PGS a = ToRow a
@@ -22,7 +28,7 @@ data PGS cfg where
 instance Session PGS where
   data SessionConfig PGS cfg where
     PGSConfig :: Pool PGS.Connection -> SessionConfig PGS PGS.Connection  
-  runSession (PGSConfig pool) dbact f =
+  runSession_ (PGSConfig pool) dbact f =
     withResource pool (\conn -> f (PGS conn) (runReaderT dbact $ PGS conn))
   
 instance HasTransaction PGS where
@@ -64,3 +70,5 @@ instance HasDelete PGS where
     putStrLn delSQL
     execute_ conn (fromString delSQL)
 
+pgDefaultPool :: ConnectInfo -> IO (Pool Connection)
+pgDefaultPool connectInfo = createPool (PGS.connect connectInfo) PGS.close 10 5 10

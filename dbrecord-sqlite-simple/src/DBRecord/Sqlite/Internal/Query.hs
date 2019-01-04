@@ -1,25 +1,82 @@
-{-# LANGUAGE GADTs        #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
+
 module DBRecord.Sqlite.Internal.Query where
 
-import Database.Sqlite.Simple as SQS
-import Database.Sqlite.Simple.FromRow as SQS
+import qualified DBRecord.Internal.Sql.SqlGen as SQ
+import qualified DBRecord.Sqlite.Internal.Sql.Pretty as SQ
+import Database.SQLite.Simple as SQS
+import Database.SQLite.Simple.FromRow as SQS
 import DBRecord.Query
+import Data.Pool
+import Control.Monad.Reader
+import Data.String
 
+newtype SqliteDBT m (db :: *) a = SqliteDBT { runSqliteDB :: ReaderT (SQS SQS.Connection) m a}
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (SQS SQS.Connection))
+
+type SqliteDB = SqliteDBT IO
 
 type instance FromDBRow SQS a = FromRow a
 type instance ToDBRow   SQS a = ToRow a
 
 data SQS cfg where
-  SQS :: SQS.Connection -> PGS PGS.Connection
+  SQS :: SQS.Connection -> SQS SQS.Connection
 
-{-
 instance Session SQS where
   data SessionConfig SQS cfg where
-    PGSConfig :: PG.Config_ -> SessionConfig PGS PGS.Connection
-  runSession (PGSConfig cfg) dbact =
-    withResource (PG.connectionPool cfg) $ \conn -> runReaderT dbact $ PGS conn
+    SQSConfig :: Pool SQS.Connection -> SessionConfig SQS SQS.Connection
+  runSession_ (SQSConfig pool) dbact f =
+    withResource pool (\conn -> f (SQS conn) (runReaderT dbact $ SQS conn))
 
-instance HasTransaction PGS where
-  withTransaction (PGS conn) dbact = .withTransaction conn dbact
+instance HasTransaction SQS where
+  withTransaction (SQS conn) = SQS.withTransaction conn
+
+{-
+instance HasUpdateRet SQS where
+  dbUpdateRet (SQS conn) updateQ = do
+    let updateSQL = SQ.renderUpdate $ SQ.updateSql $ updateQ
+    putStrLn updateSQL
+    returningWith fromRow conn (fromString updateSQL) ([]::[()])
 -}
+
+instance HasUpdate SQS where
+  dbUpdate (SQS conn) updateQ = do
+    let updateSQL = SQ.renderUpdate $ SQ.updateSql $ updateQ
+    putStrLn updateSQL
+    execute_ conn (fromString updateSQL)
+    pure 0
+
+instance HasQuery SQS where
+  dbQuery (SQS conn) primQ = do
+    let sqlQ= SQ.renderQuery $ SQ.sql primQ
+    putStrLn sqlQ
+    query_ conn (fromString sqlQ)
+
+instance HasInsert SQS where
+  dbInsert (SQS conn) insQ = do
+    let insSQL = SQ.renderInsert $ SQ.insertSql insQ
+    putStrLn insSQL
+    execute_ conn (fromString insSQL)
+    pure 0
+
+{-
+instance HasInsertRet SQS where
+  dbInsertRet (SQS conn) insQ = do
+    let insSQL = SQ.renderInsert $ SQ.insertSql insQ
+    putStrLn insSQL
+    returningWith fromRow conn (fromString insSQL) ([]::[()])
+-}
+
+instance HasDelete SQS where
+  dbDelete (SQS conn) deleteQ = do
+    let delSQL = SQ.renderDelete $ SQ.deleteSql $ deleteQ
+    putStrLn delSQL
+    execute_ conn (fromString delSQL)
+    pure 0
+
+sqliteDefaultPool :: FilePath -> IO (Pool Connection)
+sqliteDefaultPool path = createPool (SQS.open path) SQS.close 10 5 10

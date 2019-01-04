@@ -1,45 +1,59 @@
+{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleContexts     #-}
+
 module Main where
 
 import Test.Chinook.MSSQL.Database
-import Test.Chinook.MySql.Database
+import Test.Chinook.MySQL.Database
 import Test.Chinook.Postgres.Database
 import Test.Chinook.Sqlite.Database
 import Test.Chinook.Models
 
-import DBRecord.MSSQL.Internal.Query
-import DBRecord.MSSQL.Internal.Types
-
+import DBRecord.Sqlite.Internal.Query
 import DBRecord.Postgres.Internal.Query
-import DBRecord.Postgres.Internal.Types
+import DBRecord.Query
+
+import qualified Database.PostgreSQL.Simple as PGS
+import qualified Database.SQLite.Simple as SQS
+
+import Data.Proxy
+import Control.Monad.IO.Class
+
+type instance DBM ChinookPG     = PostgresDB ChinookPG
+type instance Driver (PostgresDB ChinookPG) = PGS
+
+type instance DBM ChinookSqlite = SqliteDB ChinookSqlite
+type instance Driver (SqliteDB ChinookSqlite)  = SQS
 
 main = do
-  runMSSQLSession  (queries (Proxy :: Proxy ChinookMSSQL))
-  runPGSession     (queries (Proxy :: Proxy ChinookPG))  
+  let connInfo = PGS.ConnectInfo "127.0.0.1" 5432 "sreenidhi" "password" "chinook"
+  runPGSession connInfo (queries (Proxy :: Proxy ChinookPG))  
+
+  let sqlitePath = "/path/to/sqlite"
+  runSqliteSession sqlitePath (queries (Proxy :: Proxy ChinookSqlite))  
+
+  -- runMSSQLSession  (queries (Proxy :: Proxy ChinookMSSQL))
   -- runMySqlSession  (queries (Proxy :: Proxy ChinookMySQL))
-  -- runSqliteSession (queries (Proxy :: Proxy ChinookSqlite))  
+  
 
-queries :: Proxy db -> DBM db ()
-queries = do
-  return ()
+-- runMSSQLSession :: DBM ChinookMSSQL a -> IO a
+-- runMSSQLSession = runSession (MSSQLConfig ()) . runMSSQLDB
 
-runMSSQLSession :: DBM ChinookMSSQL a -> IO a
-runMSSQLSession = runTransaction (MSSQLConfig ()) . runMSSQLDB
+runPGSession :: PGS.ConnectInfo -> DBM ChinookPG a -> IO a
+runPGSession connInfo dbAct = do
+  pool <- pgDefaultPool connInfo
+  runSession (PGSConfig pool) (runPostgresDB dbAct)
 
-runPGSession :: PGS.Connection -> DBM ChinookPG a -> IO a
-runPGSession conn = runTransaction (PGS conn) . runPGDB
+-- runMySQLSession :: DBM ChinookMySQL a -> IO a
+-- runMySQLSession = runSession (MySQLConfig ()) . runMySQLDB
 
-runMySQLSession :: DBM ChinookMySQL a -> IO a
-runMySQLSession = runTransaction (MySQLConfig ()) . runMySQLDB
+runSqliteSession :: FilePath -> DBM ChinookSqlite a -> IO a
+runSqliteSession connInfo dbAct = do
+  pool <- sqliteDefaultPool connInfo
+  runSession (SQSConfig pool) (runSqliteDB dbAct)
 
--- runSqliteSession :: DBM ChinookSqlite a -> IO a
--- runSqliteSession = runTransaction (SqliteConfig ()) . runSqliteDB
-
-type instance DBM ChinookPG =
-  PostgresDB ChinookPG
-type instance Driver (PostgresDB ChinookPG) =
-  PGS
-
-type instance DBM ChinookMSSQL =
-  MSSQLDB ChinookMSSQL
-type instance Driver (MSSQLDB ChinookMSSQL) =
-  PGS
+-- type instance DBM ChinookMSSQL =
+--   MSSQLDB ChinookMSSQL
+-- type instance Driver (MSSQLDB ChinookMSSQL) =
+--   PGS

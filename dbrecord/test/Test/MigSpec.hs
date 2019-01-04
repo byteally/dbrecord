@@ -188,18 +188,15 @@ spec = do
    conn <- runIO $ PGS.connect localConnectInfo
    describe "migration" $
      before (validateSchemaInfo testDB conn >> pure ()) $ it "must match the reified information from db" False
-
 migTest :: IO ()
 migTest = do
   conn <- PGS.connect localConnectInfo  
   runMigDiff testDB userTab conn
-
   let mig = mkMigration (Proxy :: Proxy TestDB)
   mapM_ putStrLn (fmap renderDDL mig)
   conn <- connect $ defaultConnectInfo { connectHost = "172.17.0.2"
                                        , connectPassword = "mysecretpassword"
                                        }
-
 -}
 
 migTest2 :: IO ()
@@ -208,4 +205,4 @@ migTest2 = do
   putStrLn stms
 
 spec = describe "migration" $
-  it "is supposed to run mig" pending
+it "is supposed to run mig" pending

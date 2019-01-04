@@ -20,6 +20,8 @@ library
                       DBRecord.Sqlite.Internal.Sql.Pretty
                       DBRecord.Sqlite.Internal.Sql.Parser
                       DBRecord.Sqlite.Internal.PrettyDDL
+                      DBRecord.Sqlite.Internal.Query
+                      DBRecord.Sqlite.Internal.Types                      
 
   build-depends:      base              >= 4.7 && < 5
                     , sqlite-simple
@@ -37,6 +39,10 @@ library
                      -- , binary            >= 0.8
                     , base64-bytestring >= 1.0
                     , base16-bytestring >= 0.1.1.6 && < 0.2
+                    , transformers
+                    , resource-pool
+                    , mtl
+                    
 
                      -- , time              == 1.6.*
 

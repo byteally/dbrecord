@@ -35,8 +35,9 @@ module DBRecord.Query
        , Driver
        -- , PGS(..)
        -- , withResource
-       , runSession, SessionConfig(..)
+       , SessionConfig(..)
        , runTransaction
+       , runSession         
        , Page(..)
        , FromDBRow
        , ToDBRow
@@ -51,6 +52,7 @@ module DBRecord.Query
        , DBTag
        , rawClauses
        , getBaseTable
+       , getBaseTableExpr
        ) where
 
 import DBRecord.Schema
@@ -164,7 +166,7 @@ class HasInsertRet (driver :: * -> *) where
 
 class Session (driver :: * -> *) where
   data SessionConfig (driver :: * -> *) cfg :: *  
-  runSession :: SessionConfig driver cfg -> ReaderT (driver cfg) IO a -> (driver cfg -> IO a -> IO a) -> IO a
+  runSession_ :: SessionConfig driver cfg -> ReaderT (driver cfg) IO a -> (driver cfg -> IO a -> IO a) -> IO a
 
 class HasTransaction (driver :: * -> *) where
   withTransaction :: driver cfg -> IO a -> IO a
@@ -177,11 +179,14 @@ data Config driver cfg a = Config
   , afterTransaction  :: a -> IO ()
   } 
 
+runSession :: (Session driver) => SessionConfig driver cfg -> ReaderT (driver cfg) IO a -> IO a
+runSession cfg dbact = runSession_ cfg dbact (\_ io -> io)
+
 runTransaction :: forall driver cfg a. (Session driver, HasTransaction driver) => Config driver cfg a -> ReaderT (driver cfg) IO a -> IO a
 runTransaction cfg dbact = do
   c <- beforeTransaction cfg
   res <- withRetry c 1
-    $ runSession (sessionConfig cfg) dbact withTransaction
+    $ runSession_ (sessionConfig cfg) dbact withTransaction
   afterTransaction cfg c
   return res
   where
@@ -700,6 +705,14 @@ getTableId pdb ptab =
   in  TableId { PQ.schema    = dbSchemaName
               , PQ.tableName = dbTabName
               }
+
+getBaseTableExpr :: forall db tab.
+                ( SingCtx db tab
+                , SingCtxDb db
+                ) => Proxy db -> Proxy tab -> TableExpr PrimQuery
+getBaseTableExpr _ _ =
+  let tabId = getTableId (Proxy @db) (Proxy @tab)
+  in  TableName tabId 
 
 getBaseTable :: forall db tab.
                 ( SingCtx db tab

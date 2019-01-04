@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, DataKinds, DeriveGeneric, FlexibleInstances, FlexibleContexts, ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies, DataKinds, DeriveGeneric, FlexibleInstances, FlexibleContexts, ScopedTypeVariables, DeriveFunctor, GeneralizedNewtypeDeriving #-}
 module DBRecord.MSSQL.Internal.Types where
 
 import qualified DBRecord.Internal.Types as Type
@@ -13,9 +13,10 @@ import qualified Data.Text as T
 import Data.ByteString (ByteString)
 import DBRecord.Internal.Types (DbK (..))
 import Data.Proxy
+import Control.Monad.Reader
 
-newtype MSSQLDBM m (db :: *) a = MSSQLDBM { runPostgresDB :: ReaderT (MSSQLOdbc ()) m a}
-  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (PGS PGS.Connection))
+newtype MSSQLDBM m (db :: *) a = MSSQLDBM { runMSSQLDB :: ReaderT () m a}
+  deriving (Functor, Applicative, Monad, MonadIO)
 
 
 newtype Sized (n :: Nat) a    = Sized { getSized :: a }

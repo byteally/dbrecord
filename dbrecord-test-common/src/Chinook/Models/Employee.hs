@@ -1,7 +1,5 @@
-
-
 {-# LANGUAGE DeriveGeneric #-}
-module Test.Chinook.Models.Employee where
+module Chinook.Models.Employee where
 import Data.Text
 import Data.Time.LocalTime
 import GHC.Generics

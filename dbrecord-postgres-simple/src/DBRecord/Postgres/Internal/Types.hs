@@ -14,7 +14,3 @@ import Data.ByteString (ByteString)
 import DBRecord.Internal.Types (DbK (..))
 import Data.Proxy
 
-newtype PostgresDBT m (db :: *) a = PostgresDBT { runPostgresDB :: ReaderT (PGS PGS.Connection) m a}
-  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (PGS PGS.Connection))
-
-type PostgresDB = PostgresDBT IO
