@@ -176,26 +176,28 @@ instance Hashable HintKey
 newtype Hints = Hints { getHints :: HM.HashMap HintKey HaskName }
               deriving (Show)
 
+defHints :: Hints
+defHints = Hints HM.empty
 
-main :: IO DatabaseInfo
-main = do
-  let dockerConnectInfo = 
-        ConnectInfo {  
-                      ciHost = "127.0.0.1"
-                    ,  ciPort =  3306
-                    ,  ciDatabase = "Chinook" 
-                    ,  ciUser = "root" 
-                    ,  ciPassword = "password" 
-                    ,  ciCharset = utf8mb4_unicode_ci
-                    }
-  mySqlConn <- connect dockerConnectInfo
-  ioOK <- ping mySqlConn
-  putStrLn $ "SQL CONN : " ++ (show ioOK)
-  getMySQLDbSchemaInfo "" (Hints HM.empty) dockerConnectInfo
+-- main :: IO DatabaseInfo
+-- main = do
+--   let dockerConnectInfo = 
+--         ConnectInfo {  
+--                       ciHost = "127.0.0.1"
+--                     ,  ciPort =  3306
+--                     ,  ciDatabase = "Chinook" 
+--                     ,  ciUser = "root" 
+--                     ,  ciPassword = "password" 
+--                     ,  ciCharset = utf8mb4_unicode_ci
+--                     }
+--   mySqlConn <- connect dockerConnectInfo
+--   ioOK <- ping mySqlConn
+--   putStrLn $ "SQL CONN : " ++ (show ioOK)
+--   getMySQLDbSchemaInfo "" (Hints HM.empty) dockerConnectInfo
 
- where
-  utf8mb4_unicode_ci :: Word8
-  utf8mb4_unicode_ci = 224
+--  where
+--   utf8mb4_unicode_ci :: Word8
+--   utf8mb4_unicode_ci = 224
 
 dbSchemaNameQueryParams :: Int -> BS.ByteString ->  [MySQLValue]
 dbSchemaNameQueryParams n dbNameStr = replicate n $ MySQLText (decodeUtf8 dbNameStr)
