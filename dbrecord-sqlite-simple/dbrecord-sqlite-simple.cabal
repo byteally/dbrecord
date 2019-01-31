@@ -42,6 +42,8 @@ library
                     , transformers
                     , resource-pool
                     , mtl
+                    , hashable
+                    , interpolate
                     
 
                      -- , time              == 1.6.*

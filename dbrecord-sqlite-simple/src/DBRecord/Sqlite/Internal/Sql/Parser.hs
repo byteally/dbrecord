@@ -2,6 +2,8 @@
 module DBRecord.Sqlite.Internal.Sql.Parser
   ( sqlExpr
   , parseSqliteType
+  , SizeInfo (..)
+  , defSizeInfo
   ) where
 
 import DBRecord.Internal.Sql.DML
@@ -265,5 +267,17 @@ literal =
           stringLit  = (StringSql . T.pack) <$> quoted word
           oidLit     = (StringSql . T.pack) <$> quoted (doubleQuoted identifier)
           
-parseSqliteType :: Bool -> String -> DBType
+parseSqliteType :: Bool -> SizeInfo ->  String -> DBType
 parseSqliteType nullInfo = error "Panic: not implemented"
+
+
+
+data SizeInfo = SizeInfo { szCharacterLength :: Maybe Integer
+                         , szNumericPrecision :: Maybe Integer
+                         , szNumericScale :: Maybe Integer
+                         , szDateTimePrecision :: Maybe Integer
+                         , szIntervalPrecision :: Maybe Integer
+                         } deriving (Show, Eq)
+
+defSizeInfo :: SizeInfo
+defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
