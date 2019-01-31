@@ -30,10 +30,10 @@ library
                     , pretty            >= 1.1
                     , bytestring
                      -- , aeson
-                     -- , vector
+                     , vector
                      -- , time              >= 1.5
                     , attoparsec
-                     -- , unordered-containers >= 0.2
+                     , unordered-containers >= 0.2
                      -- , uniplate             >= 1.6
                      -- , scientific        >= 0.3 
                      -- , binary            >= 0.8
