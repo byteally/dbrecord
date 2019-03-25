@@ -76,7 +76,7 @@ newSelect = SelectFrom {
 
 baseClauses :: PQ.Clauses -> SelectFrom
 baseClauses cs = 
-    newSelect { DML.attrs    = Columns (ensureColumns (map sqlBinding (PQ.projections cs)))
+    newSelect { DML.attrs    = Columns (ensureColumns (map sqlBinding (project' (PQ.projections cs))))
               , DML.criteria = map toSqlExpr (PQ.criteria cs)
               , windows      = map toSqlWindow (PQ.windows cs)                 
               , groupby  = case (PQ.groupbys cs) of
@@ -121,10 +121,11 @@ join jt l e q1 q2 cs = SqlJoin (Join (joinType' jt) l (toSqlTable q1, toSqlTable
         joinType' PQ.InnerJoin = InnerJoin
         joinType' PQ.CrossJoin = CrossJoin
 
-binary :: PQ.BinType -> SqlSelect -> SqlSelect -> SqlSelect
-binary bt q1 q2 = SqlBin (Binary (selectBinOp' bt)
-                                  q1 q2
-                         )
+binary :: PQ.BinType -> SqlSelect -> SqlSelect -> Maybe T.Text -> SqlSelect
+binary bt q1 q2 =
+  SqlBin (Binary (selectBinOp' bt)
+           q1 q2
+         ) . fmap T.unpack
                      
   where selectBinOp' :: PQ.BinType -> SelectBinOp
         selectBinOp' PQ.Union           = Union
@@ -247,12 +248,48 @@ defaultSqlExpr gen expr = case expr of
   PQ.CastExpr typ e1     -> CastSqlExpr typ (sqlExpr gen e1)
   PQ.DefaultInsertExpr   -> DefaultSqlExpr
   PQ.ArrayExpr es        -> ArraySqlExpr (map (sqlExpr gen) es)
-  PQ.TableExpr te        -> TableSqlExpr (sql te)
+  PQ.TableExpr f pe      -> TableSqlExpr (sql (PQ.getPqFun f
+                                               (updateFlatComposite pe)))
   PQ.NamedWindowExpr w e -> NamedWindowSqlExpr (T.unpack w) (sqlExpr gen e)
   PQ.AnonWindowExpr p o e -> AnonWindowSqlExpr (map (sqlExpr gen) p)
                                               (map (sqlOrder gen) o)
                                               (sqlExpr gen e)
-  _                      -> error "Panic: Unexpected flatcomposite"
+  p                      -> error ("Panic: Unexpected flatcomposite" ++ show p)
+
+updateFlatComposite :: PQ.PrimExpr -> PQ.PrimExpr
+updateFlatComposite = unfoldFlatComposites . go
+  where go (PQ.FlatComposite (e : es)) =
+          go (snd e) ++ go (PQ.FlatComposite es)
+        go (PQ.FlatComposite [])       =
+          []
+        go e                           =
+          [e]
+  
+
+unfoldFlatComposites :: [PQ.PrimExpr] -> PQ.PrimExpr
+unfoldFlatComposites =
+  foldr unfoldFlatComposite (PQ.FlatComposite [])
+
+unfoldFlatComposite :: PQ.PrimExpr -> PQ.PrimExpr -> PQ.PrimExpr
+unfoldFlatComposite e@(PQ.AttrExpr (PQ.Sym pfx fld)) (PQ.FlatComposite xs) =
+  go (pfx ++ [fld]) xs
+
+  where go [f]  xs  = PQ.FlatComposite $ case lookup f xs of
+                        Just _ -> map (\(fld, e') -> case fld == f of
+                                       True  -> (fld, e)
+                                       False -> (fld, e')
+                                   ) xs
+                        Nothing -> (xs ++ [(f, e)])
+        go (f : fs) xs = PQ.FlatComposite $ case lookup f xs of
+                        Just _ -> map (\(fld, e') -> case fld == f of
+                                       True  -> case e' of
+                                         PQ.FlatComposite xss -> (fld, go fs xss)
+                                         _                    -> (fld, go fs [])
+                                       False -> (fld, e')
+                                   ) xs
+                        Nothing -> (xs ++ [(f, go fs [])])
+unfoldFlatComposite e _ = error $ "Panic: unexpected: " ++ show e
+                        
   
 sqlBinOp :: PQ.BinOp -> BinOp
 sqlBinOp  PQ.OpEq         = OpEq
@@ -422,7 +459,7 @@ primExprGen expr = case expr of
   CastSqlExpr typ se             -> PQ.CastExpr typ (primExprGen se)
   DefaultSqlExpr                 -> PQ.DefaultInsertExpr
   ArraySqlExpr ses               -> PQ.ArrayExpr (map primExprGen ses)
-  TableSqlExpr sq                -> PQ.TableExpr (primQueryGen sq)  
+  TableSqlExpr sq                -> error "TODO: not implemented for TableSqlExpr" -- PQ.TableExpr (primQueryGen sq)  
   NamedWindowSqlExpr w se        -> PQ.NamedWindowExpr (T.pack w) (primExprGen se)
   AnonWindowSqlExpr ps os se     -> error "TODO: not implemented for AnonWindowSqlExpr"
   BinSqlExpr op sel ser          -> error "TODO: not implemented for BinSqlExpr" 
@@ -579,3 +616,21 @@ instance PQ.BackendExpr Sql where
 
 genSqlExpr :: PQ.PrimExpr -> SqlExpr
 genSqlExpr = defaultSqlExpr defaultSqlGenerator
+
+project' :: [PQ.Projection] -> [(PQ.Sym, PQ.PrimExpr)]
+project' exprs =
+  map concatPQSym $ concatMap (go []) exprs
+
+  where go tags (tag, expr) = case expr of
+          PQ.FlatComposite iexps -> concatMap (go (tag : tags)) iexps
+          _                      -> [(tag : tags, expr)]
+
+        concatPQSym (tags, e) =
+          let sym = PQ.unsafeToSym (reverse tags)
+          in case e of
+               PQ.AttrExpr {} | not (singleton tags) -> (sym, PQ.AttrExpr sym)
+                              | otherwise          -> (sym, e)
+               _                                   -> (sym, e)
+
+        singleton [x] = True
+        singleton _   = False

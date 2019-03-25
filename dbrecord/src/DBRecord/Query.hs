@@ -171,7 +171,7 @@ class Session (driver :: * -> *) where
 class HasTransaction (driver :: * -> *) where
   withTransaction :: driver cfg -> IO a -> IO a
 
-data Config driver cfg a = Config
+data TransactionConfig driver cfg a = TransactionConfig
   { sessionConfig     :: SessionConfig driver cfg
   , maxTries          :: Int
   , beforeTransaction :: IO a
@@ -182,7 +182,7 @@ data Config driver cfg a = Config
 runSession :: (Session driver) => SessionConfig driver cfg -> ReaderT (driver cfg) IO a -> IO a
 runSession cfg dbact = runSession_ cfg dbact (\_ io -> io)
 
-runTransaction :: forall driver cfg a. (Session driver, HasTransaction driver) => Config driver cfg a -> ReaderT (driver cfg) IO a -> IO a
+runTransaction :: forall driver cfg a. (Session driver, HasTransaction driver) => TransactionConfig driver cfg a -> ReaderT (driver cfg) IO a -> IO a
 runTransaction cfg dbact = do
   c <- beforeTransaction cfg
   res <- withRetry c 1
@@ -696,7 +696,7 @@ getTableProjections pdb ptab = go (headColInfos pdb ptab)
         mkProj :: ColumnInfo -> Projection
         mkProj ci =
           let dbColN = ci ^. columnNameInfo . dbName
-          in  (Sym [] dbColN, BaseTableAttrExpr dbColN)
+          in  (dbColN, BaseTableAttrExpr dbColN)
 
 getTableId :: forall db tab. (SingCtx db tab, SingCtxDb db) => Proxy db -> Proxy tab -> TableId
 getTableId pdb ptab =

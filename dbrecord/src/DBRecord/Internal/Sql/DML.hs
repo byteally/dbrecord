@@ -79,7 +79,7 @@ data SqlWith = SqlWith SqlName [SqlName] SqlSelect
 data SqlSelect = SqlProduct [SqlTableExpr] SelectFrom      -- ^ product
                | SqlSelect SqlTableExpr SelectFrom          -- ^ base case
                | SqlJoin Join SelectFrom                -- ^ join
-               | SqlBin Binary                          -- ^ binary
+               | SqlBin Binary Alias                    -- ^ binary
                | SqlCTE [SqlWith] SqlSelect             -- ^ CTEs
                | SqlValues SqlValues Alias              -- ^ values
                  deriving (Show, Read,Eq)

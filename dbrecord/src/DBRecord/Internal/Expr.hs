@@ -98,6 +98,9 @@ prefixOp op (Expr expr) = Expr (PQ.PrefixExpr op expr)
 postfixOp :: PQ.UnOp -> Expr sc a -> Expr sc b
 postfixOp op (Expr expr) = Expr (PQ.PostfixExpr op expr)
 
+funOp :: String -> Expr sc a -> Expr sc b
+funOp op (Expr expr) = Expr (PQ.PrefixExpr (PQ.OpOtherFun op) expr)
+
 unsafeCast :: DBType -> Expr sc a -> Expr sc b
 unsafeCast castTo (Expr expr) = Expr $ PQ.CastExpr castTo expr
 
