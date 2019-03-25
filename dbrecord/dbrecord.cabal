@@ -18,8 +18,6 @@ library
   ghc-options:         -Wall
   exposed-modules:
                        DBRecord.Interface
-                       DBRecord.Migration
-                       DBRecord.Migration.Interface
                        DBRecord.Query
                        DBRecord.Schema
                        DBRecord.Schema.Interface
