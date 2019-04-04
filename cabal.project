@@ -5,5 +5,4 @@ packages:
   ./dbrecord-mongo
   ./dbrecord-postgres-simple
   ./dbrecord-sqlite-simple
-  -- ./dbrecord-mssql-odbc
-  ./dbrecord-sqlite-simple
+  ./dbrecord-mssql-odbc

@@ -10,18 +10,25 @@ import qualified DBRecord.Internal.Sql.SqlGen as SQ
 import qualified DBRecord.Sqlite.Internal.Sql.Pretty as SQ
 import Database.SQLite.Simple as SQS
 import Database.SQLite.Simple.FromRow as SQS
+import Database.SQLite.Simple.FromField
 import DBRecord.Query
 import Data.Pool
 import Control.Monad.Reader
 import Data.String
+import Data.Functor.Identity
 
 newtype SqliteDBT m (db :: *) a = SqliteDBT { runSqliteDB :: ReaderT (SQS SQS.Connection) m a}
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader (SQS SQS.Connection))
 
 type SqliteDB = SqliteDBT IO
 
-type instance FromDBRow SQS a = FromRow a
 type instance ToDBRow   SQS a = ToRow a
+
+instance DBDecoder SQS where
+  type FromDBRow SQS       = FromRow  
+  type FromDBRowParser SQS = RowParser
+
+  dbDecoder _ _ = fromRow
 
 data SQS cfg where
   SQS :: SQS.Connection -> SQS SQS.Connection
@@ -51,10 +58,10 @@ instance HasUpdate SQS where
     pure 0
 
 instance HasQuery SQS where
-  dbQuery (SQS conn) primQ = do
-    let sqlQ= SQ.renderQuery $ SQ.sql primQ
+  dbQueryWith parser (SQS conn) primQ = do
+    let sqlQ = SQ.renderQuery $ SQ.sql primQ
     putStrLn sqlQ
-    query_ conn (fromString sqlQ)
+    queryWith_ parser conn (fromString sqlQ)
 
 instance HasInsert SQS where
   dbInsert (SQS conn) insQ = do
@@ -80,3 +87,6 @@ instance HasDelete SQS where
 
 sqliteDefaultPool :: FilePath -> IO (Pool Connection)
 sqliteDefaultPool path = createPool (SQS.open path) SQS.close 10 5 10
+
+instance (FromField a) => FromField (Identity a) where
+  fromField f = Identity <$> fromField f

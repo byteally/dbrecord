@@ -49,6 +49,8 @@ module DBRecord.Query
        , HasInsertRet (..)
        , Session (..)
        , HasTransaction (..)
+       , DBDecoder (..)
+       , FromDBRowParser
        , DBTag
        , rawClauses
        , getBaseTable
@@ -142,27 +144,43 @@ infixr 4 .~
 
 infixr 4 %~
 
+  
+class DBDecoder (driver :: * -> *) where
+  type FromDBRowParser (driver :: * -> *) :: * -> *
+  type FromDBRow (driver :: * -> *)  :: * -> Constraint  
+  dbDecoder :: ( FromDBRow driver a
+              ) => Proxy driver -> Proxy a -> FromDBRowParser driver a
 
-type family FromDBRow (driver :: * -> *) (a :: *) :: Constraint
 type family ToDBRow (driver :: * -> *) (a :: *) :: Constraint
   
 class HasUpdate (driver :: * -> *) where
   dbUpdate :: driver cfg -> UpdateQuery -> IO Int64
 
-class HasUpdateRet (driver :: * -> *) where
-  dbUpdateRet :: (FromDBRow driver a) => driver cfg -> UpdateQuery -> IO [a]
+class (DBDecoder driver) => HasUpdateRet (driver :: * -> *) where
+  dbUpdateRetWith :: FromDBRowParser driver a -> driver cfg -> UpdateQuery -> IO [a]
+  dbUpdateRet     :: (FromDBRow driver a) => driver cfg -> UpdateQuery -> IO [a]
+
+  dbUpdateRet = dbUpdateRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
+  
 
 class HasDelete (driver :: * -> *) where
   dbDelete :: driver cfg -> DeleteQuery -> IO Int64
 
-class HasQuery (driver :: * -> *) where
-  dbQuery :: (FromDBRow driver a) => driver cfg -> PrimQuery -> IO [a]
+class (DBDecoder driver) => HasQuery (driver :: * -> *) where
+  dbQueryWith :: FromDBRowParser driver a -> driver cfg -> PrimQuery -> IO [a]
+
+  dbQuery :: (DBDecoder driver, FromDBRow driver a) => driver cfg -> PrimQuery -> IO [a]
+  dbQuery = dbQueryWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
 
 class HasInsert (driver :: * -> *) where
   dbInsert :: driver cfg -> InsertQuery -> IO Int64
 
-class HasInsertRet (driver :: * -> *) where
+class (DBDecoder driver) => HasInsertRet (driver :: * -> *) where
+  dbInsertRetWith :: FromDBRowParser driver a -> driver cfg -> InsertQuery -> IO [a]  
+  
   dbInsertRet :: (FromDBRow driver a) => driver cfg -> InsertQuery -> IO [a]
+  dbInsertRet = dbInsertRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
+  
 
 class Session (driver :: * -> *) where
   data SessionConfig (driver :: * -> *) cfg :: *  

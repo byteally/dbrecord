@@ -19,7 +19,11 @@ newtype PostgresDBT m (db :: *) a = PostgresDBT { runPostgresDB :: ReaderT (PGS 
 
 type PostgresDB = PostgresDBT IO
 
-type instance FromDBRow PGS a = FromRow a
+instance DBDecoder PGS where
+  type FromDBRowParser PGS = RowParser
+  type FromDBRow PGS       = FromRow
+  dbDecoder _ _ = fromRow
+  
 type instance ToDBRow   PGS a = ToRow a
 
 data PGS cfg where
@@ -35,10 +39,10 @@ instance HasTransaction PGS where
   withTransaction (PGS conn) = PGS.withTransaction conn
 
 instance HasUpdateRet PGS where
-  dbUpdateRet (PGS conn) updateQ = do
+  dbUpdateRetWith parser (PGS conn) updateQ = do
     let updateSQL = PG.renderUpdate $ PG.updateSql $ updateQ
     putStrLn updateSQL
-    returningWith fromRow conn (fromString updateSQL) ([]::[()])
+    returningWith parser conn (fromString updateSQL) ([]::[()])
 
 instance HasUpdate PGS where
   dbUpdate (PGS conn) updateQ = do
@@ -47,10 +51,10 @@ instance HasUpdate PGS where
     execute_ conn (fromString updateSQL)
 
 instance HasQuery PGS where
-  dbQuery (PGS conn) primQ = do
-    let sqlQ= PG.renderQuery $ PG.sql primQ
+  dbQueryWith parser (PGS conn) primQ = do
+    let sqlQ = PG.renderQuery $ PG.sql primQ
     putStrLn sqlQ
-    query_ conn (fromString sqlQ)
+    queryWith_ parser conn (fromString sqlQ)
 
 instance HasInsert PGS where
   dbInsert (PGS conn) insQ = do
@@ -59,10 +63,10 @@ instance HasInsert PGS where
     execute_ conn (fromString insSQL)
 
 instance HasInsertRet PGS where
-  dbInsertRet (PGS conn) insQ = do
+  dbInsertRetWith parser (PGS conn) insQ = do
     let insSQL = PG.renderInsert $ PG.insertSql insQ
     putStrLn insSQL
-    returningWith fromRow conn (fromString insSQL) ([]::[()])
+    returningWith parser conn (fromString insSQL) ([]::[()])
 
 instance HasDelete PGS where
   dbDelete (PGS conn) deleteQ = do

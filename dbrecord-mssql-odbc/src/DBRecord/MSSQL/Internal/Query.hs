@@ -1,5 +1,11 @@
-{-# LANGUAGE GADTs        #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE RankNTypes                 #-}
+
 module DBRecord.MSSQL.Internal.Query where
 
 import DBRecord.Query
@@ -7,22 +13,65 @@ import qualified DBRecord.MSSQL.Internal.Sql.Pretty as MSSQL
 import qualified DBRecord.Internal.Sql.SqlGen as MSSQL
 import Control.Monad.Reader
 import qualified DBRecord.Internal.PrimQuery as PQ
-import Database.MsSQL as MSSQL
+import Database.MsSQL as MSSQL hiding (Session)
+import Data.Pool
+import qualified Data.Vector as V
+import Control.Exception (throwIO)
+import Data.String
 
-newtype MSSQLDBT m (db :: *) a = MSSQLDBT { runMSSQLDB :: ReaderT (PGS PGS.Connection) m a}
-  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (PGS PGS.Connection))
+newtype MSSQLDBT m (db :: *) a = MSSQLDBT { runMSSQLDB :: ReaderT (MSSQL MSSQL.Connection) m a}
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (MSSQL MSSQL.Connection))
 
 type MSSQLDB = MSSQLDBT IO
 
-data MSSQL cfg where
-  MSSQL :: MSSQL.Connection -> MSSQL MSSSQL.Connection
+type instance FromDBRowParser MSSQL   = MSRowParser -- \a -> RowParser (RowBufferType a) a
+type instance FromDBRow MSSQL         = FromDBRowCtx -- (FromRow a, SQLBindCol (RowBufferType a))
 
-type instance FromDBRow MSSQL a = (FromRow a)
+{-
+type family RowParserType a where
+  RowParserType a = RowParser (RowBufferType a) a
+
+type RowParserType a = RowParser (RowBufferType a) a  
+
+-}
+
+
+class (FromRow a, SQLBindCol (RowBufferType a)) => FromDBRowCtx a 
+instance (FromRow a, SQLBindCol (RowBufferType a)) => FromDBRowCtx a 
+
+instance DBDecoder MSSQL where
+  dbDecoder _ _  = MSRowParser fromRow
+
+newtype MSRowParser a = MSRowParser { msRowParser :: forall b. (Applicative (RowParser b)) => RowParser b a }
+
+instance Functor MSRowParser where
+  fmap f (MSRowParser rp) = MSRowParser (fmap f rp)
+
+instance Applicative MSRowParser where
+  pure a = MSRowParser (RowParser $ Value $ const $ pure a)
+  (MSRowParser rpf) <*> (MSRowParser rpa) = MSRowParser (rpf <*> rpa)
+
+{-
+data RowParserType b a where
+  RowParserType :: RowParser b a -> RowParserType b a
+
+instance Functor RowParserType where
+  fmap f (RowParserType a) = RowParserType (fmap f a)
+
+instance Applicative RowParserType where
+  pure = RowParserType . pure
+  (RowParserType f) <*> (RowParserType a) =
+    RowParserType (f <*> a)
+-}
+
+data MSSQL cfg where
+  MSSQL :: MSSQL.Connection -> MSSQL MSSQL.Connection
+
 type instance ToDBRow MSSQL a   = (ToRow a)
 
 instance Session MSSQL where
   data SessionConfig MSSQL cfg where
-    MSSQLConfig :: Pool MSSSQL.Connection -> SessionConfig MSSQL MSSQL.Connection 
+    MSSQLConfig :: Pool MSSQL.Connection -> SessionConfig MSSQL MSSQL.Connection 
   runSession_ (MSSQLConfig pool) dbact f =
     withResource pool (\conn -> f (MSSQL conn) (runReaderT dbact $ MSSQL conn))
 
@@ -37,23 +86,31 @@ renderQuery = MSSQL.renderQuery . MSSQL.sql
 instance HasUpdate MSSQL where
   dbUpdate (MSSQL conn) updateQ = do
     let updateSQL = MSSQL.renderUpdate $ MSSQL.updateSql $ updateQ    
-    fmap (either throwIO id) (execute conn (fromString updateSQL))
+    res <- execute conn (fromString updateSQL)
+    either throwIO pure res
 
 instance HasQuery MSSQL where
   dbQuery (MSSQL conn) primQ = do
-    let sqlQ= renderQuery primQ
-    fmap (either throwIO V.toList) (query conn (fromString sqlQ))
+    let sqlQ = renderQuery primQ
+    res <- query conn (fromString sqlQ)
+    either throwIO (pure . V.toList) res
 
 instance HasInsert MSSQL where
-  dbInsert MSSQL insQ = do
+  dbInsert (MSSQL conn) insQ = do
     let insSQL = MSSQL.renderInsert $ MSSQL.insertSql insQ
-    fmap (either throwIO id) (execute conn (fromString insSQL))
-
+    res <- execute conn (fromString insSQL)
+    either throwIO pure res
+    
 instance HasDelete MSSQL where
-  dbDelete MSSQL deleteQ = do
-    let delSQL = PG.renderDelete $ PG.deleteSql $ deleteQ
-    fmap (either throwIO id) (execute conn (fromString delSQL))
+  dbDelete (MSSQL conn) deleteQ = do
+    let delSQL = MSSQL.renderDelete $ MSSQL.deleteSql $ deleteQ
+    res <- execute conn (fromString delSQL)
+    either throwIO pure res
 
 mssqlDefaultPool :: ConnectInfo -> IO (Pool Connection)
-mssqlDefaultPool connectInfo = createPool (handleException $ MSSQL.connect connectInfo) MSSQL.close 10 5 10
-  where handleException = either throwIO id
+mssqlDefaultPool connectInfo =
+  createPool
+  (handleException =<< MSSQL.connect connectInfo)
+  (\conn -> handleException =<< MSSQL.disconnect conn) 10 5 10
+
+  where handleException = either throwIO pure

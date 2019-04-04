@@ -39,6 +39,9 @@ library
                      -- , time              >= 1.5
                      , attoparsec
                      , mssql-odbc
+                     , resource-pool      == 0.2.*
+                     , vector             == 0.12.*
+                     , dbrecord-migration == 0.1.*
                      -- , unordered-containers >= 0.2
                      -- , uniplate             >= 1.6
                      -- , scientific        >= 0.3 
