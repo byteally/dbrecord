@@ -18,14 +18,13 @@ import Data.Pool
 import qualified Data.Vector as V
 import Control.Exception (throwIO)
 import Data.String
+import Data.Dynamic
+import Data.Profunctor
 
 newtype MSSQLDBT m (db :: *) a = MSSQLDBT { runMSSQLDB :: ReaderT (MSSQL MSSQL.Connection) m a}
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader (MSSQL MSSQL.Connection))
 
 type MSSQLDB = MSSQLDBT IO
-
-type instance FromDBRowParser MSSQL   = MSRowParser -- \a -> RowParser (RowBufferType a) a
-type instance FromDBRow MSSQL         = FromDBRowCtx -- (FromRow a, SQLBindCol (RowBufferType a))
 
 {-
 type family RowParserType a where
@@ -36,33 +35,28 @@ type RowParserType a = RowParser (RowBufferType a) a
 -}
 
 
-class (FromRow a, SQLBindCol (RowBufferType a)) => FromDBRowCtx a 
-instance (FromRow a, SQLBindCol (RowBufferType a)) => FromDBRowCtx a 
+class (FromRow a, SQLBindCol (RowBufferType a), Typeable (RowBufferType a)) => FromDBRowCtx a 
+instance (FromRow a, SQLBindCol (RowBufferType a), Typeable (RowBufferType a)) => FromDBRowCtx a 
 
 instance DBDecoder MSSQL where
-  dbDecoder _ _  = MSRowParser fromRow
+  type FromDBRowParser MSSQL   = MSRowParser
+  type FromDBRow MSSQL         = FromDBRowCtx
+  
+  dbDecoder _ _  = MSRowParser (lmapDyn fromRow)
 
-newtype MSRowParser a = MSRowParser { msRowParser :: forall b. (Applicative (RowParser b)) => RowParser b a }
+    where lmapDyn :: forall t. (Typeable (RowBufferType t)) => RowParser (RowBufferType t) t -> RowParser Dynamic t
+          lmapDyn rp = lmap (fromJust . fromDynamic) rp
+
+          fromJust = maybe (error "Panic: impossible case") id
+          
+newtype MSRowParser a = MSRowParser { msRowParser :: RowParser Dynamic a }
 
 instance Functor MSRowParser where
   fmap f (MSRowParser rp) = MSRowParser (fmap f rp)
 
 instance Applicative MSRowParser where
-  pure a = MSRowParser (RowParser $ Value $ const $ pure a)
-  (MSRowParser rpf) <*> (MSRowParser rpa) = MSRowParser (rpf <*> rpa)
-
-{-
-data RowParserType b a where
-  RowParserType :: RowParser b a -> RowParserType b a
-
-instance Functor RowParserType where
-  fmap f (RowParserType a) = RowParserType (fmap f a)
-
-instance Applicative RowParserType where
-  pure = RowParserType . pure
-  (RowParserType f) <*> (RowParserType a) =
-    RowParserType (f <*> a)
--}
+  pure = MSRowParser . pure
+  (MSRowParser f) <*> (MSRowParser a) = MSRowParser (f <*> a)
 
 data MSSQL cfg where
   MSSQL :: MSSQL.Connection -> MSSQL MSSQL.Connection
@@ -89,11 +83,13 @@ instance HasUpdate MSSQL where
     res <- execute conn (fromString updateSQL)
     either throwIO pure res
 
+{-
 instance HasQuery MSSQL where
-  dbQuery (MSSQL conn) primQ = do
+  dbQueryWith (MSRowParser par) (MSSQL conn) primQ = do
     let sqlQ = renderQuery primQ
-    res <- query conn (fromString sqlQ)
+    res <- queryWith (lmap toDyn par) conn (fromString sqlQ)
     either throwIO (pure . V.toList) res
+-}
 
 instance HasInsert MSSQL where
   dbInsert (MSSQL conn) insQ = do
@@ -114,3 +110,4 @@ mssqlDefaultPool connectInfo =
   (\conn -> handleException =<< MSSQL.disconnect conn) 10 5 10
 
   where handleException = either throwIO pure
+
