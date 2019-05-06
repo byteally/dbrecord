@@ -2,6 +2,8 @@
 module DBRecord.MSSQL.Internal.Sql.Parser
   ( sqlExpr
   , parseMSSQLType
+  , SizeInfo (..)
+  , defSizeInfo
   ) where
 
 import DBRecord.Internal.Sql.DML
@@ -14,6 +16,9 @@ import Data.Char (isAlpha, isDigit)
 import qualified Debug.Trace as DT
 import qualified Data.List.NonEmpty as NEL
 import DBRecord.Internal.DBTypes (DBType (..))
+
+import qualified DBRecord.Internal.Types as Type
+
 
 sqlExpr :: Parser SqlExpr
 sqlExpr = undefined
@@ -265,5 +270,61 @@ literal =
           stringLit  = (StringSql . T.pack) <$> quoted word
           oidLit     = (StringSql . T.pack) <$> quoted (doubleQuoted identifier)
           
-parseMSSQLType :: Bool -> String -> DBType
-parseMSSQLType nullInfo = error "Panic: not implemented"
+
+data SizeInfo = SizeInfo { szCharacterLength :: Maybe Integer
+                         , szNumericPrecision :: Maybe Integer
+                         , szNumericScale :: Maybe Integer
+                         , szDateTimePrecision :: Maybe Integer
+                         , szIntervalPrecision :: Maybe Integer
+                         } deriving (Show, Eq)
+
+defSizeInfo :: SizeInfo
+defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
+
+parseMSSQLType :: Bool -> SizeInfo -> String -> DBType
+parseMSSQLType nullInfo sz = wrapNullable nullInfo . go
+ where  go "smallint"                  = DBInt2
+        go "int"                       = DBInt4
+        go "bigint"                    = DBInt8
+        go "numeric"                   = case (,) <$> szNumericPrecision sz <*> szNumericScale sz of
+                                           Just (pr, sc) -> DBNumeric pr sc
+                                           _             -> error "Panic: numeric must specify precision and scale"
+        go "float"                     = case szNumericPrecision sz of
+                                           Nothing -> DBFloat 24
+                                           Just v  -> DBFloat v
+        go "nchar"                     = case szCharacterLength sz of
+                                           Just v -> DBChar v
+                                           _      -> error "Panic: character must specify a size"                                           
+        go "nvarchar (max)"            = DBVarchar (Left Type.Max) 
+        go "nvarchar"                  = case szCharacterLength sz of
+                                           Just v -> DBVarchar (Right v)
+                                           _      -> error "Panic: varying character must specify a size" 
+        go "ntext"                     = DBText
+        go "binary"                    = case szCharacterLength sz of -- TODO: Verify this check
+                                           Just v -> DBBinary v
+                                           _      -> error "Panic: Binary type must specify a size or length" 
+        go "varbinary (max)"           = DBVarbinary (Left Type.Max)
+        go "varbinary"                 = DBVarbinary (Left Type.Max) -- TODO : Check for sz part?
+        go "datetimeoffset"            = case szDateTimePrecision sz of
+                                           Just v  -> DBTimestamptz v
+                                           Nothing -> DBTimestamptz 6
+        go "datetime2"                 = case szDateTimePrecision sz of
+                                           Just v  -> DBTimestamp v
+                                           Nothing -> DBTimestamp 6
+        go "date"                      = DBDate
+        go "time"                      = case szDateTimePrecision sz of
+                                           Just v  -> DBTime v
+                                           Nothing -> DBTime 6
+        go "bit"                       = case szCharacterLength sz of
+                                          Just v -> DBBit v
+                                          _      -> error "Panic: character must specify a size"
+
+       -- Custom Type 
+        go t                           = DBCustomType (DBTypeName (T.pack t) []) False
+
+        -- Add Nullable info
+        wrapNullable True a  = DBNullable a
+        wrapNullable False a = a                                          
+
+
+
