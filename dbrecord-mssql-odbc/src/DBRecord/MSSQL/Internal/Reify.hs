@@ -74,7 +74,7 @@ instance FromRow Test1
 odbcConnectionString :: Text
 odbcConnectionString = "Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=Chinook;UID=sa;PWD=P@ssw0rd;ApplicationIntent=ReadOnly"
 
-unit_connect :: IO ()
+unit_connect :: IO DatabaseInfo
 unit_connect = do
   -- let conInfo = (testConnectInfo {attrBefore = SV.fromList [SQL_ATTR_ACCESS_MODE, SQL_ATTR_AUTOCOMMIT]})
   con <- connect odbcConnectionString -- conInfo
@@ -83,26 +83,25 @@ unit_connect = do
       -- res <- query con "SELECT COUNT(TABLE_NAME) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE';" :: IO (Either SQLErrors (Vector Test1))
   res <- query con "SELECT 2 + 2;" :: IO [Int] -- :: IO (Either SQLErrors (Vector (Identity Int) ))
   tcols <- query con tableColQ :: IO [TableColInfo]
-  -- tchks <- query con checksQ 
+  tchks <- query con checksQ 
   prims <- query con primKeysQ 
   uniqs <- query con uniqKeysQ 
   fks <- query con foreignKeysQ 
 
   let hints = defHints
   let tcis = (toTabColInfo hints tcols)
-  print (toDatabaseInfo hints "Chinook" [] tcis
-                        -- (toCheckInfo hints tcis tchks)
-                        (HM.empty)
+  pure (toDatabaseInfo hints "Chinook" [] tcis
+                        (toCheckInfo hints tcis tchks)
                         (toDefaultInfo hints tcols)
                         (toPrimKeyInfo hints prims)
                         (toUniqKeyInfo hints uniqs)
                         (toForeignKeyInfo hints fks)
         )
 
-  print res
+  -- print res
   -- print tabColRes
       -- disconnect con
-  pure ()
+  -- pure ()
     -- Left x -> print x
 
 
@@ -259,9 +258,12 @@ toDefaultInfo :: Hints -> [TableColInfo] -> TableContent DefaultInfo
 toDefaultInfo hints = HM.fromListWith (++) . map defaultInfo
   where defaultInfo tci =
           ( dbTableName tci
-          , [ {-mkDefaultInfo (colName tci)
-                            (unsafeParseExpr (fromJust (dbColDefault tci)))-}
-            ]
+          , case dbColDefault tci of
+              Just colDefault -> 
+                let defInfo = mkDefaultInfo (colName tci)
+                              (unsafeParseExpr colDefault)
+                in [defInfo] -- [trace (show defInfo) defInfo]
+              Nothing -> []
           )
         colName tci = mkHaskColumnName (colNameHints (dbTableName tci)) (dbColumnName tci)
         colNameHints tna = columnNameHints tna hints

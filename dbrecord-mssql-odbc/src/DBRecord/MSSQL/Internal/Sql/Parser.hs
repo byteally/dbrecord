@@ -16,13 +16,12 @@ import Data.Char (isAlpha, isDigit)
 import qualified Debug.Trace as DT
 import qualified Data.List.NonEmpty as NEL
 import DBRecord.Internal.DBTypes (DBType (..))
+import Data.Functor (($>))
 
 import qualified DBRecord.Internal.Types as Type
 
-
 sqlExpr :: Parser SqlExpr
-sqlExpr = undefined
-{-
+sqlExpr =
   (
    postfixOrWindowExpr <|>
    binSqlExpr          <|>
@@ -33,19 +32,19 @@ sqlExpr = undefined
 
     where binSqlExpr = do
             e1 <- termSqlExpr
-            b  <- binOp
+            b  <- Left <$> binOp <|> Right <$> (symbol "::" $> ())
             case b of
-              "::" -> do
+              Right _ -> do
                 ty <- typeExpr
                 pure (CastSqlExpr ty e1)
-              _ -> do
+              Left binOpRes -> do
                 e2 <- sqlExpr
-                pure (BinSqlExpr b e1 e2)
+                pure (BinSqlExpr binOpRes e1 e2)
             
           postfixOrWindowExpr = do
             e <-  binSqlExpr <|> prefixSqlExpr <|> termSqlExpr
-            op <- eitherP (symbol "OVER" *> word) postfixOp
-            case op of
+            epRes <- eitherP (symbol "OVER" *> word) postfixOp
+            case epRes of
               Left w -> pure (NamedWindowSqlExpr w e)
               Right op -> pure (PostfixSqlExpr op e)
 
@@ -53,7 +52,7 @@ sqlExpr = undefined
             op <- prefixOp
             e <-  sqlExpr
             pure (PrefixSqlExpr op e)
--}
+
 
 termSqlExpr :: Parser SqlExpr
 termSqlExpr =
@@ -85,8 +84,14 @@ caseExpr = do
   _ <- symbol "END"
   pure (CaseSqlExpr (NEL.fromList cbs) me)
 
+
+
 funName :: Parser String
-funName = identifier
+funName = do
+  funNameQual <- identifier <|> brackets identifier
+  funName <- (singleton <$> (char '.' *> (brackets identifier <|> identifier)))
+  pure (concat $ funNameQual : funName)
+
 
 aggrFunSqlExpr :: Parser SqlExpr
 aggrFunSqlExpr = do
@@ -114,45 +119,59 @@ castExpr = do
   pure (CastSqlExpr typ e)
 
 -- TODO: Assuming columns are of "foo"."bar<op>baz..."
+-- Note : For MS-SQL, Columns can also be of the form [foo ]
 column :: Parser SqlColumn
 column = do
-  h <- (doubleQuoted identifier <|> identifier)
-  hs <- (singleton <$> (char '.' *> (doubleQuoted identifier <|> identifier))) <|> (pure [])
+  h <- (doubleQuoted identifier <|> brackets identifier <|> identifier)
+  hs <- (singleton <$> (char '.' *> (doubleQuoted identifier <|> brackets identifier <|> identifier))) <|> (pure [])
   pure (SqlColumn (T.pack h : map T.pack hs))
 
--- TODO: Identify prefix operators  
-prefixOp :: Parser String
-prefixOp = symbol "NOT" *> pure "NOT"
+-- -- TODO: Identify prefix operators  
+-- prefixOp :: Parser String
+-- prefixOp = symbol "NOT" *> pure "NOT"
 
--- TODO: Identify postfix operators  
-postfixOp :: Parser String
+prefixOp :: Parser UnOp
+prefixOp =
+  symbol "NOT"    $> OpNot       <|>
+  symbol "LENGTH" $> OpLength    <|>
+  symbol "@"      $> OpAbs       <|>
+  symbol "-"      $> OpNegate    <|>
+  symbol "LOWER"  $> OpLower     <|>
+  symbol "UPPER"  $> OpUpper
+  -- NOTE: missing custom prefixes
+
+
+
+postfixOp :: Parser UnOp
 postfixOp =
-  symbol "IS" *> symbol "NULL" *> pure "IS NULL"                      <|>
-  symbol "IS" *> symbol "NOT"  *> symbol "NULL" *> pure "IS NOT NULL"
+  symbol "IS" *> symbol "NULL"                 $> OpIsNull    <|>
+  symbol "IS" *> symbol "NOT" *> symbol "NULL" $> OpIsNotNull
+  -- NOTE: missing custom postfixes
   
--- TODO: Identity binary operators
-binOp :: Parser String
-binOp = fmap T.unpack $ 
-  symbol "+"    <|>
-  symbol "="    <|>  
-  symbol "-"    <|>
-  symbol ">="   <|>
-  symbol "<="   <|>  
-  symbol ">"    <|>
-  symbol "<"    <|>
-  symbol "||"   <|>
-  symbol "AND"  <|>
-  symbol "OR"   <|>
-  symbol "LIKE" <|>
-  symbol "IN"   <|>      
-  symbol "/"    <|>    
-  symbol "*"    <|>  
-  symbol "~"    <|>    
-  symbol "&"    <|>
-  symbol "^"    <|>
-  symbol "::"   <|>  
-  symbol "AT"   
 
+binOp :: Parser BinOp
+binOp =  
+  symbol "+"    $> OpPlus   <|>
+  symbol "="    $> OpEq     <|>  
+  symbol "-"    $> OpMinus  <|>
+  symbol ">="   $> OpGtEq   <|>
+  symbol "<="   $> OpLtEq   <|>  
+  symbol ">"    $> OpGt     <|>
+  symbol "<"    $> OpLt     <|>
+  symbol "||"   $> OpCat    <|>
+  symbol "AND"  $> OpAnd    <|>
+  symbol "OR"   $> OpOr     <|>
+  symbol "LIKE" $> OpLike   <|>
+  symbol "IN"   $> OpIn     <|>      
+  symbol "/"    $> OpDiv    <|>    
+  symbol "*"    $> OpMul    <|>  
+  symbol "~"    $> OpBitNot <|>    
+  symbol "&"    $> OpBitAnd <|>
+  symbol "^"    $> OpBitXor <|>
+  -- symbol "::"   <|>  
+  symbol "AT" *> symbol "TIME" *> symbol "ZONE" $> OpAtTimeZone
+
+  
 orderBy :: Parser [(SqlExpr, SqlOrder)]
 orderBy = option [] (symbol "ORDER" *> symbol "BY" *> sepByComma ord)
 
