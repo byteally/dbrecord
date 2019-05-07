@@ -21,6 +21,7 @@ library
                        DBRecord.MSSQL.Internal.PrettyDDL
                        DBRecord.MSSQL.Internal.Query
                        DBRecord.MSSQL.Internal.Types
+                       DBRecord.MSSQL.Internal.Reify
                                          
   build-depends:       base              >= 4.7 && < 5
                      , dbrecord
