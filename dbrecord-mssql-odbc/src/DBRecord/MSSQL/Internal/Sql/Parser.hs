@@ -56,7 +56,7 @@ sqlExpr =
 
 termSqlExpr :: Parser SqlExpr
 termSqlExpr =
-  arraySqlExpr                                                        <|>
+  -- arraySqlExpr                                                        <|>
   defaultExpr                                                         <|>
   placeholderExpr                                                     <|>
   castExpr                                                            <|>
@@ -89,7 +89,8 @@ caseExpr = do
 funName :: Parser String
 funName = do
   funNameQual <- identifier <|> brackets identifier
-  funName <- (singleton <$> (char '.' *> (brackets identifier <|> identifier)))
+  funName <- (singleton <$> (char '.' *> (brackets identifier <|> identifier))) <|> pure []
+  -- TODO: FunSqlExpr needs to be changed or we need to intercalate a separator.
   pure (concat $ funNameQual : funName)
 
 
@@ -137,8 +138,11 @@ prefixOp =
   symbol "@"      $> OpAbs       <|>
   symbol "-"      $> OpNegate    <|>
   symbol "LOWER"  $> OpLower     <|>
-  symbol "UPPER"  $> OpUpper
+  symbol "UPPER"  $> OpUpper     <|>
   -- NOTE: missing custom prefixes
+  -- Added to support MSSQL + prefix Op
+  symbol "+"      $> OpPositive  <|>
+  symbol "~"      $> OpBitwiseNot
 
 
 
@@ -152,21 +156,33 @@ postfixOp =
 binOp :: Parser BinOp
 binOp =  
   symbol "+"    $> OpPlus   <|>
-  symbol "="    $> OpEq     <|>  
+  symbol "="    $> OpEq     <|>
+  symbol "<>"   $> OpNotEq  <|>  
+  symbol "!="   $> OpNotEq  <|>  
   symbol "-"    $> OpMinus  <|>
   symbol ">="   $> OpGtEq   <|>
   symbol "<="   $> OpLtEq   <|>  
   symbol ">"    $> OpGt     <|>
   symbol "<"    $> OpLt     <|>
+  symbol "!<"   $> OpNotLt  <|>
+  symbol "!>"   $> OpNotGt  <|>
   symbol "||"   $> OpCat    <|>
   symbol "AND"  $> OpAnd    <|>
   symbol "OR"   $> OpOr     <|>
   symbol "LIKE" $> OpLike   <|>
-  symbol "IN"   $> OpIn     <|>      
-  symbol "/"    $> OpDiv    <|>    
+  symbol "IN"   $> OpIn     <|>
+  symbol "ALL"     $> OpAll      <|>
+  symbol "ANY"     $> OpAny      <|>
+  symbol "EXISTS"  $> OpExists   <|>
+  symbol "SOME"    $> OpSome     <|>
+  symbol "BETWEEN" $> OpBetween  <|>
+
+  symbol "/"    $> OpDiv    <|>
+  symbol "%"    $> OpMod    <|>
   symbol "*"    $> OpMul    <|>  
   symbol "~"    $> OpBitNot <|>    
   symbol "&"    $> OpBitAnd <|>
+  symbol "|"    $> OpBitOr  <|>
   symbol "^"    $> OpBitXor <|>
   -- symbol "::"   <|>  
   symbol "AT" *> symbol "TIME" *> symbol "ZONE" $> OpAtTimeZone
@@ -216,6 +232,8 @@ symbol = lexeme . string
          
 identifier :: Parser String
 identifier = lexeme (many1 (letter <|> char '_'))
+
+
 
 word :: Parser String
 word = lexeme (many1 letter)
@@ -286,7 +304,10 @@ literal =
             quoted (symbol "false")
             ) *> pure (BoolSql False)
           integerLit = (IntegerSql . read . concat) <$> many1 number
-          stringLit  = (StringSql . T.pack) <$> quoted word
+          stringLit  = (StringSql . T.pack) <$> ( skipSpace *>
+                                                  char '\'' *> 
+                                                  manyTill anyChar (char '\'')
+                                                )
           oidLit     = (StringSql . T.pack) <$> quoted (doubleQuoted identifier)
           
 
