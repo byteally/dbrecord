@@ -168,8 +168,10 @@ data LitSql = NullSql
 
 
 data BinOp = OpEq | OpLt | OpLtEq | OpGt | OpGtEq | OpNotEq
+           | OpNotLt | OpNotGt
            | OpAnd | OpOr
            | OpLike | OpIn
+           | OpAny | OpAll | OpExists | OpSome | OpBetween
            | OpOther String  
            | OpCat
            | OpPlus | OpMinus | OpMul | OpDiv | OpMod
@@ -183,6 +185,8 @@ data UnOp = OpNot
           | OpLength
           | OpAbs
           | OpNegate
+          | OpPositive
+          | OpBitwiseNot
           | OpLower
           | OpUpper
           | OpOtherPrefix String
