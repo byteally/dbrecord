@@ -17,6 +17,7 @@ import qualified Debug.Trace as DT
 import qualified Data.List.NonEmpty as NEL
 import DBRecord.Internal.DBTypes (DBType (..))
 import Data.Functor (($>))
+import qualified Data.List as DL
 
 import qualified DBRecord.Internal.Types as Type
 
@@ -39,7 +40,7 @@ sqlExpr =
                 pure (CastSqlExpr ty e1)
               Left binOpRes -> do
                 e2 <- sqlExpr
-                pure (BinSqlExpr binOpRes e1 e2)
+                pure $ transformBinExprByPrecedence (BinSqlExpr binOpRes e1 e2)
             
           postfixOrWindowExpr = do
             e <-  binSqlExpr <|> prefixSqlExpr <|> termSqlExpr
@@ -365,6 +366,46 @@ parseMSSQLType nullInfo sz = wrapNullable nullInfo . go
         -- Add Nullable info
         wrapNullable True a  = DBNullable a
         wrapNullable False a = a                                          
+
+
+data ExpWrap = Expr SqlExpr
+             | Op   BinOp
+  deriving (Show, Eq)
+
+data Assoc = LeftAssoc | RightAssoc 
+  deriving Show
+type Prec = Int
+
+transformBinExprByPrecedence :: SqlExpr -> SqlExpr
+transformBinExprByPrecedence initialExpr = 
+  case initialExpr of
+    BinSqlExpr fstBinOp op1 op2 ->
+      (go . flatten) initialExpr
+    e -> e
+
+ where 
+  flatten :: SqlExpr -> [ExpWrap]
+  flatten (BinSqlExpr binOp exp1 exp2)   = flatten exp1 ++ [ Op binOp ] ++ flatten exp2
+  flatten x = [Expr x]
+
+  go :: {- Map BinOp (Assoc, Prec) -> -} [ExpWrap] -> SqlExpr -- [ExpWrap]
+  go xs =
+    let ops = map (\(Op c) -> c) $
+              filter (\x -> case x of
+                         Op {} -> True
+                         _     -> False) xs
+    in case DL.reverse $ DL.sort ops of -- Get the current lowest precedence operator
+         [] -> 
+          case xs of
+            Expr sqlExp:[] -> sqlExp
+            Op _:[] -> error "Panic! Did not expect an Op here, since filter function was empty!"
+            _ -> error $ "Encountered a list of ExpWrap (we need to handle this case)" ++ (show xs)
+         firstOp:_ -> 
+          let ixs = DL.elemIndices (Op firstOp) xs
+          in case ixs of
+               [ix] -> BinSqlExpr firstOp (go $ DL.take (ix +1) xs) (go $ DL.drop (ix + 2) xs)
+               multipleIx -> undefined
+
 
 
 
