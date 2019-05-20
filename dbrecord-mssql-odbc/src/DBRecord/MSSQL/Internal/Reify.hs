@@ -49,11 +49,10 @@ import DBRecord.Internal.Lens
 import Data.Int
 
 
--- import Database.MsSQL
+import Database.MsSQL
 import qualified Data.Vector.Storable as SV
 import Data.Functor.Identity
 
-import Database.ODBC.SQLServer
 import qualified Data.ByteString as BS
 import Data.Text.Encoding
 
@@ -68,25 +67,30 @@ instance FromRow Test1
 
 
 
--- testConnectInfo :: ConnectInfo  
--- testConnectInfo = connectInfo "Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=Chinook;UID=sa;PWD=P@ssw0rd;ApplicationIntent=ReadOnly"
+testConnectInfo :: ConnectInfo  
+testConnectInfo = connectInfo "Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=Chinook;UID=sa;PWD=P@ssw0rd;ApplicationIntent=ReadOnly"
 
 odbcConnectionString :: Text
 odbcConnectionString = "Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=Chinook;UID=sa;PWD=P@ssw0rd;ApplicationIntent=ReadOnly"
 
-unit_connect :: IO DatabaseInfo
-unit_connect = do
+getMsSQLDbInfo :: IO DatabaseInfo
+getMsSQLDbInfo = do
   -- let conInfo = (testConnectInfo {attrBefore = SV.fromList [SQL_ATTR_ACCESS_MODE, SQL_ATTR_AUTOCOMMIT]})
-  con <- connect odbcConnectionString -- conInfo
+  eCon <- connect testConnectInfo -- conInfo
+  let con = 
+        case eCon of
+          Right c -> c
+          Left sqlErr -> error $ "SQL Error while creating connection! " ++ (show sqlErr)
+
   -- case eitherCon of
   --   Right con -> do
       -- res <- query con "SELECT COUNT(TABLE_NAME) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE';" :: IO (Either SQLErrors (Vector Test1))
-  res <- query con "SELECT 2 + 2;" :: IO [Int] -- :: IO (Either SQLErrors (Vector (Identity Int) ))
-  tcols <- query con tableColQ :: IO [TableColInfo]
-  tchks <- query con checksQ 
-  prims <- query con primKeysQ 
-  uniqs <- query con uniqKeysQ 
-  fks <- query con foreignKeysQ 
+  -- res <- getDataFromEither $ query con "SELECT 2 + 2;" :: IO [Int] -- :: IO (Either SQLErrors (Vector (Identity Int) ))
+  tcols <- getDataFromEither $ query con tableColQ :: IO [TableColInfo]
+  tchks <- getDataFromEither $ query con checksQ 
+  prims <- getDataFromEither $ query con primKeysQ 
+  uniqs <- getDataFromEither $ query con uniqKeysQ 
+  fks <- getDataFromEither $ query con foreignKeysQ 
 
   let hints = defHints
   let tcis = (toTabColInfo hints tcols)
@@ -97,6 +101,14 @@ unit_connect = do
                         (toUniqKeyInfo hints uniqs)
                         (toForeignKeyInfo hints fks)
         )
+
+ where
+  getDataFromEither :: IO (Either SQLErrors (Vector a) ) -> IO [a]
+  getDataFromEither ioErrVec = do
+   eErrVec <- ioErrVec
+   case eErrVec of
+    Left sqlErr -> error $ "SQL Error : " ++ (show sqlErr)
+    Right vec -> pure $ V.toList vec
 
   -- print res
   -- print tabColRes
@@ -129,7 +141,7 @@ unit_connect = do
 
 data EnumInfo = EnumInfo { enumTypeName :: Text
                          , enumCons     :: Vector Text
-                         } deriving (Show, Eq)
+                         } deriving (Show, Eq, Generic)
 
 data TableColInfo = TableColInfo { dbTableName  :: Text
                                  , dbColumnName :: Text
@@ -147,21 +159,21 @@ data TableColInfo = TableColInfo { dbTableName  :: Text
 -- instance FromRow TableColInfo                                 
 
 data CheckCtx = CheckCtx Text Text Text
-               deriving (Show, Eq)
+               deriving (Show, Eq, Generic)
 
 type CheckExpr = (Text, Text)
 
 data PrimKey = PrimKey Text Text Text Int
-             deriving (Show, Eq, Ord)
+             deriving (Show, Eq, Ord, Generic)
 
 data UniqKey = UniqKey Text Text Text Int
-             deriving (Show, Eq, Ord)
+             deriving (Show, Eq, Ord, Generic)
 
 data FKey = FKey Text Text Text Int Text Text Text Int
-          deriving (Show, Eq, Ord)
+          deriving (Show, Eq, Ord, Generic)
 
 data Seq = Seq Text Text Text Text Text Text Text (Maybe Text) (Maybe Text)
-         deriving (Show, Eq, Ord)
+         deriving (Show, Eq, Ord, Generic)
 
 type TableContent a = HM.HashMap Text [a]
 
@@ -333,28 +345,33 @@ toTabColInfo hints = HM.fromListWith (++) . map colInfo
 --   fromRow [a,b] = EnumInfo <$> fromValue a <*> fromValue b 
 
 
-instance FromRow CheckCtx where
-  fromRow [a,b,c] = CheckCtx <$> fromValue a <*> fromValue b <*> fromValue c
-  fromRow x = Left ("Unexpected number of fields in row: " ++ show (length x))
+instance FromRow CheckCtx 
+-- where
+--   fromRow [a,b,c] = CheckCtx <$> fromValue a <*> fromValue b <*> fromValue c
+--   fromRow x = Left ("Unexpected number of fields in row: " ++ show (length x))
 
-instance FromRow TableColInfo where
-  fromRow [a,b,c,d,e,f,g,h,i,j] = TableColInfo <$> fromValue a <*> fromValue b <*> fromValue c <*> fromValue d <*> fromValue e <*> fromValue f <*> fromValue g <*> fromValue h <*> fromValue i <*> fromValue j -- <*> fromValue k
-  fromRow x = Left ("Unexpected number of fields in row: " ++ show (length x))
-
-
-instance FromRow PrimKey where
-  fromRow [a,b,c,d] = PrimKey <$> fromValue a <*> fromValue b <*> fromValue c <*> fromValue d
-  fromRow x = Left ("Unexpected number of fields in row: " ++ show (length x))
+instance FromRow TableColInfo 
+-- where
+--   fromRow [a,b,c,d,e,f,g,h,i,j] = TableColInfo <$> fromValue a <*> fromValue b <*> fromValue c <*> fromValue d <*> fromValue e <*> fromValue f <*> fromValue g <*> fromValue h <*> fromValue i <*> fromValue j -- <*> fromValue k
+--   fromRow x = Left ("Unexpected number of fields in row: " ++ show (length x))
 
 
-instance FromRow UniqKey where
-  fromRow [a,b,c,d] = UniqKey <$> fromValue a <*> fromValue b <*> fromValue c <*> fromValue d
-  fromRow x = Left ("Unexpected number of fields in row: " ++ show (length x))
+instance FromRow PrimKey 
+-- where
+--   fromRow [a,b,c,d] = PrimKey <$> fromValue a <*> fromValue b <*> fromValue c <*> fromValue d
+--   fromRow x = Left ("Unexpected number of fields in row: " ++ show (length x))
 
 
-instance FromRow FKey where
-  fromRow [a,b,c,d,e,f,g,h] = FKey <$> fromValue a <*> fromValue b <*> fromValue c <*> fromValue d <*> fromValue e <*> fromValue f <*> fromValue g <*> fromValue h
-  fromRow x = Left ("Unexpected number of fields in row: " ++ show (length x))
+instance FromRow UniqKey 
+-- where
+--   fromRow [a,b,c,d] = UniqKey <$> fromValue a <*> fromValue b <*> fromValue c <*> fromValue d
+--   fromRow x = Left ("Unexpected number of fields in row: " ++ show (length x))
+
+
+instance FromRow FKey 
+-- where
+--   fromRow [a,b,c,d,e,f,g,h] = FKey <$> fromValue a <*> fromValue b <*> fromValue c <*> fromValue d <*> fromValue e <*> fromValue f <*> fromValue g <*> fromValue h
+--   fromRow x = Left ("Unexpected number of fields in row: " ++ show (length x))
 
 
 -- instance FromRow Seq where
