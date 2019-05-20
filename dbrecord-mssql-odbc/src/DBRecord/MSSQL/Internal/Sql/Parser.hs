@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections     #-}
+
 module DBRecord.MSSQL.Internal.Sql.Parser
   ( sqlExpr
   , parseMSSQLType
@@ -28,7 +30,9 @@ sqlExpr =
    binSqlExpr          <|>
    -- compositeExpr  <|>
    prefixSqlExpr       <|>
-   termSqlExpr)        -- <*
+   termSqlExpr
+   )
+   -- <*
    -- endOfInput
 
     where binSqlExpr = do
@@ -40,20 +44,30 @@ sqlExpr =
                 pure (CastSqlExpr ty e1)
               Left binOpRes -> do
                 e2 <- sqlExpr
-                pure $ transformBinExprByPrecedence (BinSqlExpr binOpRes e1 e2)
+                pure $ {-transformBinExprByPrecedence-} (BinSqlExpr binOpRes e1 e2)
             
           postfixOrWindowExpr = do
-            e <-  binSqlExpr <|> prefixSqlExpr <|> termSqlExpr
-            epRes <- eitherP (symbol "OVER" *> word) postfixOp
+            e <- binSqlExpr <|> prefixSqlExpr <|> termSqlExpr
+            epRes <- eitherP (symbol "OVER" *> anonWindowExpr e
+                            ) postfixOp
             case epRes of
-              Left w -> pure (NamedWindowSqlExpr w e)
+              Left w   -> pure w
               Right op -> pure (PostfixSqlExpr op e)
 
+          anonWindowExpr e = DT.traceShow (show e) $ parens $ do
+            pbys <- optional ( symbol "PARTITION" *> symbol "BY" *>
+                              sepBy1 sqlExpr comma
+                            )
+            ords <- orderBy
+            -- NOTE: ROW(s) are also possible here
+            pure (AnonWindowSqlExpr (maybe [] id pbys)
+                                    ords
+                  e)
+                          
           prefixSqlExpr = do
             op <- prefixOp
             e <-  sqlExpr
             pure (PrefixSqlExpr op e)
-
 
 termSqlExpr :: Parser SqlExpr
 termSqlExpr =
@@ -85,8 +99,6 @@ caseExpr = do
   _ <- symbol "END"
   pure (CaseSqlExpr (NEL.fromList cbs) me)
 
-
-
 funName :: Parser String
 funName = do
   funNameQual <- identifier <|> brackets identifier
@@ -100,8 +112,8 @@ aggrFunSqlExpr = do
   n <- funName
   (es, obys) <- parens $ do
     es <- sepByComma sqlExpr
-    obys <- orderBy
-    pure (es, obys)
+    -- obys <- orderBy
+    pure (es, []) -- obys)
   pure (AggrFunSqlExpr n es obys)
             
 arraySqlExpr :: Parser SqlExpr
@@ -120,13 +132,15 @@ castExpr = do
     pure (e, typ)
   pure (CastSqlExpr typ e)
 
--- TODO: Assuming columns are of "foo"."bar<op>baz..."
--- Note : For MS-SQL, Columns can also be of the form [foo ]
+-- Note :For MSSQL, Columns can also be of the form [foo ], "foo", or just foo.
 column :: Parser SqlColumn
 column = do
-  h <- (doubleQuoted identifier <|> brackets identifier <|> identifier)
-  hs <- (singleton <$> (char '.' *> (doubleQuoted identifier <|> brackets identifier <|> identifier))) <|> (pure [])
-  pure (SqlColumn (T.pack h : map T.pack hs))
+  pieces <- sepBy1 columnPiece (char '.')
+  pure (SqlColumn (map T.pack pieces))
+
+  where columnPiece = doubleQuoted identifier <|>
+                      brackets     identifier <|>
+                      identifier
 
 -- -- TODO: Identify prefix operators  
 -- prefixOp :: Parser String
@@ -136,7 +150,6 @@ prefixOp :: Parser UnOp
 prefixOp =
   symbol "NOT"    $> OpNot       <|>
   symbol "LENGTH" $> OpLength    <|>
-  symbol "@"      $> OpAbs       <|>
   symbol "-"      $> OpNegate    <|>
   symbol "LOWER"  $> OpLower     <|>
   symbol "UPPER"  $> OpUpper     <|>
@@ -149,7 +162,7 @@ prefixOp =
 
 postfixOp :: Parser UnOp
 postfixOp =
-  symbol "IS" *> symbol "NULL"                 $> OpIsNull    <|>
+  symbol "IS" *> symbol "NULL"                 $> OpIsNull    <|>  
   symbol "IS" *> symbol "NOT" *> symbol "NULL" $> OpIsNotNull
   -- NOTE: missing custom postfixes
   
@@ -189,12 +202,12 @@ binOp =
   symbol "AT" *> symbol "TIME" *> symbol "ZONE" $> OpAtTimeZone
 
   
-orderBy :: Parser [(SqlExpr, SqlOrder)]
-orderBy = option [] (symbol "ORDER" *> symbol "BY" *> sepByComma ord)
+orderBy :: Parser [(SqlExpr, {-Maybe-} SqlOrder)]
+orderBy = option [] (symbol "KORDER" *> symbol "BY" *> sepBy1 ord comma)
 
-ord :: Parser (SqlExpr, SqlOrder)
+ord :: Parser (SqlExpr, {-Maybe-} SqlOrder)
 ord = do
-  (,) <$> termSqlExpr <*> sqlOrder
+  (,) <$> sqlExpr <*> sqlOrder
 
 placeholderExpr :: Parser SqlExpr
 placeholderExpr =
@@ -202,16 +215,90 @@ placeholderExpr =
 
 sqlOrder :: Parser SqlOrder
 sqlOrder = do
-  dir <- (symbol "ASC"  *> pure SqlAsc <|>
-          symbol "DESC" *> pure SqlDesc
-        )
-  nullOrd <- (symbol "NULLS" *> symbol "FIRST" *> pure SqlNullsFirst <|>
-              symbol "NULLS" *> symbol "LAST"  *> pure SqlNullsLast
-              )
-  pure (SqlOrder dir nullOrd)
+  dir <- optional (symbol "ASC"  *> pure SqlAsc <|>
+                  symbol "DESC" *> pure SqlDesc
+                 )
+  nullOrd <- optional (symbol "NULLS" *> symbol "FIRST" *> pure SqlNullsFirst <|>
+                      symbol "NULLS" *> symbol "LAST"  *> pure SqlNullsLast
+                     )
+  pure (SqlOrder (maybe SqlAsc id dir) (maybe SqlNullsLast id nullOrd))
 
 typeExpr :: Parser DBType
-typeExpr = undefined
+typeExpr =
+  DBInt2 <$ symbol "SMALLINT" <|>
+  DBInt4 <$ symbol "INT"      <|>
+  DBInt8 <$ symbol "BIGINT"   <|>
+  DBText <$ symbol "NTEXT"    <|>
+  DBDate <$ symbol "DATE"     <|>  
+
+  numericType                 <|>
+  floatType                   <|>
+  binaryType                  <|>
+  varbinaryType               <|>
+  ncharType                   <|>
+  nvarcharType                <|>
+  timestamptzType             <|>
+  timestampType               <|>
+  timeType                    <|>
+  bitType                     <|>
+  customType                  
+
+  
+  where numericType =
+          symbol "NUMERIC" *>
+          ( mkNumericType   <$>
+           ( do
+               mv <- optional (openParen *> number)
+               case mv of
+                 Just v -> 
+                   Just . (v, ) <$> optional (comma *> number) <* closeParen
+                 Nothing -> pure Nothing
+            
+           )
+          )
+          
+        mkNumericType Nothing              = DBNumeric 0 0
+        mkNumericType (Just (v , Nothing)) = DBNumeric (read v) 0
+        mkNumericType (Just (v, Just v'))  = DBNumeric (read v) (read v')
+
+        typeWithOptParam s d f p =
+          symbol s *>
+          fmap (maybe (f d) f) (optional (parens p))
+
+        typeWithOptParamNum s f =
+          typeWithOptParam s 0 f (read <$> number)
+
+        floatType  = typeWithOptParamNum "FLOAT" DBFloat
+        binaryType = typeWithOptParamNum "BINARY" DBBinary
+        timestamptzType =
+          typeWithOptParamNum "DATETIMEOFFSET" DBTimestamptz
+        timestampType =
+          typeWithOptParamNum "DATETIME2" DBTimestamp
+        timeType =
+          typeWithOptParamNum "TIME" DBTime
+        bitType =
+          typeWithOptParamNum "BIT" DBBit
+        ncharType =
+          typeWithOptParamNum "CHAR" DBChar
+        nvarcharType = typeWithOptParam "NVARCHAR"
+                       (Right 0)
+                       DBVarchar
+                       ( Left Type.Max <$  symbol "MAX" <|>
+                         Right . read  <$> number
+                       )
+        varbinaryType = typeWithOptParam "VARBINARY"
+                       (Right 0)
+                       DBVarbinary
+                       ( Left Type.Max <$  symbol "MAX" <|>
+                         Right . read  <$> number
+                       )
+        customType = undefined
+        
+        mkFloatType Nothing  = DBFloat 0
+        mkFloatType (Just v) = DBFloat (read v)
+
+        
+          
 
 ordDir :: Parser SqlOrder
 ordDir = undefined
@@ -233,7 +320,6 @@ symbol = lexeme . string
          
 identifier :: Parser String
 identifier = lexeme (many1 (letter <|> char '_'))
-
 
 
 word :: Parser String
@@ -283,7 +369,10 @@ void :: Parser a -> Parser ()
 void a = a *> pure ()
 
 sepByComma :: Parser a -> Parser [a]
-sepByComma p  = p `sepBy` (lexeme (char ','))
+sepByComma p  = p `sepBy` comma
+
+comma :: Parser Char
+comma = lexeme (char ',')
 
 literal :: Parser LitSql
 literal =
