@@ -245,7 +245,7 @@ toDatabaseInfo hints dbn eis cols chks defs pk uqs fks =
                                       , _ignoredCols    = ()
                                       }
                        ) tabNs
-  in mkDatabaseInfo dbt types 0 0 (coerce tabInfos)
+  in mkDatabaseInfo dbt types 0 0 (coerce tabInfos) MSSQL
 
 toCheckInfo :: Hints -> TableContent ColumnInfo -> [CheckCtx] -> TableContent CheckInfo
 toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo

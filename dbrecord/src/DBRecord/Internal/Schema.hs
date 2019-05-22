@@ -794,14 +794,17 @@ typeNameVal k t = fmap (\a -> t { _typeNameVal = a }) (k (_typeNameVal t))
 typeNameMap :: Lens' TypeNameInfo TypeNameMap
 typeNameMap k t = fmap (\a -> t { _typeNameMap = a }) (k (_typeNameMap t))
 
-mkDatabaseInfo :: EntityNameWithType -> [TypeNameInfo] -> Step -> Step -> TableInfos -> DatabaseInfo
-mkDatabaseInfo n tnis b v tis =
+
+
+mkDatabaseInfo :: EntityNameWithType -> [TypeNameInfo] -> Step -> Step -> TableInfos -> DbK -> DatabaseInfo
+mkDatabaseInfo n tnis b v tis dbKind =
   DatabaseInfo { _name          = n
                , _typeNameInfos = tnis
                , _ignoredTabs   = ()
                , _baseline      = b
                , _version       = v
                , _tableInfos    = tis
+               , _dbKind        = dbKind
                } 
              
 data DatabaseInfo = DatabaseInfo { _name           :: EntityNameWithType
@@ -810,6 +813,7 @@ data DatabaseInfo = DatabaseInfo { _name           :: EntityNameWithType
                                  , _baseline       :: Step
                                  , _version        :: Step
                                  , _tableInfos     :: TableInfos
+                                 , _dbKind         :: DbK
                                  } deriving (Show, Eq)
 
 newtype TableInfos = TableInfos { _getTableInfos :: [TableInfo] }
@@ -832,6 +836,10 @@ version k t = fmap (\a -> t { _version = a }) (k (_version t))
 
 tableInfos :: Lens' DatabaseInfo TableInfos
 tableInfos k t = fmap (\a -> t { _tableInfos = a }) (k (_tableInfos t))
+
+dbKind :: Lens' DatabaseInfo DbK
+dbKind k t = fmap (\a -> t { _dbKind = a }) (k (_dbKind t))
+
 
 tableInfoAt :: TypeName T.Text -> Traversal' DatabaseInfo TableInfo
 tableInfoAt hsN = tableInfos . coerceL . ixBy hsN (_hsName . _tableName)
@@ -1051,7 +1059,7 @@ headDatabaseInfo :: forall db.
                 ) => Proxy db -> DatabaseInfo
 headDatabaseInfo pdb =
   mkDatabaseInfo (headDbNameInfo pdb) (headTypeInfo pdb) 0 0 (coerce (headTableInfos pdb (sing :: Sing (Tables db))))
-
+                 (fromSing (sing :: Sing (DB db)))
 headTypeInfo :: forall db.
   ( AllUDCtx db (Types db)
   , SingI (Types db)
@@ -1397,6 +1405,7 @@ class ( Database db
       , SingI (Tables db)
       , AllUDCtx db (Types db)
       , SingI (Types db)
+      , SingI (DB db)
       ) => SingCtxDb db where
 
 instance ( Database db
@@ -1410,6 +1419,7 @@ instance ( Database db
          , SingI (Tables db)
          , AllUDCtx db (Types db)
          , SingI (Types db)
+         , SingI (DB db)
          ) => SingCtxDb db where  
   
 type family OriginalTableFieldInfo (db :: *) (tab :: *) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where

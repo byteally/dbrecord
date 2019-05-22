@@ -51,6 +51,7 @@ data DbK = Postgres
          | Cassandra
          | Presto
          | MSSQL
+         deriving (Eq, Show)
 
 data Max = Max
          deriving (Show, Eq, Ord, Read)
