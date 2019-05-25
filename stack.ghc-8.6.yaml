@@ -9,4 +9,4 @@ packages:
 - dbrecord-migration
 extra-deps: 
 - git: https://github.com/byteally/mssql-odbc.git
-  commit: 593b59f4b3141439b6f1aecee72057ed431207db
+  commit: 85658c0dda9bb257c3094c3f040b41e0ba96f580
