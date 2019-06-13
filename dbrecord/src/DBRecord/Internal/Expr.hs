@@ -778,3 +778,6 @@ toIdentity = unsafeCoerceExpr
 
 coerceExpr :: (Coercible a b) => Expr sc a -> Expr sc b
 coerceExpr = unsafeCoerceExpr
+
+rawExpr :: T.Text -> Expr sc a
+rawExpr = (Expr . PQ.RawExpr)
