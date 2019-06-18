@@ -48,7 +48,7 @@ import qualified Data.HashMap.Strict as HM
 import DBRecord.Internal.Lens
 import Data.Int
 import Data.Word
-
+import DBRecord.Internal.Sql.DML (SqlExpr) 
 
 import Database.MsSQL
 import qualified Data.Vector.Storable as SV
@@ -60,7 +60,6 @@ import Control.Exception (throwIO)
 import DBRecord.Internal.Types
 
 -- import Debug.Trace
-
 
 
 data Test1 = Test1
@@ -92,7 +91,7 @@ getMsSQLDbInfo dbNameStr = do
   mapM (\schemaData -> do
                 let schemaName = T.toTitle $ sName schemaData
                 tcols <- getDataFromEither (tableColQ schemaName) $ query con (tableColQ schemaName) :: IO [TableColInfo]
-                -- tchks <- getDataFromEither checksQ $ query con checksQ 
+                tchks <- getDataFromEither (checksQ schemaName) $ query con (checksQ schemaName)
                 prims <- getDataFromEither (primKeysQ schemaName) $ query con (primKeysQ schemaName) 
                 uniqs <- getDataFromEither (uniqKeysQ schemaName) $ query con (uniqKeysQ schemaName) 
                 fks <- getDataFromEither (foreignKeysQ schemaName) $ query con (foreignKeysQ schemaName) 
@@ -101,10 +100,8 @@ getMsSQLDbInfo dbNameStr = do
                 let tcis = (toTabColInfo hints tcols)
                 pure ( schemaName
                       , toDatabaseInfo hints dbNameStr [] tcis
-                                      (HM.empty)
-                                      (HM.empty)
-                                      -- (toCheckInfo hints tcis tchks)
-                                      -- (toDefaultInfo hints tcols)
+                                      (toCheckInfo hints tcis tchks)
+                                      (toDefaultInfo hints tcols)
                                       (toPrimKeyInfo hints prims)
                                       (toUniqKeyInfo hints uniqs)
                                       (toForeignKeyInfo hints fks)
@@ -115,7 +112,7 @@ getMsSQLDbInfo dbNameStr = do
   getDataFromEither currentQuery ioErrVec = do
    eErrVec <- ioErrVec
    case eErrVec of
-    Left sqlErr -> throwIO $ trace ("Current query: " ++ (show currentQuery) ) sqlErr
+    Left sqlErr -> throwIO sqlErr
     Right vec -> pure $ V.toList vec
 
 
@@ -250,23 +247,17 @@ toDatabaseInfo hints dbn eis cols chks defs pk uqs fks =
   in mkDatabaseInfo dbt types 0 0 (coerce tabInfos) MSSQL
 
 toCheckInfo :: Hints -> TableContent ColumnInfo -> [CheckCtx] -> TableContent CheckInfo
-toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo
+toCheckInfo hints tcis = HM.fromListWith (++) . map chkInfo
   where chkInfo (CheckCtx chkName chkOn chkVal) =
-          let ckExp = unsafeParseExpr chkVal
-          in  case isNotNullCk tcis chkOn ckExp of
-                True -> Nothing
-                False -> Just ( chkOn
-                              , [ mkCheckInfo (mkEntityName (mkHaskKeyName chkNameHints chkName) chkName) ckExp
-                                ]
-                              )
+          let ckExp = 
+                      case basicParseExpr chkVal of
+                        Left err -> error $ "Parse Error while parsing Check Expression: " ++ err 
+                        Right _ -> PQ.RawExpr chkVal
+              chkNameHints = checkKeyNameHints hints
+          in ( chkOn
+             , [ mkCheckInfo (mkEntityName (mkHaskKeyName chkNameHints chkName) chkName) ckExp])
 
-        -- NOTE: Not null also comes up as constraints
-        isNotNullCk tcis chkOn (PQ.PostfixExpr PQ.OpIsNotNull (PQ.BaseTableAttrExpr coln)) =
-          maybe False (const True) $ do
-            tcis' <- HM.lookup chkOn tcis
-            L.find (\tci -> (tci ^. columnNameInfo . dbName) == coln) tcis'          
-        isNotNullCk _ _ _ = True
-        chkNameHints = checkKeyNameHints hints
+        -- NOTE: Not null does not comes up as a constraint in MS-SQL
 
 toDefaultInfo :: Hints -> [TableColInfo] -> TableContent DefaultInfo
 toDefaultInfo hints = HM.fromListWith (++) . map defaultInfo
@@ -274,8 +265,11 @@ toDefaultInfo hints = HM.fromListWith (++) . map defaultInfo
           ( dbTableName tci
           , case dbColDefault tci of
               Just colDefault -> 
-                let defInfo = mkDefaultInfo (colName tci)
-                              (unsafeParseExpr colDefault)
+                let defaultExpr = 
+                                  case basicParseExpr colDefault of
+                                    Right _ -> PQ.RawExpr colDefault
+                                    Left err -> error $ "Parse Error while parsing Check Expression: " ++ err 
+                    defInfo = mkDefaultInfo (colName tci) defaultExpr
                 in [defInfo] -- [trace (show defInfo) defInfo]
               Nothing -> []
           )
@@ -483,6 +477,9 @@ type DatabaseName = Text
 unsafeParseExpr :: Text -> PQ.PrimExpr
 unsafeParseExpr t = primExprGen . either parsePanic id . parseOnly sqlExpr $ t
   where parsePanic e = error $ "Panic while parsing: " ++ show e ++ " , " ++ "while parsing " ++ show t
+
+basicParseExpr :: Text -> Either String SqlExpr
+basicParseExpr t = parseOnly sqlExpr $ t
 
 
 -- conversion to migrations
