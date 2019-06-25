@@ -3,5 +3,5 @@ module DBRecord.MSSQL
        , module Database.MsSQL
        ) where
 
-import DBRecord.MSSQL.Internal.Query
+import DBRecord.MSSQL.Internal.Query hiding (RowBufferType)
 import Database.MsSQL
