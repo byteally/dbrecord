@@ -6,4 +6,7 @@ packages:
 - dbrecord-mongo
 - dbrecord-mssql-odbc
 - dbrecord-sqlite-simple
-extra-deps: []
+- dbrecord-migration
+extra-deps: 
+- git: https://github.com/byteally/mssql-odbc.git
+  commit: 85658c0dda9bb257c3094c3f040b41e0ba96f580

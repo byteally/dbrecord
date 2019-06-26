@@ -37,7 +37,7 @@ ppSelect select = case select of
   SqlProduct sqSels selectFrom -> ppSelectWith selectFrom (ppProduct sqSels) 
   SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTableExpr tab)
   SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (ppJoin joinSt)
-  SqlBin binSt                 -> ppSelectBinary binSt
+  SqlBin binSt as              -> ppSelectBinary binSt as
   SqlCTE withs sql             -> ppSelectCTE withs sql
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
   -- SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
@@ -71,13 +71,17 @@ ppTables :: [SqlTableExpr] -> Doc
 ppTables []   = empty
 ppTables tabs = commaV ppTableExpr tabs
 
-ppSelectBinary :: Binary -> Doc
-ppSelectBinary bin = ppSelect (bSelect1 bin)
-                    $$ ppSelectBinOp (bOp bin)
-                    $$ ppSelect (bSelect2 bin)
-
-ppSelectBinOp :: SelectBinOp -> Doc
-ppSelectBinOp op = text $ case op of
+ppSelectBinary :: Binary -> Alias -> Doc
+ppSelectBinary bin as =
+  let selBin =    ppSelect (bSelect1 bin)
+               $$ ppSelBinOp (bOp bin)
+               $$ ppSelect (bSelect2 bin)
+  in case as of
+    Nothing -> selBin
+    Just as -> ppAs (Just $ doubleQuotes . text $ as) (parens selBin)
+  
+ppSelBinOp :: SelectBinOp -> Doc
+ppSelBinOp op = text $ case op of
   Union        -> "UNION"
   UnionAll     -> "UNION ALL"
   Except       -> "EXCEPT"
@@ -209,11 +213,11 @@ ppTableFun :: SqlName -> [SqlName] -> Doc
 ppTableFun funN args = text (T.unpack funN) <> parens (hsep (map (text . T.unpack) args))
 
 ppTableName :: SqlTableName -> Doc
-ppTableName st = case sqlTableSchemaName st of
-    Just sn -> doubleQuotes (text sn) <> text "." <> tname
-    Nothing -> tname
+ppTableName (SqlTableName db sc tab) = 
+    quoted db <> dot <> quoted sc <> dot <> quoted tab
   where
-    tname = doubleQuotes (text (sqlTableName st))
+    quoted = doubleQuotes . text
+    dot = text "."
 
 ppMSSQLExpr :: SqlExpr -> Doc
 ppMSSQLExpr expr =
@@ -346,8 +350,8 @@ ppLiteral l =
   case l of
     NullSql -> text "NULL"
     DefaultSql -> text "DEFAULT"
-    BoolSql True -> error "Panic: impossible boolean true literal"
-    BoolSql False -> error "Panic: impossible boolean false literal"
+    BoolSql True -> text "(1 = 1)"
+    BoolSql False -> text "(0 = 1)"
     ByteSql s -> binQuote s
     StringSql s -> text (quote (T.unpack s))
     IntegerSql i -> text (show i)

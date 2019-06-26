@@ -21,10 +21,12 @@ library
                        DBRecord.MSSQL.Internal.PrettyDDL
                        DBRecord.MSSQL.Internal.Query
                        DBRecord.MSSQL.Internal.Types
+                       DBRecord.MSSQL.Internal.Reify
                                          
   build-depends:       base              >= 4.7 && < 5
                      , dbrecord
-                     , text              >=0.11.1
+                     , text              >= 0.11.1
+                     , functorial-rec
                      -- , uuid              == 1.3.*
                      -- , resource-pool     == 0.2.*
                      -- , postgresql-simple == 0.5.*
@@ -39,28 +41,56 @@ library
                      -- , time              >= 1.5
                      , attoparsec
                      , mssql-odbc
-                     -- , unordered-containers >= 0.2
+                     , resource-pool      == 0.2.*
+                     , vector             == 0.12.*
+                     , profunctors
+                     , unordered-containers >= 0.2
                      -- , uniplate             >= 1.6
                      -- , scientific        >= 0.3 
                      -- , binary            >= 0.8
                      -- , base64-bytestring >= 1.0
                      -- , time              == 1.6.*
+                     , hashable
 
   default-language:    Haskell2010
 
-test-suite dbrecord-mssql-odbc-test
+-- test-suite dbrecord-mssql-odbc-test
+--   type:                exitcode-stdio-1.0
+--   hs-source-dirs:      test
+--   main-is:             Main.hs
+--   build-depends:       base
+--                      , text
+--                      , dbrecord
+--                      , dbrecord-mssql-odbc
+--                      , odbc
+--                     --  , hspec >= 2.6.0
+--                      , mtl
+--                      , postgresql-simple >= 0.5
+--                     --  , mysql-haskell >= 0.8
+--                     --  , mongoDB
+                     
+--   other-modules:       
+--   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
+--   default-language:    Haskell2010
+
+
+test-suite dbrecord-mssql-odbc-sqlexpr-test
   type:                exitcode-stdio-1.0
-  hs-source-dirs:      test
+  hs-source-dirs:      sqlexpr-test
   main-is:             Main.hs
   build-depends:       base
                      , text
                      , dbrecord
                      , dbrecord-mssql-odbc
-                     , hspec
+                     , odbc
+                    --  , hspec >= 2.6.0
                      , mtl
-                     , postgresql-simple >= 0.5
-                     , mysql-haskell >= 0.8
-                     , mongoDB
+                    --  , postgresql-simple >= 0.5
+                    --  , mysql-haskell >= 0.8
+                    --  , mongoDB
+                     , attoparsec
+                     , tasty
+                     , tasty-hunit
   other-modules:       
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
   default-language:    Haskell2010

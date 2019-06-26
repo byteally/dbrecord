@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- |
 -- Copyright   :  Daan Leijen (c) 1999, daan@cs.uu.nl
 --                HWT Group (c) 2003, haskelldb-users@lists.sourceforge.net
@@ -25,7 +27,7 @@ import Data.Monoid ((<>))
 import Data.List (intersperse)
 import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   parens, comma, punctuate,
-                                  hcat, vcat, brackets, doubleQuotes,
+                                  hcat, vcat, brackets,
                                    hsep, equals, char, empty, render,
                                   quotes, space)
 import DBRecord.Schema.Interface
@@ -38,14 +40,14 @@ ppSelect select = case select of
   SqlProduct sqSels selectFrom -> ppSelectWith selectFrom (ppProduct sqSels) 
   SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTableExpr tab)
   SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (ppJoin joinSt)
-  SqlBin binSt                 -> ppSelectBinary binSt
+  SqlBin binSt as              -> ppSelectBinary binSt as
   SqlCTE withs sql             -> ppSelectCTE withs sql
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
   -- SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
 
 ppSelectWith :: SelectFrom -> Doc -> Doc
 ppSelectWith from tabDoc =
-    ppAs (doubleQuotes . text <$> DML.alias from) $
+    ppAs (backtickQuotes . text <$> DML.alias from) $
     parens $ 
       text "SELECT"
   <+> ppAttrs (attrs from)
@@ -73,13 +75,18 @@ ppTables :: [SqlTableExpr] -> Doc
 ppTables []   = empty
 ppTables tabs = commaV ppTableExpr tabs
 
-ppSelectBinary :: Binary -> Doc
-ppSelectBinary bin = ppSelect (bSelect1 bin)
-                    $$ ppSelectBinOp (bOp bin)
-                    $$ ppSelect (bSelect2 bin)
+ppSelectBinary :: Binary -> Alias -> Doc
+ppSelectBinary bin as =
+  let selBin =    ppSelect (bSelect1 bin)
+               $$ ppSelBinOp (bOp bin)
+               $$ ppSelect (bSelect2 bin)
+  in case as of
+    Nothing -> selBin
+    Just as -> ppAs (Just $ backtickQuotes . text $ as) (parens selBin)
 
-ppSelectBinOp :: SelectBinOp -> Doc
-ppSelectBinOp op = text $ case op of
+
+ppSelBinOp :: SelectBinOp -> Doc
+ppSelBinOp op = text $ case op of
   Union        -> "UNION"
   UnionAll     -> "UNIONALL"
   Except       -> "EXCEPT"
@@ -202,8 +209,8 @@ ppOffset (Just off) = text "OFFSET " <> ppMysqlExpr off
 ppColumn :: SqlColumn -> Doc
 ppColumn (SqlColumn s) =
   case map T.unpack s of
-    [x]      -> doubleQuotes (text x)
-    (x : xs) -> doubleQuotes (text x) <> char '.' <> ppAliasedCol xs
+    [x]      -> backtickQuotes (text x)
+    (x : xs) -> backtickQuotes (text x) <> char '.' <> ppAliasedCol xs
     _        -> error "Panic: Column cannot be empty"
 
 ppTableExpr :: SqlTableExpr -> Doc
@@ -215,11 +222,10 @@ ppTableFun :: SqlName -> [SqlName] -> Doc
 ppTableFun funN args = text (T.unpack funN) <> parens (hsep (map (text . T.unpack) args))
 
 ppTableName :: SqlTableName -> Doc
-ppTableName st = case sqlTableSchemaName st of
-    Just sn -> doubleQuotes (text sn) <> text "." <> tname
-    Nothing -> tname
+ppTableName (SqlTableName db _ tab) =
+  quoted db <> text "." <> quoted tab
   where
-    tname = doubleQuotes (text (sqlTableName st))
+    quoted = backtickQuotes . text
 
 ppMysqlExpr :: SqlExpr -> Doc
 ppMysqlExpr expr =
@@ -342,7 +348,7 @@ ppAs (Just alias) expr = expr <+> hsep [text "as", alias]
 
 -- TODO: This name is absurdly wrong
 ppAliasedCol :: [String] -> Doc
-ppAliasedCol = doubleQuotes . hcat . punctuate aliasSep . map text
+ppAliasedCol = backtickQuotes . hcat . punctuate aliasSep . map text
 
 aliasSep :: Doc
 aliasSep = char '_'
@@ -414,7 +420,7 @@ ppMysqlType = go
         go (DBBit i)                = "BIT (" ++ show i ++ ")"        
         
         go (DBNullable t)           = go t
-        go (DBTypeName t args)      = T.unpack (doubleQuote t) ++ ppArgs args
+        go (DBTypeName t args)      = T.unpack (backtickQuoteTxt t) ++ ppArgs args
         go (DBCustomType t _)       = go t
         go x                        = error $ "Panic: not implemented @ppMysqlType" ++ (show x)
 
@@ -424,4 +430,7 @@ ppMysqlType = go
         ppArg (TextArg t)    = T.unpack t
         ppArg (IntegerArg i) = show i
 
-
+        backtickQuoteTxt a   = "`" <> a <> "`"
+        
+backtickQuotes :: Doc -> Doc
+backtickQuotes d = text "`" <> d <> text "`"

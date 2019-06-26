@@ -1,0 +1,13 @@
+compiler: ghc
+packages:
+  ./dbrecord
+  ./dbrecord-migration
+  ./dbrecord-mongo
+  ./dbrecord-postgres-simple
+  ./dbrecord-sqlite-simple
+  ./dbrecord-mssql-odbc
+
+source-repository-package
+    type: git
+    location: https://github.com/byteally/mssql-odbc.git
+    tag: 85658c0dda9bb257c3094c3f040b41e0ba96f580

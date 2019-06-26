@@ -1,21 +1,23 @@
 {-# LANGUAGE OverloadedStrings, DuplicateRecordFields, ScopedTypeVariables, DeriveGeneric #-}
 module DBRecord.MSSQL.Internal.Reify where
 {-
-       ( getMSSQLDbSchemaInfo
-       , defHints
-       , columnNameHint
-       , tableNameHint
-       , databaseNameHint
-       , uniqueNameHint
-       , foreignKeyNameHint
-       , seqNameHint
-       , checkNameHint
-       ) where
+>>>>>>> mssql-reify
+      --  ( 
+      --    getMSSQLDbSchemaInfo
+      --  , defHints
+      --  , columnNameHint
+      --  , tableNameHint
+      --  , databaseNameHint
+      --  , uniqueNameHint
+      --  , foreignKeyNameHint
+      --  , seqNameHint
+      --  , checkNameHint
+      --  ) where
 
 -- import DBRecord.Internal.Migration.Types hiding (CheckExpr)
 import GHC.Generics
-import Database.PostgreSQL.Simple.FromRow
-import Database.PostgreSQL.Simple
+-- import Database.PostgreSQL.Simple.FromRow
+-- import Database.PostgreSQL.Simple
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Text  (Text)
@@ -26,7 +28,8 @@ import Data.Hashable
 import Data.Attoparsec.Text (parseOnly)
 import Data.Either (either)
 import qualified DBRecord.Internal.PrimQuery as PQ
-import DBRecord.Postgres.Internal.Sql.Parser
+-- import DBRecord.Postgres.Internal.Sql.Parser
+import DBRecord.MSSQL.Internal.Sql.Parser
 import DBRecord.Internal.Sql.SqlGen (primExprGen)
 import DBRecord.Internal.DDL ( createTable
                              , addPrimaryKey
@@ -45,40 +48,132 @@ import qualified DBRecord.Internal.Schema as S
 import qualified Data.HashMap.Strict as HM
 import DBRecord.Internal.Lens
 import Data.Int
+import Data.Word
+import DBRecord.Internal.Sql.DML (SqlExpr) 
+
+import Database.MsSQL
+import qualified Data.Vector.Storable as SV
+import Data.Functor.Identity
+
+import qualified Data.ByteString as BS
+import Data.Text.Encoding
+import Control.Exception (throwIO)
+import DBRecord.Internal.Types
+
+-- import Debug.Trace
+
+
+data Test1 = Test1
+        {
+          -- tabName :: T.Text
+          tabCount :: Int
+        } deriving (Generic, Eq, Show)
+
+instance FromRow Test1        
+
+
+
+testConnectInfo :: Text -> ConnectInfo  
+testConnectInfo dbNameStr = connectInfo "Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=TimeClockPlusv7;UID=sa;PWD=P@ssw0rd;ApplicationIntent=ReadOnly"
+
+odbcConnectionString :: Text
+odbcConnectionString = "Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=Chinook;UID=sa;PWD=P@ssw0rd;ApplicationIntent=ReadOnly"
+
+getMsSQLDbInfo :: Text -> IO [(Text, DatabaseInfo)]
+getMsSQLDbInfo dbNameStr = do
+  eCon <- connect (testConnectInfo dbNameStr) 
+  let con = 
+        case eCon of
+          Right c -> c
+          -- TODO: ThrowIO instead of error
+          Left sqlErr -> error $ "SQL Error while creating connection! " ++ (show sqlErr)
+
+  schemaList <- getDataFromEither schemaListQ $ query con schemaListQ :: IO [SchemaName]
+  mapM (\schemaData -> do
+                let schemaName = T.toTitle $ sName schemaData
+                tcols <- getDataFromEither (tableColQ schemaName) $ query con (tableColQ schemaName) :: IO [TableColInfo]
+                tchks <- getDataFromEither (checksQ schemaName) $ query con (checksQ schemaName)
+                prims <- getDataFromEither (primKeysQ schemaName) $ query con (primKeysQ schemaName) 
+                uniqs <- getDataFromEither (uniqKeysQ schemaName) $ query con (uniqKeysQ schemaName) 
+                fks <- getDataFromEither (foreignKeysQ schemaName) $ query con (foreignKeysQ schemaName) 
+
+                let hints = defHints
+                let tcis = (toTabColInfo hints tcols)
+                pure ( schemaName
+                      , toDatabaseInfo hints dbNameStr [] tcis
+                                      (toCheckInfo hints tcis tchks)
+                                      (toDefaultInfo hints tcols)
+                                      (toPrimKeyInfo hints prims)
+                                      (toUniqKeyInfo hints uniqs)
+                                      (toForeignKeyInfo hints fks)
+                      ) ) schemaList
+  
+ where
+  getDataFromEither :: Query -> IO (Either SQLErrors (Vector a) ) -> IO [a]
+  getDataFromEither currentQuery ioErrVec = do
+   eErrVec <- ioErrVec
+   case eErrVec of
+    Left sqlErr -> throwIO sqlErr
+    Right vec -> pure $ V.toList vec
+
+
+-- main :: IO DatabaseInfo
+-- main = do
+--   let dockerConnectInfo = 
+--         ConnectInfo {  
+--                       ciHost = "127.0.0.1"
+--                     ,  ciPort =  3306
+--                     ,  ciDatabase = "Chinook" 
+--                     ,  ciUser = "root" 
+--                     ,  ciPassword = "password" 
+--                     ,  ciCharset = utf8mb4_unicode_ci
+--                     }
+--   msSqlConn <- connect dockerConnectInfo
+--   ioOK <- ping msSqlConn
+--   putStrLn $ "SQL CONN : " ++ (show ioOK)
+--   getMySQLDbSchemaInfo "" (Hints HM.empty) dockerConnectInfo
+
+--  where
+--   utf8mb4_unicode_ci :: Word8
+--   utf8mb4_unicode_ci = 224
+
+
 
 data EnumInfo = EnumInfo { enumTypeName :: Text
                          , enumCons     :: Vector Text
-                         } deriving (Show, Eq)
+                         } deriving (Show, Eq, Generic)
 
 data TableColInfo = TableColInfo { dbTableName  :: Text
                                  , dbColumnName :: Text
-                                 , dbPosition :: Int
+                                 , dbPosition :: Int32
                                  , dbColDefault :: Maybe Text
-                                 , dbIsNullable :: Text
+                                 , dbIsNullable :: BS.ByteString
                                  , dbTypeName :: Text
-                                 , dbCharacterLength :: Maybe Int
-                                 , dbNumericPrecision :: Maybe Int
-                                 , dbNumericScale :: Maybe Int
-                                 , dbDateTimePrecision :: Maybe Int
-                                 , dbIntervalPrecision :: Maybe Int
-                                 } deriving (Show, Eq)
+                                 , dbCharacterLength :: Maybe Int32
+                                 , dbNumericPrecision :: Maybe Word8
+                                 , dbNumericScale :: Maybe Int32
+                                 , dbDateTimePrecision :: Maybe Int16
+                                --  , dbIntervalPrecision :: Maybe Int
+                                 } deriving (Show, Eq, Generic)
+
+-- instance FromRow TableColInfo                                 
 
 data CheckCtx = CheckCtx Text Text Text
-               deriving (Show, Eq)
+               deriving (Show, Eq, Generic)
 
 type CheckExpr = (Text, Text)
 
-data PrimKey = PrimKey Text Text Text Int
-             deriving (Show, Eq, Ord)
+data PrimKey = PrimKey Text Text Text Int32
+             deriving (Show, Eq, Ord, Generic)
 
-data UniqKey = UniqKey Text Text Text Int
-             deriving (Show, Eq, Ord)
+data UniqKey = UniqKey Text Text Text Int32
+             deriving (Show, Eq, Ord, Generic)
 
-data FKey = FKey Text Text Text Int Text Text Text Int
-          deriving (Show, Eq, Ord)
+data FKey = FKey Text Text Text Int32 Text Text Text Int32
+          deriving (Show, Eq, Ord, Generic)
 
 data Seq = Seq Text Text Text Text Text Text Text (Maybe Text) (Maybe Text)
-         deriving (Show, Eq, Ord)
+         deriving (Show, Eq, Ord, Generic)
 
 type TableContent a = HM.HashMap Text [a]
 
@@ -128,7 +223,7 @@ toDatabaseInfo hints dbn eis cols chks defs pk uqs fks =
       custTypeNameHints = customTypeNameHints hints      
       dbt = EntityName { _hsName = mkHaskTypeName dbNameHints dbn , _dbName = dbn }
       types = map (\ei ->
-                    let et = parsePGType False defSizeInfo (T.unpack etn)
+                    let et = parseMSSQLType False defSizeInfo (T.unpack etn)
                         etn = enumTypeName ei
                     in  mkTypeNameInfo et (EnumTypeNM etn (V.toList (enumCons ei)))
                   ) eis
@@ -150,34 +245,34 @@ toDatabaseInfo hints dbn eis cols chks defs pk uqs fks =
                                       , _ignoredCols    = ()
                                       }
                        ) tabNs
-  in mkDatabaseInfo dbt types 0 0 (coerce tabInfos)
+  in mkDatabaseInfo dbt types 0 0 (coerce tabInfos) MSSQL
 
 toCheckInfo :: Hints -> TableContent ColumnInfo -> [CheckCtx] -> TableContent CheckInfo
-toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo
+toCheckInfo hints tcis = HM.fromListWith (++) . map chkInfo
   where chkInfo (CheckCtx chkName chkOn chkVal) =
-          let ckExp = unsafeParseExpr chkVal
-          in  case isNotNullCk tcis chkOn ckExp of
-                True -> Nothing
-                False -> Just ( chkOn
-                              , [ mkCheckInfo (mkEntityName (mkHaskKeyName chkNameHints chkName) chkName) ckExp
-                                ]
-                              )
+          let ckExp = 
+                      case basicParseExpr chkVal of
+                        Left err -> error $ "Parse Error while parsing Check Expression: " ++ err 
+                        Right _ -> PQ.RawExpr chkVal
+              chkNameHints = checkKeyNameHints hints
+          in ( chkOn
+             , [ mkCheckInfo (mkEntityName (mkHaskKeyName chkNameHints chkName) chkName) ckExp])
 
-        -- NOTE: Not null also comes up as constraints
-        isNotNullCk tcis chkOn (PQ.UnExpr PQ.OpIsNotNull (PQ.BaseTableAttrExpr coln)) =
-          maybe False (const True) $ do
-            tcis' <- HM.lookup chkOn tcis
-            L.find (\tci -> (tci ^. columnNameInfo . dbName) == coln) tcis'          
-        isNotNullCk _ _ _ = True
-        chkNameHints = checkKeyNameHints hints
+        -- NOTE: Not null does not comes up as a constraint in MS-SQL
 
 toDefaultInfo :: Hints -> [TableColInfo] -> TableContent DefaultInfo
 toDefaultInfo hints = HM.fromListWith (++) . map defaultInfo
   where defaultInfo tci =
           ( dbTableName tci
-          , [ {-mkDefaultInfo (colName tci)
-                            (unsafeParseExpr (fromJust (dbColDefault tci)))-}
-            ]
+          , case dbColDefault tci of
+              Just colDefault -> 
+                let defaultExpr = 
+                                  case basicParseExpr colDefault of
+                                    Right _ -> PQ.RawExpr colDefault
+                                    Left err -> error $ "Parse Error while parsing Check Expression: " ++ err 
+                    defInfo = mkDefaultInfo (colName tci) defaultExpr
+                in [defInfo] -- [trace (show defInfo) defInfo]
+              Nothing -> []
           )
         colName tci = mkHaskColumnName (colNameHints (dbTableName tci)) (dbColumnName tci)
         colNameHints tna = columnNameHints tna hints
@@ -208,39 +303,38 @@ toForeignKeyInfo hints = HM.fromListWith (++) . concatMap (map toForeignKeyInfo 
 
 toTabColInfo :: Hints -> [TableColInfo] -> TableContent ColumnInfo
 toTabColInfo hints = HM.fromListWith (++) . map colInfo
-  where nullable a = case dbIsNullable a of
+  where nullable a = case decodeUtf8 $ dbIsNullable a of
           "YES" -> True
           "NO"  -> False
           _     -> error "Panic: Invalid nullability information from DB"
 
         colInfo tci =
           let ci = mkColumnInfo (mkEntityName (mkHaskColumnName (columnNameHints (dbTableName tci) hints) (dbColumnName tci)) (dbColumnName tci))
-                                (coerce (parsePGType (nullable tci) (sizeInfo tci) (T.unpack (dbTypeName tci))))
+                                (coerce (parseMSSQLType (nullable tci) (sizeInfo tci) (T.unpack (dbTypeName tci))))
                    
           in ( dbTableName tci, [ci])
 
-instance FromRow EnumInfo where
-  fromRow = EnumInfo <$> field <*> field
+instance FromRow CheckCtx 
+instance FromRow TableColInfo 
+instance FromRow PrimKey 
+instance FromRow UniqKey 
+instance FromRow FKey 
 
-instance FromRow TableColInfo where
-  fromRow = TableColInfo <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
+data SchemaName = SchemaName
+  {sName :: Text} deriving (Eq, Show, Generic)
 
-instance FromRow CheckCtx where
-  fromRow = CheckCtx <$> field <*> field <*> field
+instance FromRow SchemaName
 
-instance FromRow PrimKey where
-  fromRow = PrimKey <$> field <*> field <*> field <*> field
+-- This query gets a list of names of user-defined schemas
+schemaListQ :: Query
+schemaListQ =
+  "select s.name as schema_name \
+   \ from sys.schemas s\
+    \ inner join sys.sysusers u\
+    \  on u.uid = s.principal_id \
+   \ where u.issqluser = 1\
+    \ and u.name not in ('sys', 'guest', 'INFORMATION_SCHEMA');"
 
-instance FromRow UniqKey where
-  fromRow = UniqKey <$> field <*> field <*> field <*> field
-
-instance FromRow FKey where
-  fromRow = FKey <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
-
-instance FromRow Seq where
-  fromRow = Seq <$> field <*> field <*> field <*> field
-                     <*> field <*> field <*> field <*> field
-                     <*> field
 
 enumQ :: Query
 enumQ =
@@ -250,91 +344,86 @@ enumQ =
      \ON pg_enum.enumtypid = pg_type.oid \
  \GROUP BY enumtype"
 
-tableColQ :: Query
-tableColQ =
- "SELECT col.table_name as table_name, \
-        \col.column_name, \ 
-        \col.ordinal_position as pos, \
-        \col.column_default, \ 
-        \col.is_nullable, \ 
-        \col.data_type, \ 
-        \col.character_maximum_length, \
-        \col.numeric_precision, \
-        \col.numeric_scale, \
-        \col.datetime_precision, \
-        \col.interval_precision \
- \FROM  (SELECT table_name, \ 
+tableColQ :: Text -> Query
+tableColQ schemaName =
+  "SELECT col.table_name as table_name, \
+        \col.column_name,  \
+        \col.ordinal_position as pos,\ 
+        \col.column_default,\  
+        \col.is_nullable,\  
+        \col.data_type,\  
+        \col.character_maximum_length,\ 
+        \col.numeric_precision,\ 
+        \col.numeric_scale,\ 
+        \col.datetime_precision \
+ \FROM  (SELECT table_name,\  
                \column_name,\ 
-               \ordinal_position, \
-               \column_default, \
-               \is_nullable, \ 
-               \CASE WHEN data_type = 'USER-DEFINED' THEN udt_name \
-                    \WHEN data_type = 'ARRAY'        THEN '[]' || udt_name \
-                    \ELSE data_type \
-               \END, \
-               \character_maximum_length, \
-               \numeric_precision, \
-               \numeric_scale, \
-               \datetime_precision, \
-               \interval_precision \
-        \FROM information_schema.columns \
-        \WHERE table_schema = 'public' \
+               \ordinal_position,\ 
+               \column_default,\ 
+               \is_nullable,\  
+               \DATA_TYPE,\
+               \character_maximum_length,\ 
+               \numeric_precision,\ 
+               \numeric_scale,\ 
+               \datetime_precision \
+        \FROM information_schema.columns WHERE TABLE_SCHEMA='" <> schemaName <> "' \
          \) as col \
   \JOIN \
         \(SELECT table_name \
-         \FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE') as tab \
+         \FROM information_schema.tables WHERE table_schema='" <> schemaName <> "' AND table_type='BASE TABLE') as tab \
   \ON col.table_name = tab.table_name \
-  \ORDER BY table_name, pos"
+  \ORDER BY table_name, pos;"
+
   
-checksQ :: Query
-checksQ =
+checksQ :: Text -> Query
+checksQ schemaName =
   "SELECT cc.constraint_name, table_name, check_clause \
   \FROM information_schema.check_constraints AS cc \
   \JOIN information_schema.table_constraints AS tc \
   \ON   cc.constraint_name = tc.constraint_name AND \
        \cc.constraint_schema = tc.constraint_schema \
-  \WHERE cc.constraint_schema = 'public'"
+  \WHERE cc.constraint_schema = '"  <> schemaName <> "'"
 
-primKeysQ :: Query
-primKeysQ =
+primKeysQ :: Text -> Query
+primKeysQ schemaName =
  "SELECT kcu.constraint_name as constraint_name, kcu.table_name, kcu.column_name, kcu.ordinal_position \
  \FROM  (SELECT constraint_name \
               \, table_name \
               \, column_name \
               \, ordinal_position \
         \FROM information_schema.key_column_usage \
-        \WHERE constraint_schema = 'public' \
+        \WHERE constraint_schema = '" <> schemaName <> "' \
        \) as kcu \
   \JOIN  (SELECT constraint_name \
               \, table_name \
          \FROM information_schema.table_constraints \
-         \WHERE constraint_type = 'PRIMARY KEY' AND constraint_schema = 'public' \
+         \WHERE constraint_type = 'PRIMARY KEY' AND constraint_schema = '"  <> schemaName <> "' \
         \) as tc \
   \ON    kcu.constraint_name = tc.constraint_name AND \
         \kcu.table_name = tc.table_name \
   \ORDER BY table_name, ordinal_position"
 
-uniqKeysQ :: Query
-uniqKeysQ =
+uniqKeysQ :: Text -> Query
+uniqKeysQ schemaName =
  "SELECT kcu.constraint_name as constraint_name, kcu.table_name, kcu.column_name, kcu.ordinal_position \
  \FROM  (SELECT constraint_name \
               \, table_name \
               \, column_name \
               \, ordinal_position \
         \FROM information_schema.key_column_usage \
-        \WHERE constraint_schema = 'public' \
+        \WHERE constraint_schema = '" <> schemaName <> "' \
        \) as kcu \
   \JOIN  (SELECT constraint_name \
               \, table_name \
          \FROM information_schema.table_constraints \
-         \WHERE constraint_type = 'UNIQUE' AND constraint_schema = 'public' \
+         \WHERE constraint_type = 'UNIQUE' AND constraint_schema = '" <> schemaName <> "' \
         \) as tc \
   \ON    kcu.constraint_name = tc.constraint_name AND \
         \kcu.table_name = tc.table_name \
   \ORDER BY table_name, constraint_name, ordinal_position"
 
-foreignKeysQ :: Query
-foreignKeysQ =
+foreignKeysQ :: Text -> Query
+foreignKeysQ schemaName =
  "SELECT \
     \KCU1.CONSTRAINT_NAME AS FK_CONSTRAINT_NAME \
     \,KCU1.TABLE_NAME AS FK_TABLE_NAME \
@@ -345,24 +434,24 @@ foreignKeysQ =
     \,KCU2.COLUMN_NAME AS REFERENCED_COLUMN_NAME \
     \,KCU2.ORDINAL_POSITION AS REFERENCED_ORDINAL_POSITION \
  \FROM (SELECT * FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS \
-               \WHERE CONSTRAINT_SCHEMA = 'public') AS RC \
+               \WHERE CONSTRAINT_SCHEMA = '" <> schemaName <> "') AS RC \
  \INNER JOIN (SELECT * FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
-                     \WHERE CONSTRAINT_SCHEMA = 'public' \
+                     \WHERE CONSTRAINT_SCHEMA = '" <> schemaName <> "' \
            \) AS KCU1 \
     \ON KCU1.CONSTRAINT_CATALOG = RC.CONSTRAINT_CATALOG \
     \AND KCU1.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA \
     \AND KCU1.CONSTRAINT_NAME = RC.CONSTRAINT_NAME \
 
  \INNER JOIN (SELECT * FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
-                     \WHERE CONSTRAINT_SCHEMA = 'public' \
+                     \WHERE CONSTRAINT_SCHEMA = '" <> schemaName <> "' \
            \) AS KCU2 \
     \ON KCU2.CONSTRAINT_CATALOG = RC.UNIQUE_CONSTRAINT_CATALOG \
     \AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA \
     \AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME \
     \AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION"
 
-seqsQ :: Query
-seqsQ =
+seqsQ :: Text -> Query
+seqsQ schemaName =
   "SELECT sequence_schema.sequence_name as seq_name \
         \, sequence_schema.start_value as start_value \
         \, sequence_schema.minimum_value as min_value \ 
@@ -372,7 +461,7 @@ seqsQ =
         \, sequence_schema.data_type as data_type \
         \, pg_seq_info.tab as seq_on_tab \
         \, pg_seq_info.col as seq_on_col FROM \
-   \(SELECT * FROM information_schema.sequences where sequence_schema = 'public') as sequence_schema \
+   \(SELECT * FROM information_schema.sequences where sequence_schema = '" <> schemaName <> "') as sequence_schema \
    \LEFT JOIN \
    \(select s.relname as seq, n.nspname as sch, t.relname as tab, a.attname as col \
    \from pg_class s \
@@ -380,36 +469,19 @@ seqsQ =
      \join pg_class t on t.oid=d.refobjid \
      \join pg_namespace n on n.oid=t.relnamespace \
      \join pg_attribute a on a.attrelid=t.oid and a.attnum=d.refobjsubid \
-   \where s.relkind='S' and d.deptype='a' and n.nspname = 'public') as pg_seq_info \
+   \where s.relkind='S' and d.deptype='a' and n.nspname = '" <> schemaName <> "') as pg_seq_info \
    \ON pg_seq_info.seq = sequence_schema.sequence_name"
    
  
-type SchemaName = Text
 type DatabaseName = Text
-
-getPostgresDbSchemaInfo ::  SchemaName -> Hints -> ConnectInfo -> IO DatabaseInfo 
-getPostgresDbSchemaInfo sn hints connInfo = do
-  let dbn = connectDatabase connInfo
-  conn <- connect connInfo    
-  enumTs <- query_ conn enumQ
-  tcols <- query_ conn tableColQ
-  tchks <- query_ conn checksQ
-  prims <- query_ conn primKeysQ
-  uniqs <- query_ conn uniqKeysQ
-  fks   <- query_ conn foreignKeysQ
-  (seqs :: [Seq])  <- query_ conn seqsQ
-  let tcis = (toTabColInfo hints tcols)
-  pure $ (toDatabaseInfo hints (T.pack dbn) enumTs tcis
-                         (toCheckInfo hints tcis tchks)
-                         (toDefaultInfo hints tcols)
-                         (toPrimKeyInfo hints prims)
-                         (toUniqKeyInfo hints uniqs)
-                         (toForeignKeyInfo hints fks)
-         )
 
 unsafeParseExpr :: Text -> PQ.PrimExpr
 unsafeParseExpr t = primExprGen . either parsePanic id . parseOnly sqlExpr $ t
   where parsePanic e = error $ "Panic while parsing: " ++ show e ++ " , " ++ "while parsing " ++ show t
+
+basicParseExpr :: Text -> Either String SqlExpr
+basicParseExpr t = parseOnly sqlExpr $ t
+
 
 -- conversion to migrations
 
@@ -516,6 +588,18 @@ sizeInfo tci =
            , szNumericPrecision  = fromIntegral <$> dbNumericPrecision tci
            , szNumericScale      = fromIntegral <$> dbNumericScale tci
            , szDateTimePrecision = fromIntegral <$> dbDateTimePrecision tci
-           , szIntervalPrecision = fromIntegral <$> dbIntervalPrecision tci
+           , szIntervalPrecision = Nothing
+          --  , szIntervalPrecision = fromIntegral <$> dbIntervalPrecision tci
            } 
+
+-- data SizeInfo = SizeInfo { szCharacterLength :: Maybe Integer
+--                          , szNumericPrecision :: Maybe Integer
+--                          , szNumericScale :: Maybe Integer
+--                          , szDateTimePrecision :: Maybe Integer
+--                          , szIntervalPrecision :: Maybe Integer
+--                          } deriving (Show, Eq)
+
+-- defSizeInfo :: SizeInfo
+-- defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
+
 -}

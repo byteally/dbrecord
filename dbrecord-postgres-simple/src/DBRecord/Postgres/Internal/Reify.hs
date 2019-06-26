@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings, DuplicateRecordFields, ScopedTypeVariables, DeriveGeneric #-}
-module DBRecord.Postgres.Internal.Reify
+module DBRecord.Postgres.Internal.Reify where
+{-  
        ( getPostgresDbSchemaInfo
        , defHints
        , columnNameHint
@@ -44,6 +45,7 @@ import qualified DBRecord.Internal.Schema as S
 import qualified Data.HashMap.Strict as HM
 import DBRecord.Internal.Lens
 import Data.Int
+import DBRecord.Internal.Types
 
 data EnumInfo = EnumInfo { enumTypeName :: Text
                          , enumCons     :: Vector Text
@@ -149,7 +151,7 @@ toDatabaseInfo hints dbn eis cols chks defs pk uqs fks =
                                       , _ignoredCols    = ()
                                       }
                        ) tabNs
-  in mkDatabaseInfo dbt types 0 0 (coerce tabInfos)
+  in mkDatabaseInfo dbt types 0 0 (coerce tabInfos) Postgres
 
 toCheckInfo :: Hints -> TableContent ColumnInfo -> [CheckCtx] -> TableContent CheckInfo
 toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo
@@ -517,3 +519,4 @@ sizeInfo tci =
            , szDateTimePrecision = fromIntegral <$> dbDateTimePrecision tci
            , szIntervalPrecision = fromIntegral <$> dbIntervalPrecision tci
            } 
+-}

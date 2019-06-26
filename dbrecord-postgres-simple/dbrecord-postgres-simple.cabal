@@ -36,6 +36,7 @@ library
                      , aeson
                      , text
                      , dbrecord
+                     -- , dbrecord-migration
                      , pretty            == 1.1.*
                      , vector
                      , base16-bytestring >= 0.1.1.6 && < 0.2

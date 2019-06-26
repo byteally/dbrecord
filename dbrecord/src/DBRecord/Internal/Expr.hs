@@ -98,6 +98,9 @@ prefixOp op (Expr expr) = Expr (PQ.PrefixExpr op expr)
 postfixOp :: PQ.UnOp -> Expr sc a -> Expr sc b
 postfixOp op (Expr expr) = Expr (PQ.PostfixExpr op expr)
 
+funOp :: String -> Expr sc a -> Expr sc b
+funOp op (Expr expr) = Expr (PQ.PrefixExpr (PQ.OpOtherFun op) expr)
+
 unsafeCast :: DBType -> Expr sc a -> Expr sc b
 unsafeCast castTo (Expr expr) = Expr $ PQ.CastExpr castTo expr
 
@@ -172,6 +175,9 @@ instance NumExpr Word where
 instance NumExpr Int where
   exprFromInteger = literalExpr . PQ.Integer . fromIntegral
 
+instance NumExpr Int32 where
+  exprFromInteger = literalExpr . PQ.Integer . fromIntegral
+
 instance NumExpr Integer where
   exprFromInteger = literalExpr . PQ.Integer
 
@@ -244,6 +250,9 @@ infix 4 .>=
 infix 4 .<=
 
 instance OrdExpr Int where
+  a .<= b = binOp PQ.OpLtEq a b
+
+instance OrdExpr Int32 where
   a .<= b = binOp PQ.OpLtEq a b
 
 instance OrdExpr Word where
@@ -522,6 +531,12 @@ instance EqExpr (CI T.Text) where
 instance EqExpr Int where
   a .== b = binOp PQ.OpEq a b
 
+instance EqExpr Int32 where
+  a .== b = binOp PQ.OpEq a b
+
+instance EqExpr Int64 where
+  a .== b = binOp PQ.OpEq a b
+
 instance EqExpr Word where
   a .== b = binOp PQ.OpEq a b
 
@@ -775,3 +790,6 @@ toIdentity = unsafeCoerceExpr
 
 coerceExpr :: (Coercible a b) => Expr sc a -> Expr sc b
 coerceExpr = unsafeCoerceExpr
+
+rawExpr :: T.Text -> Expr sc a
+rawExpr = (Expr . PQ.RawExpr)

@@ -52,83 +52,89 @@ type ColName  = Text
 type ColType  = Text
 data Column   = Column !ColName !ColType
   deriving (Show)
-           
+
 class ( -- TypeCxts db (Types db)
       ) => Database (db :: *) where
-  type Schema db :: Symbol
-  type Schema db = "public"
-  
-  type Tables db :: [Type]
-  
-  type Types db :: [Type]
-  type Types db = '[]
-
-  type TabIgnore db :: [Type]
-  type TabIgnore db = '[]
-  
-  type Baseline db :: Nat
-  type Baseline db = 0
-  
-  type Version db :: Nat
-  type Version db = 0  
-
   type DB db :: DbK
   type DB db = TypeError ('Text "DB type is not configured in the Database instance for type " ':<>: 'ShowType db ':$$:
                           'Text "Hint: add following to the Database instance for type "       ':<>: 'ShowType db ':$$:
                           'Text "type DB " ':<>: 'ShowType db ':<>: 'Text " = " ':<>: 'ShowType 'Postgres
                          )
+  type DatabaseName db :: Symbol
 
-class ( Database db
-      , AssertCxt (Elem (Tables db) tab) ('Text "Database " ':<>: 'ShowType db ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
-      , ValidateTableProps db tab    
+class ( -- TypeCxts db (Types db)
+          Database (SchemaDB sc)
+      ) => Schema (sc :: *) where
+  type SchemaName sc :: Symbol
+  type SchemaName sc = "public"
+  
+  type Tables sc :: [Type]
+  
+  type Types sc :: [Type]
+  type Types sc = '[]
+
+  type TabIgnore sc :: [Type]
+  type TabIgnore sc = '[]
+  
+  type Baseline sc :: Nat
+  type Baseline sc = 0
+  
+  type Version sc :: Nat
+  type Version sc = 0
+
+  type SchemaDB sc :: Type
+
+class ( Schema sc
+      , AssertCxt (Elem (Tables sc) tab) ('Text "Schema " ':<>: 'ShowType sc ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
+      , ValidateTableProps sc tab    
       , Generic tab
-      ) => Table (db :: *) (tab :: *) where
-  type PrimaryKey db tab :: [Symbol]
-  type PrimaryKey db tab = '[]
+      ) => Table (sc :: *) (tab :: *) where
+  type PrimaryKey sc tab :: [Symbol]
+  type PrimaryKey sc tab = '[]
 
-  type PrimaryKeyName db tab :: Maybe Symbol
-  type PrimaryKeyName db tab = 'Nothing
+  type PrimaryKeyName sc tab :: Maybe Symbol
+  type PrimaryKeyName sc tab = 'Nothing
 
-  type ForeignKey db tab :: [ForeignRef Type]
-  type ForeignKey db tab = '[]
+  type ForeignKey sc tab :: [ForeignRef Type]
+  type ForeignKey sc tab = '[]
 
-  type ForeignKeyNames db tab :: [(Symbol, Symbol)]
-  type ForeignKeyNames db tab = '[]
+  type ForeignKeyNames sc tab :: [(Symbol, Symbol)]
+  type ForeignKeyNames sc tab = '[]
 
-  type Unique db tab     :: [UniqueCT]
-  type Unique db tab = '[]
+  type Unique sc tab     :: [UniqueCT]
+  type Unique sc tab = '[]
 
-  type UniqueNames db tab :: [(Symbol, Symbol)]
-  type UniqueNames db tab = '[]
+  type UniqueNames sc tab :: [(Symbol, Symbol)]
+  type UniqueNames sc tab = '[]
 
-  type HasDefault db tab :: [Symbol]
-  type HasDefault db tab = '[]
+  type HasDefault sc tab :: [Symbol]
+  type HasDefault sc tab = '[]
 
-  type Check db tab :: [CheckCT]
-  type Check db tab = '[]
+  type Check sc tab :: [CheckCT]
+  type Check sc tab = '[]
 
-  type CheckNames db tab :: [(Symbol, Symbol)]
-  type CheckNames db tab = '[]
+  type CheckNames sc tab :: [(Symbol, Symbol)]
+  type CheckNames sc tab = '[]
   
-  type ColIgnore db tab :: IgnoredCol
-  type ColIgnore db tab = 'IgnoreNone
+  type ColIgnore sc tab :: IgnoredCol
+  type ColIgnore sc tab = 'IgnoreNone
 
-  type TableName db tab :: Symbol
-  type TableName db tab = DefaultTableName tab
+  type TableName sc tab :: Symbol
+  type TableName sc tab = DefaultTableName tab
 
-  type TableSequence db tab :: [Sequence]
-  type TableSequence db tab = '[]
+  type TableSequence sc tab :: [Sequence]
+  type TableSequence sc tab = '[]
 
-  type SequenceNames db tab :: [(Symbol, Symbol)]
-  type SequenceNames db tab = '[]
+  type SequenceNames sc tab :: [(Symbol, Symbol)]
+  type SequenceNames sc tab = '[]
   
-  type ColumnNames db tab :: [(Symbol, Symbol)]
-  type ColumnNames db tab = '[]
+  type ColumnNames sc tab :: [(Symbol, Symbol)]
+  type ColumnNames sc tab = '[]
 
-  defaults :: DBDefaults db tab
+  defaults :: DBDefaults sc tab
   defaults = DBDefaults Nil
 
-  checks :: DBChecks db tab
+  checks :: DBChecks sc tab
   checks = DBChecks Nil
 
 data Sequence = PGSerial Symbol   -- Column
@@ -605,9 +611,11 @@ type DefaultDatabaseName t = DefaultTypeName t
 type family DefaultTypeName (t :: *) :: Symbol where
   DefaultTypeName t = GenTyCon (Rep t)
 
+{-
 type family GetSchemaName (t :: *) :: Symbol where
-  GetSchemaName ()               = Schema ()
-  GetSchemaName db               = Schema db
+  GetSchemaName ()   = Schema ()
+  GetSchemaName db  = Schema db
+-}
 
 type OriginalTableFields t = GenTabFields (Rep t)
 
@@ -794,22 +802,32 @@ typeNameVal k t = fmap (\a -> t { _typeNameVal = a }) (k (_typeNameVal t))
 typeNameMap :: Lens' TypeNameInfo TypeNameMap
 typeNameMap k t = fmap (\a -> t { _typeNameMap = a }) (k (_typeNameMap t))
 
-mkDatabaseInfo :: EntityNameWithType -> [TypeNameInfo] -> Step -> Step -> TableInfos -> DatabaseInfo
-mkDatabaseInfo n tnis b v tis =
-  DatabaseInfo { _name          = n
-               , _typeNameInfos = tnis
-               , _ignoredTabs   = ()
-               , _baseline      = b
-               , _version       = v
-               , _tableInfos    = tis
-               } 
+mkSchemaInfo :: EntityNameWithType -> [TypeNameInfo] -> Step -> Step -> TableInfos -> SchemaInfo
+mkSchemaInfo n tnis b v tis =
+  SchemaInfo { _schemaName    = n
+             , _typeNameInfos = tnis
+             , _ignoredTabs   = ()
+             , _baseline      = b
+             , _version       = v
+             , _tableInfos    = tis
+             } 
              
-data DatabaseInfo = DatabaseInfo { _name           :: EntityNameWithType
-                                 , _typeNameInfos  :: [TypeNameInfo]
-                                 , _ignoredTabs    :: ()
-                                 , _baseline       :: Step
-                                 , _version        :: Step
-                                 , _tableInfos     :: TableInfos
+data SchemaInfo = SchemaInfo { _schemaName     :: EntityNameWithType
+                             , _typeNameInfos  :: [TypeNameInfo]
+                             , _ignoredTabs    :: ()
+                             , _baseline       :: Step
+                             , _version        :: Step
+                             , _tableInfos     :: TableInfos
+                             } deriving (Show, Eq)
+
+mkDatabaseInfo :: EntityNameWithType -> [SchemaInfo] -> DatabaseInfo
+mkDatabaseInfo et sis =
+  DatabaseInfo { _name = et
+               , _schemaInfos = sis
+               }
+
+data DatabaseInfo = DatabaseInfo { _name :: EntityNameWithType
+                                 , _schemaInfos :: [SchemaInfo]
                                  } deriving (Show, Eq)
 
 newtype TableInfos = TableInfos { _getTableInfos :: [TableInfo] }
@@ -818,22 +836,32 @@ newtype TableInfos = TableInfos { _getTableInfos :: [TableInfo] }
 name :: Lens' DatabaseInfo EntityNameWithType 
 name k t = fmap (\a -> t { _name = a }) (k (_name t))
 
-typeNameInfos :: Lens' DatabaseInfo [TypeNameInfo]
+schemaInfos :: Lens' DatabaseInfo [SchemaInfo]
+schemaInfos k t = fmap (\a -> t { _schemaInfos = a }) (k (_schemaInfos t))
+
+schemaName :: Lens' SchemaInfo EntityNameWithType
+schemaName k t = fmap (\a -> t { _schemaName = a }) (k (_schemaName t))
+
+typeNameInfos :: Lens' SchemaInfo [TypeNameInfo]
 typeNameInfos k t = fmap (\a -> t { _typeNameInfos = a }) (k (_typeNameInfos t))
 
-typeNameInfoAt :: Type.DBType -> Traversal' DatabaseInfo TypeNameInfo
+typeNameInfoAt :: Type.DBType -> Traversal' SchemaInfo TypeNameInfo
 typeNameInfoAt pgt = typeNameInfos . ixBy pgt _typeNameVal
 
-baseline :: Lens' DatabaseInfo Step
+baseline :: Lens' SchemaInfo Step
 baseline k t = fmap (\a -> t { _baseline = a }) (k (_baseline t))
 
-version :: Lens' DatabaseInfo Step
+version :: Lens' SchemaInfo Step
 version k t = fmap (\a -> t { _version = a }) (k (_version t))
 
-tableInfos :: Lens' DatabaseInfo TableInfos
+tableInfos :: Lens' SchemaInfo TableInfos
 tableInfos k t = fmap (\a -> t { _tableInfos = a }) (k (_tableInfos t))
 
-tableInfoAt :: TypeName T.Text -> Traversal' DatabaseInfo TableInfo
+dbKind :: Lens' DatabaseInfo DbK
+dbKind k t = fmap (\a -> t { _dbKind = a }) (k (_dbKind t))
+
+
+tableInfoAt :: TypeName T.Text -> Traversal' SchemaInfo TableInfo
 tableInfoAt hsN = tableInfos . coerceL . ixBy hsN (_hsName . _tableName)
 
 mkTableInfo :: Maybe PrimaryKeyInfo -> [ForeignKeyInfo] -> [DefaultInfo] -> [CheckInfo] -> [UniqueInfo] -> [SequenceInfo] -> EntityNameWithType -> [ColumnInfo] -> TableInfo
@@ -1046,11 +1074,18 @@ data ForeignRefD = RefByD Text   --  fk name
                           Text   --  col
                           (TypeName Text) --  ref tab name
 
+headSchemaInfo :: forall sc.
+                ( SingCtxDb sc
+                ) => Proxy sc -> SchemaInfo
+headSchemaInfo psc =
+  mkSchemaInfo (headSchemaNameInfo psc) (headTypeInfo psc) 0 0 (coerce (headTableInfos psc (sing :: Sing (Tables sc))))
+
 headDatabaseInfo :: forall db.
                 ( SingCtxDb db
                 ) => Proxy db -> DatabaseInfo
 headDatabaseInfo pdb =
   mkDatabaseInfo (headDbNameInfo pdb) (headTypeInfo pdb) 0 0 (coerce (headTableInfos pdb (sing :: Sing (Tables db))))
+                 (fromSing (sing :: Sing (DB db)))
 
 headTypeInfo :: forall db.
   ( AllUDCtx db (Types db)
@@ -1240,16 +1275,16 @@ mkSeqInfoOne et seqNameMaps (seqcol, seqHsn, st) =
             _              -> let hstn    = et ^. hsName . typeName
                               in  mkDbKeyName (SeqName hstn hsCol Nothing)
 
-headDbNameInfo :: forall db.
-               ( Database db
-               , SingE (Schema db)
-               , SingI (Schema db)
-               , SingE (GetPMT (Rep db))
-               , SingI (GetPMT (Rep db))
-               ) => Proxy (db :: *) -> EntityNameWithType
-headDbNameInfo _ =
-  (mkEntityName (coerce (fromSing (sing :: Sing (GetPMT (Rep db)))))
-                               (fromSing (sing :: Sing (Schema db)))
+headSchemaNameInfo :: forall sc.
+               ( Schema sc
+               , SingE (SchemaName sc)
+               , SingI (SchemaName sc)
+               , SingE (GetPMT (Rep sc))
+               , SingI (GetPMT (Rep sc))
+               ) => Proxy (sc :: *) -> EntityNameWithType
+headSchemaNameInfo _ =
+  (mkEntityName (coerce (fromSing (sing :: Sing (GetPMT (Rep sc)))))
+                               (fromSing (sing :: Sing (SchemaName sc)))
                  )
 
 headTabNameInfo :: forall tab db.
@@ -1316,102 +1351,102 @@ getColumnInfo cis hsn =
        Nothing  -> error $ "Panic: invalid column name lookup for (hs)column: " ++ show hsn
 
 
-class ( Table db tab
-      , KnownSymbol (TableName db tab)
+class ( Table sc tab
+      , KnownSymbol (TableName sc tab)
       , KnownSymbol (DefaultTableName tab)
         
-      , SingE (ColumnNames db tab)
-      , SingI (ColumnNames db tab)                  
-      , SingE (OriginalTableFieldInfo db tab)
-      , SingI (OriginalTableFieldInfo db tab)
+      , SingE (ColumnNames sc tab)
+      , SingI (ColumnNames sc tab)                  
+      , SingE (OriginalTableFieldInfo sc tab)
+      , SingI (OriginalTableFieldInfo sc tab)
 
-      , SingE (PrimaryKeyName db tab)
-      , SingI (PrimaryKeyName db tab)
-      , SingE (PrimaryKey db tab)
-      , SingI (PrimaryKey db tab)
+      , SingE (PrimaryKeyName sc tab)
+      , SingI (PrimaryKeyName sc tab)
+      , SingE (PrimaryKey sc tab)
+      , SingI (PrimaryKey sc tab)
 
-      , SingE (Unique db tab)
-      , SingE (UniqueNames db tab)
-      , SingI (Unique db tab)
-      , SingI (UniqueNames db tab)
+      , SingE (Unique sc tab)
+      , SingE (UniqueNames sc tab)
+      , SingI (Unique sc tab)
+      , SingI (UniqueNames sc tab)
 
-      , SingE (ForeignKey db tab)
-      , SingI (ForeignKey db tab)
-      , SingE (ForeignKeyNames db tab)
-      , SingI (ForeignKeyNames db tab)
+      , SingE (ForeignKey sc tab)
+      , SingI (ForeignKey sc tab)
+      , SingE (ForeignKeyNames sc tab)
+      , SingI (ForeignKeyNames sc tab)
 
-      , SingI (TableSequence db tab)
-      , SingE (TableSequence db tab)
-      , SingI (SequenceNames db tab)
-      , SingE (SequenceNames db tab)
+      , SingI (TableSequence sc tab)
+      , SingE (TableSequence sc tab)
+      , SingI (SequenceNames sc tab)
+      , SingE (SequenceNames sc tab)
 
-      , SingE (CheckNames db tab)
-      , SingI (CheckNames db tab)
+      , SingE (CheckNames sc tab)
+      , SingI (CheckNames sc tab)
 
       , SingI (GetPMT (Rep tab))
       , SingE (GetPMT (Rep tab))        
-      ) => SingCtx db tab where
+      ) => SingCtx sc tab where
 
-instance ( Table db tab
-      , KnownSymbol (TableName db tab)
+instance ( Table sc tab
+      , KnownSymbol (TableName sc tab)
       , KnownSymbol (DefaultTableName tab)
         
-      , SingE (ColumnNames db tab)
-      , SingI (ColumnNames db tab)                  
-      , SingE (OriginalTableFieldInfo db tab)
-      , SingI (OriginalTableFieldInfo db tab)
+      , SingE (ColumnNames sc tab)
+      , SingI (ColumnNames sc tab)                  
+      , SingE (OriginalTableFieldInfo sc tab)
+      , SingI (OriginalTableFieldInfo sc tab)
 
-      , SingE (PrimaryKeyName db tab)
-      , SingI (PrimaryKeyName db tab)
-      , SingE (PrimaryKey db tab)
-      , SingI (PrimaryKey db tab)
+      , SingE (PrimaryKeyName sc tab)
+      , SingI (PrimaryKeyName sc tab)
+      , SingE (PrimaryKey sc tab)
+      , SingI (PrimaryKey sc tab)
 
-      , SingE (Unique db tab)
-      , SingE (UniqueNames db tab)
-      , SingI (Unique db tab)
-      , SingI (UniqueNames db tab)
+      , SingE (Unique sc tab)
+      , SingE (UniqueNames sc tab)
+      , SingI (Unique sc tab)
+      , SingI (UniqueNames sc tab)
 
-      , SingE (ForeignKey db tab)
-      , SingI (ForeignKey db tab)
-      , SingE (ForeignKeyNames db tab)
-      , SingI (ForeignKeyNames db tab)
+      , SingE (ForeignKey sc tab)
+      , SingI (ForeignKey sc tab)
+      , SingE (ForeignKeyNames sc tab)
+      , SingI (ForeignKeyNames sc tab)
 
-      , SingI (TableSequence db tab)
-      , SingE (TableSequence db tab)
-      , SingI (SequenceNames db tab)
-      , SingE (SequenceNames db tab)
+      , SingI (TableSequence sc tab)
+      , SingE (TableSequence sc tab)
+      , SingI (SequenceNames sc tab)
+      , SingE (SequenceNames sc tab)
 
-      , SingE (CheckNames db tab)
-      , SingI (CheckNames db tab)
+      , SingE (CheckNames sc tab)
+      , SingI (CheckNames sc tab)
 
       , SingI (GetPMT (Rep tab))
       , SingE (GetPMT (Rep tab))
-      ) => SingCtx db tab
+      ) => SingCtx sc tab
 
-class ( Database db
-      , SingE (Schema db)
-      , SingI (Schema db)
-      , SingI (GetPMT (Rep db))
-      , SingE (GetPMT (Rep db))
-      , All (SingCtx db) (Tables db)
-      , SingI (Tables db)
-      , AllUDCtx db (Types db)
-      , SingI (Types db)
-      ) => SingCtxDb db where
+class ( Schema sc
+      , SingE (SchemaName sc)
+      , SingI (SchemaName sc)
+      , SingI (GetPMT (Rep sc))
+      , SingE (GetPMT (Rep sc))
+      , All (SingCtx sc) (Tables sc)
+      , SingI (Tables sc)
+      , AllUDCtx sc (Types sc)
+      , SingI (Types sc)
+      ) => SingCtxDb sc where
 
-instance ( Database db
-         , SingE (DefaultDatabaseName db)
-         , SingE (Schema db)
-         , SingI (DefaultDatabaseName db)
-         , SingI (Schema db)
-         , SingI (GetPMT (Rep db))
-         , SingE (GetPMT (Rep db))
-         , All (SingCtx db) (Tables db)
-         , SingI (Tables db)
-         , AllUDCtx db (Types db)
-         , SingI (Types db)
-         ) => SingCtxDb db where  
-  
+instance ( Schema sc
+         , SingE (DefaultDatabaseName sc)
+         , SingE (SchemaName sc)
+         , SingI (DefaultDatabaseName sc)
+         , SingI (SchemaName sc)
+         , SingI (GetPMT (Rep sc))
+         , SingE (GetPMT (Rep sc))
+         , All (SingCtx sc) (Tables sc)
+         , SingI (Tables sc)
+         , AllUDCtx sc (Types sc)
+         , SingI (Types sc)
+         ) => SingCtxDb sc where  
+
 type family OriginalTableFieldInfo (db :: *) (tab :: *) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where
   OriginalTableFieldInfo db tab = GetFieldInfo (DB db) (OriginalTableFields tab)
 
@@ -1433,7 +1468,7 @@ col :: forall (db :: *) (tab :: *) (col :: Symbol) (a :: *) sc.
   ( KnownSymbol col
   , UnifyField sc col a ('Text "Unable to find column " ':<>: 'ShowType col)
   , Table db tab
-  , Database db
+  , Schema db
   , SingE (ColumnNames db tab)
   , SingI (ColumnNames db tab)
   , SingE (OriginalTableFieldInfo db tab)

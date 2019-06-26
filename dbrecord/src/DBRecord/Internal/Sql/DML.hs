@@ -27,7 +27,8 @@ data JoinType = LeftJoin
               deriving (Show, Read, Eq)
 
 data SqlTableName = SqlTableName
-  { sqlTableSchemaName :: Maybe String
+  { sqlTableDbName     :: String
+  , sqlTableSchemaName :: String
   , sqlTableName       :: String
   } deriving (Show, Read, Eq)
   
@@ -79,7 +80,7 @@ data SqlWith = SqlWith SqlName [SqlName] SqlSelect
 data SqlSelect = SqlProduct [SqlTableExpr] SelectFrom      -- ^ product
                | SqlSelect SqlTableExpr SelectFrom          -- ^ base case
                | SqlJoin Join SelectFrom                -- ^ join
-               | SqlBin Binary                          -- ^ binary
+               | SqlBin Binary Alias                    -- ^ binary
                | SqlCTE [SqlWith] SqlSelect             -- ^ CTEs
                | SqlValues SqlValues Alias              -- ^ values
                  deriving (Show, Read,Eq)
@@ -168,8 +169,10 @@ data LitSql = NullSql
 
 
 data BinOp = OpEq | OpLt | OpLtEq | OpGt | OpGtEq | OpNotEq
+           | OpNotLt | OpNotGt
            | OpAnd | OpOr
            | OpLike | OpIn
+           | OpAny | OpAll | OpExists | OpSome | OpBetween
            | OpOther String  
            | OpCat
            | OpPlus | OpMinus | OpMul | OpDiv | OpMod
@@ -183,6 +186,8 @@ data UnOp = OpNot
           | OpLength
           | OpAbs
           | OpNegate
+          | OpPositive
+          | OpBitwiseNot
           | OpLower
           | OpUpper
           | OpOtherPrefix String

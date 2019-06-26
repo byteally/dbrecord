@@ -17,6 +17,9 @@ library
   ghc-options:         -Wall
   exposed-modules:
                     DBRecord.MySQL
+                    DBRecord.MySQL.Internal.Query
+                    DBRecord.MySQL.Internal.FromField
+                    DBRecord.MySQL.Internal.FromRow
                     DBRecord.MySQL.Internal.Sql.Pretty
                     DBRecord.MySQL.Internal.Sql.Parser
                     DBRecord.MySQL.Internal.PrettyDDL
@@ -25,15 +28,17 @@ library
   build-depends:       base              >= 4.7 && < 5
                      , dbrecord
                      , text              >=0.11.1
+                     
                      -- , uuid              == 1.3.*
-                     -- , resource-pool     == 0.2.*
+                     , resource-pool     == 0.2.*
                      -- , postgresql-simple == 0.5.*
-                     -- , transformers      == 0.5.*
-                     -- , mtl               == 2.*
+                     , transformers      == 0.5.*
+                     , mtl               == 2.*
                      -- , case-insensitive  == 1.2.*
                      , base16-bytestring >= 0.1.1.6 && < 0.2
                      , pretty            >= 1.1
                      , bytestring
+                     , io-streams
                      -- , aeson
                      , vector
                      -- , time              >= 1.5
@@ -47,7 +52,8 @@ library
                      , mysql-haskell
                      , hashable
                      , io-streams
-                     , mysql-haskell-nem
+                     , time
+                     , mysql-haskell
 
   default-language:    Haskell2010
 

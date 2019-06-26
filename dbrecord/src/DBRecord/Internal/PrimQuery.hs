@@ -63,24 +63,27 @@ data TableExpr p = PrimQuery p
                  | TableFun  Name [Attribute]
                  deriving (Show, Read, Generic, Eq, Ord)
 
+queryExpr :: p -> TableExpr p
+queryExpr = PrimQuery
+
 data PrimQuery = Table (TableExpr PrimQuery) Clauses
                | Product (NEL.NonEmpty (TableExpr PrimQuery)) Clauses
                | Join JoinType Lateral (Maybe PrimExpr) (TableExpr PrimQuery) (TableExpr PrimQuery) Clauses
-               | Binary BinType PrimQuery PrimQuery
+               | Binary BinType PrimQuery PrimQuery (Maybe Text)
                | CTEQuery (CTE PrimQuery PrimQuery)
                -- Values
-               deriving (Show, Read, Generic, Eq, Ord)
+               deriving (Show)
 
 data InsertQuery = InsertQuery TableId [Attribute] (NEL.NonEmpty [PrimExpr]) [PrimExpr]
-                 deriving (Show, Read, Generic, Eq, Ord)
+                 deriving (Show)
 
 data UpdateQuery = UpdateQuery TableId [PrimExpr] Assoc [PrimExpr]
-                 deriving (Show, Read, Generic, Eq, Ord)
+                 deriving (Show)
 
 data DeleteQuery = DeleteQuery TableId [PrimExpr]
-                 deriving (Show, Read, Generic, Eq, Ord)
+                 deriving (Show)
 
-type Projection = (Sym, PrimExpr)
+type Projection = (Text, PrimExpr)
 
 data Clauses = Clauses { projections :: [Projection]
                        , criteria    :: [PrimExpr]
@@ -91,7 +94,7 @@ data Clauses = Clauses { projections :: [Projection]
                        , limit       :: Maybe PrimExpr
                        , offset      :: Maybe PrimExpr
                        , alias       :: Maybe Text  
-                       } deriving (Show, Read, Generic, Eq, Ord)
+                       } deriving (Show)
 
 clauses :: Clauses
 clauses =
@@ -109,15 +112,16 @@ clauses =
 data WindowClause = WindowClause
   { windowName    :: Text
   , wpartitionbys :: WindowPart
-  } deriving (Show, Read, Generic, Eq, Ord)
+  } deriving (Show)
 
 data WindowPart = WindowPart
   { wpartExpr :: [PrimExpr]
   , worderbys :: [OrderExpr]
-  } deriving (Show, Read, Generic, Eq, Ord)
+  } deriving (Show)
              
 data TableId = TableId
-  { schema :: Name
+  { database :: Name
+  , schema   :: Name
   , tableName :: TableName
   } deriving (Show, Read, Generic, Eq, Ord)
 
@@ -158,13 +162,13 @@ data AggrOp = AggrCount | AggrSum | AggrAvg | AggrMin | AggrMax
             | AggrStdDev | AggrStdDevP | AggrVar | AggrVarP
             | AggrBoolOr | AggrBoolAnd | AggrArr | AggrStringAggr PrimExpr
             | AggrOther String
-            deriving (Show, Read, Generic, Eq, Ord)
+            deriving (Show, Eq)
 
 data LimitOp = LimitOp Int | OffsetOp Int | LimitOffsetOp Int Int
              deriving (Show, Read, Generic, Eq, Ord)
                      
 data OrderExpr = OrderExpr OrderOp PrimExpr
-               deriving (Show, Read, Generic, Eq, Ord)
+               deriving (Show, Eq)
 
 data OrderNulls = NullsFirst | NullsLast
                 deriving (Show, Read, Generic, Eq, Ord)
@@ -199,10 +203,23 @@ data PrimExpr = AttrExpr Sym -- Eg?
               | ArrayExpr [PrimExpr] -- ^ ARRAY[..]
               | NamedWindowExpr WindowName PrimExpr -- OVER
               | AnonWindowExpr [PrimExpr] [OrderExpr] PrimExpr -- OVER
-              | TableExpr PrimQuery
-              | FlatComposite [(Text, PrimExpr)]
-              deriving (Read, Show, Generic, Eq, Ord)
+              | TableExpr PQFun PrimExpr
+              | FlatComposite [Projection]
+            -- For Raw Expressions
+              | RawExpr T.Text
+              deriving ({-Read,-} Show, Eq{-, Generic, Eq, Ord-})
 
+newtype PQFun = PQFun { getPqFun :: PrimExpr -> PrimQuery }
+
+pqFun :: (PrimExpr -> PrimQuery) -> PQFun
+pqFun = PQFun
+
+instance Show PQFun where
+  show (PQFun f) = "PQ: <" ++ show (f (FlatComposite [])) ++ ">"
+
+instance Eq PQFun where
+  _ == _ = False
+  
 instance Uniplate PrimExpr where
   uniplate (AttrExpr s)           = plate AttrExpr |- s
   uniplate (BaseTableAttrExpr b)  = plate BaseTableAttrExpr |- b
@@ -219,7 +236,7 @@ instance Uniplate PrimExpr where
   uniplate (CastExpr n pe)        = plate CastExpr |- n |* pe
   uniplate (DefaultInsertExpr)    = plate DefaultInsertExpr
   uniplate (ArrayExpr pes)        = plate ArrayExpr ||* pes
-  uniplate (TableExpr p)          = plate TableExpr |- p
+  uniplate (TableExpr {})         = error "Panic: not implemented for TableExpr"
   uniplate (NamedWindowExpr n pe) = plate NamedWindowExpr |- n |* pe
   uniplate (AnonWindowExpr p o e) = plate AnonWindowExpr ||* p |- o |* e
   uniplate (FlatComposite tpes)   = plate FlatComposite ||+ tpes
@@ -235,14 +252,23 @@ data PrimQueryFold p = PrimQueryFold
   { table     :: TableExpr p -> Clauses -> p
   , product   :: NEL.NonEmpty (TableExpr p) -> Clauses -> p
   , join      :: JoinType -> Lateral -> Maybe PrimExpr -> TableExpr p -> TableExpr p -> Clauses -> p
-  , binary    :: BinType  -> p -> p -> p
+  , binary    :: BinType -> p -> p -> Maybe Text -> p
   , cte       :: CTE p p -> p
   
   -- , values    :: [Sym] -> (NEL.NonEmpty [PrimExpr]) -> p
   -- , label     :: String -> p -> p
   -- , relExpr   :: PrimExpr -> [(Sym, PrimExpr)] -> p
-    -- ^ A relation-valued expression
+  -- ^ A relation-valued expression
   }
+
+baseTable :: PrimQueryFold p -> TableId -> Clauses -> p
+baseTable p tId = table p (TableName tId)
+
+innerJoin :: PrimQueryFold p -> PrimExpr -> TableExpr p -> TableExpr p -> Clauses -> p
+innerJoin p e = join p InnerJoin False (Just e)
+
+leftJoin :: PrimQueryFold p -> PrimExpr -> TableExpr p -> TableExpr p -> Clauses -> p
+leftJoin p e = join p LeftJoin False (Just e)
 
 primQueryFoldDefault :: PrimQueryFold PrimQuery
 primQueryFoldDefault = PrimQueryFold
@@ -263,7 +289,7 @@ foldPrimQuery f = fix fold
           Product qs cs            -> product   f (fmap (goTExpr self) qs) cs
           Join j lt cond q1 q2 cs  -> join      f j lt cond (goTExpr self q1) (goTExpr self q2) cs
           CTEQuery ctev            -> cte       f (goCTE self ctev)
-          Binary b q1 q2           -> binary    f b (self q1) (self q2)
+          Binary b q1 q2 a         -> binary    f b (self q1) (self q2) a
           -- Values ss pes             -> values    f ss pes
           -- Label l pq                -> label     f l (self pq)
           -- RelExpr pe syms           -> relExpr   f pe syms
