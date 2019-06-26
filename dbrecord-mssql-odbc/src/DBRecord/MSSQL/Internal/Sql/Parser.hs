@@ -429,25 +429,41 @@ parseMSSQLType nullInfo sz = wrapNullable nullInfo . go
         go "nvarchar"                  = case szCharacterLength sz of
                                            Just v -> DBVarchar (Right v)
                                            _      -> error "Panic: varying character must specify a size" 
+        go "varchar"                   = case szCharacterLength sz of
+                                           Just v -> DBVarchar (Right v)
+                                           _      -> error "Panic: varying character must specify a size"                                            
         go "ntext"                     = DBText
         go "binary"                    = case szCharacterLength sz of -- TODO: Verify this check
                                            Just v -> DBBinary v
                                            _      -> error "Panic: Binary type must specify a size or length" 
         go "varbinary (max)"           = DBVarbinary (Left Type.Max)
         go "varbinary"                 = DBVarbinary (Left Type.Max) -- TODO : Check for sz part?
+        go "image"                     = DBVarbinary (Left Type.Max)
         go "datetimeoffset"            = case szDateTimePrecision sz of
                                            Just v  -> DBTimestamptz v
                                            Nothing -> DBTimestamptz 6
         go "datetime2"                 = case szDateTimePrecision sz of
                                            Just v  -> DBTimestamp v
                                            Nothing -> DBTimestamp 6
+        go "datetime"                 = case szDateTimePrecision sz of
+                                           Just v  -> DBTimestamp v
+                                           Nothing -> DBTimestamp 6 
+        go "smalldatetime"            = case szDateTimePrecision sz of
+                                           Just v  -> DBTimestamp v
+                                           Nothing -> DBTimestamp 6                                                                                      
         go "date"                      = DBDate
         go "time"                      = case szDateTimePrecision sz of
                                            Just v  -> DBTime v
                                            Nothing -> DBTime 6
         go "bit"                       = case szCharacterLength sz of
                                           Just v -> DBBit v
-                                          _      -> error "Panic: character must specify a size"
+                                          _      -> DBBit 1
+        go "tinyint"                   = DBInt2
+        go "smallmoney"                = DBText
+        go "money"                     = DBText
+        go "xml"                       = DBText
+        go "uniqueidentifier"          = DBUuid
+        go "char"                      = DBBinary 16
 
        -- Custom Type 
         go t                           = DBCustomType (DBTypeName (T.pack t) []) False

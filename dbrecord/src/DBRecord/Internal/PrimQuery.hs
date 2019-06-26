@@ -205,6 +205,8 @@ data PrimExpr = AttrExpr Sym -- Eg?
               | AnonWindowExpr [PrimExpr] [OrderExpr] PrimExpr -- OVER
               | TableExpr PQFun PrimExpr
               | FlatComposite [Projection]
+            -- For Raw Expressions
+              | RawExpr T.Text
               deriving ({-Read,-} Show, Eq{-, Generic, Eq, Ord-})
 
 newtype PQFun = PQFun { getPqFun :: PrimExpr -> PrimQuery }

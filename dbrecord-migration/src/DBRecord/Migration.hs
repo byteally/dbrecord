@@ -1328,7 +1328,8 @@ class ( BaseDatabase db ver
       , SingE (GetPMT (Rep db))
       , All (SingCtxBase db ver) (BaseTables db ver)
       , AllBaseUDCtx db ver (BaseTypes db ver)
-      , SingI (BaseTypes db ver)        
+      , SingI (BaseTypes db ver)  
+      , SingI (DB db)      
       ) => SingCtxBaseDb db ver where
 
 instance ( BaseDatabase db ver
@@ -1345,6 +1346,7 @@ instance ( BaseDatabase db ver
 
          , AllBaseUDCtx db ver (BaseTypes db ver)
          , SingI (BaseTypes db ver)
+         , SingI (DB db)
          ) => SingCtxBaseDb db ver where  
 
 type family AllBaseUDCtx db ver tys :: Constraint where
@@ -1403,6 +1405,7 @@ baseDatabaseInfo pdb pver =
   in mkDatabaseInfo (mkEntityName (coerce (fromSing (sing :: Sing (GetPMT (Rep db)))))
                                        (fromSing (sing :: Sing (BaseSchema db ver)))
                  ) btys 0 0 (coerce (baseTableInfos pdb pver (sing :: Sing (BaseTables db ver))))
+                 (fromSing (sing :: Sing (DB db)))
 
 baseTableInfos :: (All (SingCtxBase db ver) xs) => Proxy (db :: *) -> Proxy (ver :: Nat) -> Sing (xs :: [TypeName Symbol]) -> [TableInfo]
 baseTableInfos pdb pver (SCons st@(STypeName {}) sxs) =

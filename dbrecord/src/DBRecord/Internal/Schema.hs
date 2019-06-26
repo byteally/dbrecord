@@ -830,7 +830,6 @@ data DatabaseInfo = DatabaseInfo { _name :: EntityNameWithType
                                  , _schemaInfos :: [SchemaInfo]
                                  } deriving (Show, Eq)
 
-
 newtype TableInfos = TableInfos { _getTableInfos :: [TableInfo] }
                    deriving (Show, Eq)
 
@@ -857,6 +856,10 @@ version k t = fmap (\a -> t { _version = a }) (k (_version t))
 
 tableInfos :: Lens' SchemaInfo TableInfos
 tableInfos k t = fmap (\a -> t { _tableInfos = a }) (k (_tableInfos t))
+
+dbKind :: Lens' DatabaseInfo DbK
+dbKind k t = fmap (\a -> t { _dbKind = a }) (k (_dbKind t))
+
 
 tableInfoAt :: TypeName T.Text -> Traversal' SchemaInfo TableInfo
 tableInfoAt hsN = tableInfos . coerceL . ixBy hsN (_hsName . _tableName)
@@ -1076,6 +1079,13 @@ headSchemaInfo :: forall sc.
                 ) => Proxy sc -> SchemaInfo
 headSchemaInfo psc =
   mkSchemaInfo (headSchemaNameInfo psc) (headTypeInfo psc) 0 0 (coerce (headTableInfos psc (sing :: Sing (Tables sc))))
+
+headDatabaseInfo :: forall db.
+                ( SingCtxDb db
+                ) => Proxy db -> DatabaseInfo
+headDatabaseInfo pdb =
+  mkDatabaseInfo (headDbNameInfo pdb) (headTypeInfo pdb) 0 0 (coerce (headTableInfos pdb (sing :: Sing (Tables db))))
+                 (fromSing (sing :: Sing (DB db)))
 
 headTypeInfo :: forall db.
   ( AllUDCtx db (Types db)
@@ -1436,7 +1446,7 @@ instance ( Schema sc
          , AllUDCtx sc (Types sc)
          , SingI (Types sc)
          ) => SingCtxDb sc where  
-  
+
 type family OriginalTableFieldInfo (db :: *) (tab :: *) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where
   OriginalTableFieldInfo db tab = GetFieldInfo (DB db) (OriginalTableFields tab)
 

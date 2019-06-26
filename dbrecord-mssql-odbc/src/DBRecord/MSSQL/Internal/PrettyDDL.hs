@@ -231,6 +231,7 @@ ppAlterAttr (ChangeAttrType ty) =
 renderDDL :: PrimDDL -> String
 renderDDL = render . ppPrimDDL
 
+
 {-
 renderChangeSets :: [ChangeSet] -> String
 renderChangeSets =
