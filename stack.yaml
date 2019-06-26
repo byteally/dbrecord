@@ -16,5 +16,6 @@ extra-deps:
 - word24-2.0.1
 - tcp-streams-0.6.0.0
 - mongoDB-2.2.0
+- mysql-haskell-nem-0.1.0.0
 - git: https://github.com/byteally/mssql-odbc.git
   commit: 0cf8cb5dfb13343b64839ca0cc4cd979234411d9

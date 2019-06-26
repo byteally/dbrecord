@@ -422,7 +422,7 @@ ppMysqlType = go
         go (DBNullable t)           = go t
         go (DBTypeName t args)      = T.unpack (backtickQuoteTxt t) ++ ppArgs args
         go (DBCustomType t _)       = go t
-        go _                        = error "Panic: not implemented @ppMysqlType"
+        go x                        = error $ "Panic: not implemented @ppMysqlType" ++ (show x)
 
         ppArgs []  = ""
         ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"

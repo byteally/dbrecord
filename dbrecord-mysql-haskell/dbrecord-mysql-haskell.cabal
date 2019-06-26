@@ -23,6 +23,7 @@ library
                     DBRecord.MySQL.Internal.Sql.Pretty
                     DBRecord.MySQL.Internal.Sql.Parser
                     DBRecord.MySQL.Internal.PrettyDDL
+                    DBRecord.MySQL.Internal.Reify
        
   build-depends:       base              >= 4.7 && < 5
                      , dbrecord
@@ -39,18 +40,20 @@ library
                      , bytestring
                      , io-streams
                      -- , aeson
-                     -- , vector
+                     , vector
                      -- , time              >= 1.5
                      , attoparsec
-                     -- , unordered-containers >= 0.2
+                     , unordered-containers >= 0.2
                      -- , uniplate             >= 1.6
                      -- , scientific        >= 0.3 
                      -- , binary            >= 0.8
                      -- , base64-bytestring >= 1.0
                      -- , time              == 1.6.*
+                     , mysql-haskell
+                     , hashable
+                     , io-streams
                      , time
                      , mysql-haskell
-                     -- , dbrecord-migration   == 0.1.*
 
   default-language:    Haskell2010
 

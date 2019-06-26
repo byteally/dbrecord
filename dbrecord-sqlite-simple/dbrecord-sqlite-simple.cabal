@@ -31,10 +31,10 @@ library
                     , bytestring
                     -- , dbrecord-migration == 0.1.*
                      -- , aeson
-                     -- , vector
+                     , vector
                      -- , time              >= 1.5
                     , attoparsec
-                     -- , unordered-containers >= 0.2
+                     , unordered-containers >= 0.2
                      -- , uniplate             >= 1.6
                      -- , scientific        >= 0.3 
                      -- , binary            >= 0.8
@@ -43,6 +43,8 @@ library
                     , transformers
                     , resource-pool
                     , mtl
+                    , hashable
+                    , interpolate
                     
 
                      -- , time              == 1.6.*

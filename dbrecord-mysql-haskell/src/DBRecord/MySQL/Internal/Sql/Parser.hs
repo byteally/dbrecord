@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 module DBRecord.MySQL.Internal.Sql.Parser
   ( sqlExpr
-  , parseSqliteType
+  , parseMySQLType
+  , SizeInfo (..)
+  , defSizeInfo
   ) where
 
 import DBRecord.Internal.Sql.DML
@@ -265,5 +267,64 @@ literal =
           stringLit  = (StringSql . T.pack) <$> quoted word
           oidLit     = (StringSql . T.pack) <$> quoted (doubleQuoted identifier)
           
-parseSqliteType :: Bool -> String -> DBType
-parseSqliteType nullInfo = error "Panic: not implemented"
+
+data SizeInfo = SizeInfo { szCharacterLength :: Maybe Integer
+                         , szNumericPrecision :: Maybe Integer
+                         , szNumericScale :: Maybe Integer
+                         , szDateTimePrecision :: Maybe Integer
+                         , szIntervalPrecision :: Maybe Integer
+                         } deriving (Show, Eq)
+
+defSizeInfo :: SizeInfo
+defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
+                         
+
+parseMySQLType :: Bool -> SizeInfo -> String -> DBType
+parseMySQLType nullInfo sizeInfo = wrapNullable nullInfo . go
+  where go "smallint" =   DBInt2                  
+        go "int"      =   DBInt4                  
+        go "bigint"   =   DBInt8                  
+        go "numeric"  =  case (,) <$> szNumericPrecision sizeInfo <*> szNumericScale sizeInfo of
+                            Just (pr, sc) -> DBNumeric pr sc
+                            _             -> error "Panic: numeric must specify precision and scale"       
+        go "decimal"  =  case (,) <$> szNumericPrecision sizeInfo <*> szNumericScale sizeInfo of
+                            Just (pr, sc) -> DBNumeric pr sc
+                            _             -> error "Panic: decimal must specify precision and scale"             
+        go "float"    =  case szNumericPrecision sizeInfo of
+                            Nothing -> DBFloat 53
+                            Just v  -> DBFloat v
+        go "char"     =  case szCharacterLength sizeInfo of
+                            Nothing -> DBChar 53
+                            Just v  -> DBChar v              
+        go "varchar"  =  case szCharacterLength sizeInfo of
+                            Just v  -> DBVarchar (Right v)              
+                            _      -> error "Panic: varying character must specify a size"                                           
+        go "binary"   =  case szCharacterLength sizeInfo of
+                            Just v  -> DBBinary v              
+                            _      -> error "Panic: binary character must specify a size"                                                      
+        go "varbinary"=  case szCharacterLength sizeInfo of
+                            Just v  -> (DBVarbinary (Right v))             
+                            _      -> error "Panic: varying binary character must specify a size"                                           
+           
+        go "datetime" =  case szDateTimePrecision sizeInfo of
+                            Just v  -> DBTimestamp v
+                            Nothing -> DBTimestamp 6       
+        go "date"     =  DBDate                  
+        go "time"     =  case szDateTimePrecision sizeInfo of
+                            Just v  -> DBTime v
+                            Nothing -> DBTime 6           
+        go "bit"      =  case szCharacterLength sizeInfo of
+                            Just v -> DBBit v
+                            Nothing -> error "Panic: bit must specify a size" 
+        
+        -- go (DBTypeName t args)      = T.unpack (doubleQuote t) ++ ppArgs args
+        -- go (DBCustomType t _)       = go t
+        go x                        = error $  "Panic: not implemented @ppMysqlType" ++ (show x)
+
+        -- ppArgs []  = ""
+        -- ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"
+
+        -- ppArg (TextArg t)    = T.unpack t
+        -- ppArg (IntegerArg i) = show i
+        wrapNullable True a  = DBNullable a
+        wrapNullable False a = a
