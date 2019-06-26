@@ -2,7 +2,6 @@
 {-# LANGUAGE TypeApplications, ScopedTypeVariables, DataKinds, KindSignatures, TypeOperators, TypeFamilies, UndecidableInstances, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts #-}
 module DBRecord.Internal.DBTypeValidation where
 
-import DBRecord.Internal.DBTypes
 import DBRecord.Internal.Schema
 import DBRecord.Internal.Common
 import qualified DBRecord.Internal.PrimQuery as PQ
@@ -80,15 +79,22 @@ instance SingCols db '[] colMap where
   singCols _ _ _ = Nil
 -}
 
-getSchemaName :: forall db.
-               ( KnownSymbol (GetSchemaName db)
-               ) => Const Text db
-getSchemaName = Const $ T.pack $ symbolVal (Proxy @(GetSchemaName db))
+getDatabaseName :: forall sc.
+               ( KnownSymbol (DatabaseName (SchemaDB sc))
+               , Schema sc
+               ) => Const Text sc
+getDatabaseName = Const $ T.pack $ symbolVal (Proxy @(DatabaseName (SchemaDB sc)))
 
-getTableName :: forall db tab.
-               ( KnownSymbol (TableName db tab)
-               ) => Const Text (db,tab)
-getTableName = Const $ T.pack $ symbolVal (Proxy @(TableName db tab))
+getSchemaName :: forall sc.
+               ( KnownSymbol (SchemaName sc)
+               , Schema sc
+               ) => Const Text sc
+getSchemaName = Const $ T.pack $ symbolVal (Proxy @(SchemaName sc))
+
+getTableName :: forall sc tab.
+               ( KnownSymbol (TableName sc tab)
+               ) => Const Text (sc,tab)
+getTableName = Const $ T.pack $ symbolVal (Proxy @(TableName sc tab))
 
 getTableFields :: forall db tab.
                  ( SingCols db (OriginalTableFields tab) (ColumnNames db tab)
@@ -101,11 +107,14 @@ getTableHFields ::  forall db tab.
 getTableHFields _ _ = singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
 
 
-getTableId :: forall db tab.
-               ( KnownSymbol (TableName db tab)
-               , KnownSymbol (Schema db)
-               ) => Proxy db -> Proxy tab -> PQ.TableId
+getTableId :: forall sc tab.
+               ( KnownSymbol (TableName sc tab)
+               , KnownSymbol (SchemaName sc)
+               , KnownSymbol (DatabaseName (SchemaDB sc))
+               , Schema sc
+               ) => Proxy sc -> Proxy tab -> PQ.TableId
 getTableId _ _ = tab
-  where tab = PQ.TableId { PQ.schema    = getConst (getSchemaName :: Const Text db)
-                         , PQ.tableName = getConst (getTableName  :: Const Text (db, tab))
+  where tab = PQ.TableId { PQ.schema    = getConst (getSchemaName :: Const Text sc)
+                         , PQ.tableName = getConst (getTableName  :: Const Text (sc, tab))
+                         , PQ.database  = getConst (getDatabaseName :: Const Text sc)
                          }

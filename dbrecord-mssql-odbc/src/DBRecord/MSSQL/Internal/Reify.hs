@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, DuplicateRecordFields, ScopedTypeVariables, DeriveGeneric #-}
 module DBRecord.MSSQL.Internal.Reify where
--- {-
+{-
       --  ( 
       --    getMSSQLDbSchemaInfo
       --  , defHints
@@ -654,7 +654,8 @@ sizeInfo tci =
            , szIntervalPrecision = Nothing
           --  , szIntervalPrecision = fromIntegral <$> dbIntervalPrecision tci
            } 
--- -}
+--
+-}
 
 
 
@@ -667,3 +668,4 @@ sizeInfo tci =
 
 -- defSizeInfo :: SizeInfo
 -- defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
+

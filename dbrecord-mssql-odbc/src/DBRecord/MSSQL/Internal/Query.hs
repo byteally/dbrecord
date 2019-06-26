@@ -30,44 +30,19 @@ newtype MSSQLDBT m (db :: *) a = MSSQLDBT { runMSSQLDB :: ReaderT (MSSQL MSSQL.C
 
 type MSSQLDB = MSSQLDBT IO
 
-class (FromRow a, SQLBindCol (M.RowBufferType a)) => FromDBRowCtx a 
-instance (FromRow a, SQLBindCol (M.RowBufferType a)) => FromDBRowCtx a 
-
-newtype RowBufferType a = RowBufferType { getRowBufferType :: M.RowBufferType a }
-
-getRowBufferType :: RowBufferType a -> M.RowBufferType a
-getRowBufferType (RBOther a) = a
-
-data MSRowParser rb t = MSRowParser { rowParser :: RowParser rb t
-                                    , sqlColBinder :: Dict SQLBindCol rb
-                                    }
-
-instance 
-
-
-{-
-data RowBufferType a where
-  RBTuple :: RowBufferType a -> RowBufferType b -> RowBufferType (a, b)
-  RBHCons :: RowBufferType a -> RowBufferType (HListF xs) ->
-            RowBufferType (HListF (fld ::: a ': xs))
-  RBRCons :: RowBufferType (o a) -> RowBufferType (Rec os xs) ->
-            RowBufferType (Rec (o ': os) (fld ::: a ': xs))
-  RBHNil  :: RowBufferType (HListF '[])
-  RBRNil  :: RowBufferType (Rec '[] '[])
-  RBOther :: M.RowBufferType a -> RowBufferType a
--}
+class (FromRow a) => FromDBRowCtx a 
+instance (FromRow a) => FromDBRowCtx a 
 
 instance DBDecoder MSSQL where
-  type FromDBRowParser MSSQL   = MSRowParser
+  type FromDBRowParser MSSQL   = RowParser
   type FromDBRow MSSQL         = FromDBRowCtx
-  type RowParserInput MSSQL    = RowBufferType
   
-  dbDecoder _ _ = lmap getRowBufferType fromRow
+  dbDecoder _ _ = fromRow
           
 data MSSQL cfg where
   MSSQL :: MSSQL.Connection -> MSSQL MSSQL.Connection
 
-type instance ToDBRow MSSQL a   = (ToRow a)
+-- type instance ToDBRow MSSQL a   = (ToRow a)
 
 instance Session MSSQL where
   data SessionConfig MSSQL cfg where
@@ -92,7 +67,8 @@ instance HasUpdate MSSQL where
 instance HasQuery MSSQL where
   dbQueryWith par (MSSQL conn) primQ = do
     let sqlQ = renderQuery primQ
-    res <- queryWith (lmap conv par) undefined conn (fromString sqlQ)
+    liftIO $ putStrLn sqlQ
+    res <- queryWith par conn (fromString sqlQ)
     either throwIO (pure . V.toList) res
 
 instance HasInsert MSSQL where
@@ -115,5 +91,3 @@ mssqlDefaultPool connectInfo =
 
   where handleException = either throwIO pure
 
-conv :: M.RowBufferType a -> RowBufferType a 
-conv = undefined

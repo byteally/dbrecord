@@ -6,3 +6,4 @@ packages:
   ./dbrecord-postgres-simple
   ./dbrecord-sqlite-simple
   ./dbrecord-mssql-odbc
+  ../mssql-odbc  

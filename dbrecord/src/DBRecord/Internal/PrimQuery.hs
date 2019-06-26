@@ -120,7 +120,8 @@ data WindowPart = WindowPart
   } deriving (Show)
              
 data TableId = TableId
-  { schema :: Name
+  { database :: Name
+  , schema   :: Name
   , tableName :: TableName
   } deriving (Show, Read, Generic, Eq, Ord)
 

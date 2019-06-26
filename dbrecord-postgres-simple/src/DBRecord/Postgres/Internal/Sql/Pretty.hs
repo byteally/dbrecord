@@ -221,11 +221,11 @@ ppTableFun :: SqlName -> [SqlName] -> Doc
 ppTableFun funN args = text (T.unpack funN) <> parens (hsep (map (text . T.unpack) args))
 
 ppTableName :: SqlTableName -> Doc
-ppTableName st = case sqlTableSchemaName st of
-    Just sn -> doubleQuotes (text sn) <> text "." <> tname
-    Nothing -> tname
+ppTableName (SqlTableName db sc tab) =
+  quoted db <> dot <> quoted sc <> dot <> quoted tab
   where
-    tname = doubleQuotes (text (sqlTableName st))
+    quoted = doubleQuotes . text
+    dot = text "."
 
 ppPGExpr :: SqlExpr -> Doc
 ppPGExpr expr =

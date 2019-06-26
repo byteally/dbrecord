@@ -11,7 +11,7 @@ import Text.PrettyPrint.HughesPJ (Doc, (<+>), text,
                                   (<>))
 import Prelude hiding ((<>))
 import DBRecord.Internal.DBTypes (DBType (DBTypeName))
-import DBRecord.Migration (ChangeSet (..))
+-- import DBRecord.Migration (ChangeSet (..))
 import qualified Data.Text as T
 import DBRecord.Internal.Sql.SqlGen
 import DBRecord.Sqlite.Internal.Sql.Pretty
@@ -232,6 +232,7 @@ ppAlterAttr (ChangeAttrType ty) =
 renderDDL :: PrimDDL -> String
 renderDDL = render . ppPrimDDL
 
+{-
 renderChangeSets :: [ChangeSet] -> String
 renderChangeSets =
   unlines . map renderChangeSet 
@@ -239,3 +240,4 @@ renderChangeSets =
 renderChangeSet :: ChangeSet -> String
 renderChangeSet =
   unlines . map renderDDL . statements
+-}

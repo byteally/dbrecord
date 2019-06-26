@@ -43,7 +43,7 @@ library
                      , mssql-odbc
                      , resource-pool      == 0.2.*
                      , vector             == 0.12.*
-                     , dbrecord-migration == 0.1.*
+                     -- , dbrecord-migration == 0.1.*
                      , profunctors
                      , unordered-containers >= 0.2
                      -- , uniplate             >= 1.6

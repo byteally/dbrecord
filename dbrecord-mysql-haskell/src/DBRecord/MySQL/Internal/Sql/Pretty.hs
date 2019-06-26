@@ -222,11 +222,10 @@ ppTableFun :: SqlName -> [SqlName] -> Doc
 ppTableFun funN args = text (T.unpack funN) <> parens (hsep (map (text . T.unpack) args))
 
 ppTableName :: SqlTableName -> Doc
-ppTableName st = case sqlTableSchemaName st of
-    Just sn -> backtickQuotes (text sn) <> text "." <> tname
-    Nothing -> tname
+ppTableName (SqlTableName db _ tab) =
+  quoted db <> text "." <> quoted tab
   where
-    tname = backtickQuotes (text (sqlTableName st))
+    quoted = backtickQuotes . text
 
 ppMysqlExpr :: SqlExpr -> Doc
 ppMysqlExpr expr =
