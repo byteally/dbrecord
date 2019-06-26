@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE TypeFamilies, DataKinds, DeriveGeneric, FlexibleInstances, FlexibleContexts, ScopedTypeVariables, DeriveFunctor, GeneralizedNewtypeDeriving #-}
 module DBRecord.MSSQL.Internal.Types where
 

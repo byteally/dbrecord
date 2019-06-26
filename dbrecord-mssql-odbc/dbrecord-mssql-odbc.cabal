@@ -26,7 +26,6 @@ library
   build-depends:       base              >= 4.7 && < 5
                      , dbrecord
                      , text              >= 0.11.1
-                     , functorial-rec
                      -- , uuid              == 1.3.*
                      -- , resource-pool     == 0.2.*
                      -- , postgresql-simple == 0.5.*
@@ -53,6 +52,7 @@ library
                      , hashable
 
   default-language:    Haskell2010
+  ghc-options:         -Wall -Werror
 
 -- test-suite dbrecord-mssql-odbc-test
 --   type:                exitcode-stdio-1.0

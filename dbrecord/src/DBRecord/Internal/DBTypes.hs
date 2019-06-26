@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE TypeApplications, DataKinds, KindSignatures, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, TypeFamilyDependencies, UndecidableInstances, FlexibleInstances, OverloadedStrings, GADTs #-}
 module DBRecord.Internal.DBTypes where
 
@@ -10,14 +10,13 @@ import Data.Time.Calendar (Day)
 import Data.Time.Clock (UTCTime)
 import Data.CaseInsensitive  (CI)
 import Data.Int
-import Data.Word
+
 -- import Data.Vector (Vector)
 import DBRecord.Internal.Types (DbK (..), Interval, Json, JsonStr, CustomType (..))
 import qualified DBRecord.Internal.Types as Type
 import DBRecord.Internal.Types (Sing (..), SingE (..))
 import DBRecord.Internal.Common
 import GHC.TypeLits
-import Data.Typeable
 import qualified Data.Text as T
 import GHC.Generics
 import Data.Kind

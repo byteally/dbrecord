@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
+{-# OPTIONS_GHC -fno-warn-redundant-constraints -Wno-orphans #-}
 {-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP, PolyKinds #-}
 module DBRecord.Internal.Expr
        ( module DBRecord.Internal.Expr
@@ -14,23 +14,18 @@ import qualified Data.Text as T
 import Data.Functor.Identity
 import Data.Typeable
 import GHC.TypeLits
-import GHC.OverloadedLabels
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Text.Read as R
 import qualified Data.Aeson as A
-import Data.Aeson (ToJSON (..), FromJSON (..))
 import qualified Data.Text.Encoding as STE
 import qualified Data.Text.Lazy.Encoding as LTE
 import qualified Data.ByteString.Lazy as LB
 import qualified Data.ByteString as SB
 import qualified Data.Text.Lazy as LT
-import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Monoid ((<>))
-import Data.Binary
 import Data.Time
 import Data.Text (Text)
-import DBRecord.Internal.Common
 import DBRecord.Internal.Types
 import Data.Coerce (coerce)
 import DBRecord.Internal.DBTypes hiding (toNullable)
@@ -38,11 +33,8 @@ import Data.Time.Calendar (Day)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Data.CaseInsensitive (CI, foldedCase, mk)
-import Control.Applicative
 import Data.Coerce
-import DBRecord.Internal.Schema hiding (toNullable, DBType (..))
-import DBRecord.Internal.Common
-import GHC.Generics
+import Data.Aeson
 
 class ConstExpr t where
   constExpr :: t -> Expr sc t
@@ -397,7 +389,7 @@ ist :: Expr sc TimeZone
 ist = Expr (PQ.ConstExpr (PQ.String "ist"))
 
 atTimeZone :: Expr sc TimeZone -> Expr sc UTCTime -> Expr sc LocalTime
-atTimeZone (Expr tz) (Expr utc) = Expr (PQ.FunExpr "timezone" [tz, utc])
+atTimeZone (Expr tz) (Expr utct) = Expr (PQ.FunExpr "timezone" [tz, utct])
 
 dayTruncTZ :: Expr sc LocalTime -> Expr sc LocalTime
 dayTruncTZ (Expr utct) = Expr (PQ.FunExpr "date_trunc" [PQ.ConstExpr (PQ.String "day"), utct])

@@ -14,7 +14,6 @@ import qualified Data.ByteString.Base16 as Base16
 import qualified Data.List.NonEmpty as NEL
 import DBRecord.Internal.Sql.DML hiding (alias, criteria, attrs)
 import qualified DBRecord.Internal.Sql.DML as DML
-import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import qualified Data.Maybe as M
 import qualified DBRecord.Internal.PrimQuery as PQ
@@ -272,23 +271,24 @@ unfoldFlatComposites =
   foldr unfoldFlatComposite (PQ.FlatComposite [])
 
 unfoldFlatComposite :: PQ.PrimExpr -> PQ.PrimExpr -> PQ.PrimExpr
-unfoldFlatComposite e@(PQ.AttrExpr (PQ.Sym pfx fld)) (PQ.FlatComposite xs) =
-  go (pfx ++ [fld]) xs
+unfoldFlatComposite e@(PQ.AttrExpr (PQ.Sym pfx fld)) (PQ.FlatComposite vs) =
+  go (pfx ++ [fld]) vs
 
   where go [f]  xs  = PQ.FlatComposite $ case lookup f xs of
-                        Just _ -> map (\(fld, e') -> case fld == f of
-                                       True  -> (fld, e)
-                                       False -> (fld, e')
+                        Just _ -> map (\(fldn, e') -> case fldn == f of
+                                       True  -> (fldn, e)
+                                       False -> (fldn, e')
                                    ) xs
                         Nothing -> (xs ++ [(f, e)])
         go (f : fs) xs = PQ.FlatComposite $ case lookup f xs of
-                        Just _ -> map (\(fld, e') -> case fld == f of
+                        Just _ -> map (\(fldn, e') -> case fldn == f of
                                        True  -> case e' of
-                                         PQ.FlatComposite xss -> (fld, go fs xss)
-                                         _                    -> (fld, go fs [])
-                                       False -> (fld, e')
+                                         PQ.FlatComposite xss -> (fldn, go fs xss)
+                                         _                    -> (fldn, go fs [])
+                                       False -> (fldn, e')
                                    ) xs
                         Nothing -> (xs ++ [(f, go fs [])])
+        go [] _ = error "Panic: impossible case @unfoldFlatComposite"
 unfoldFlatComposite e _ = error $ "Panic: unexpected: " ++ show e
                         
   
@@ -460,12 +460,12 @@ primExprGen expr = case expr of
   CastSqlExpr typ se             -> PQ.CastExpr typ (primExprGen se)
   DefaultSqlExpr                 -> PQ.DefaultInsertExpr
   ArraySqlExpr ses               -> PQ.ArrayExpr (map primExprGen ses)
-  TableSqlExpr sq                -> error "TODO: not implemented for TableSqlExpr" -- PQ.TableExpr (primQueryGen sq)  
+  TableSqlExpr {}                -> error "TODO: not implemented for TableSqlExpr" -- PQ.TableExpr (primQueryGen sq)  
   NamedWindowSqlExpr w se        -> PQ.NamedWindowExpr (T.pack w) (primExprGen se)
-  AnonWindowSqlExpr ps os se     -> error "TODO: not implemented for AnonWindowSqlExpr"
-  BinSqlExpr op sel ser          -> error "TODO: not implemented for BinSqlExpr" 
-  PrefixSqlExpr op se            -> error "TODO: not implemented for PrefixSqlExpr" 
-  PostfixSqlExpr op se           -> error "TODO: not implemented for PostfixSqlExpr" 
+  AnonWindowSqlExpr {}           -> error "TODO: not implemented for AnonWindowSqlExpr"
+  BinSqlExpr {}                  -> error "TODO: not implemented for BinSqlExpr" 
+  PrefixSqlExpr {}               -> error "TODO: not implemented for PrefixSqlExpr" 
+  PostfixSqlExpr {}              -> error "TODO: not implemented for PostfixSqlExpr" 
   ParensSqlExpr se               -> primExprGen se
   ConstSqlExpr c                 -> constPrimExprGen c
   AggrFunSqlExpr n ses ords      -> aggrFunPrimExprGen n ses ords
@@ -531,7 +531,7 @@ constPrimExprGen lsq = PQ.ConstExpr $
     OtherSql t -> PQ.Other t
 
 aggrFunPrimExprGen :: String -> [SqlExpr] -> [(SqlExpr, SqlOrder)] -> PQ.PrimExpr
-aggrFunPrimExprGen op args =
+aggrFunPrimExprGen _ _ =
   pqMappingSkipped "agg expr"
   -- PQ.AggrExpr aggrOp 
 
@@ -629,9 +629,9 @@ project' exprs =
         concatPQSym (tags, e) =
           let sym = PQ.unsafeToSym (reverse tags)
           in case e of
-               PQ.AttrExpr {} | not (singleton tags) -> (sym, PQ.AttrExpr sym)
-                              | otherwise          -> (sym, e)
-               _                                   -> (sym, e)
+               PQ.AttrExpr {} | not (isSingleton tags) -> (sym, PQ.AttrExpr sym)
+                              | otherwise            -> (sym, e)
+               _                                     -> (sym, e)
 
-        singleton [x] = True
-        singleton _   = False
+        isSingleton [_] = True
+        isSingleton _   = False

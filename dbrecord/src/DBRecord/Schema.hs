@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-dodgy-exports #-}
 module DBRecord.Schema
        ( DbK (..)
        , Col (..)

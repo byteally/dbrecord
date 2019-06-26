@@ -15,15 +15,11 @@ import qualified DBRecord.MSSQL.Internal.Sql.Pretty as MSSQL
 import qualified DBRecord.Internal.Sql.SqlGen as MSSQL
 import Control.Monad.Reader
 import qualified DBRecord.Internal.PrimQuery as PQ
-import Database.MsSQL as MSSQL hiding (Session, RowBufferType)
-import qualified Database.MsSQL as M
+import Database.MsSQL as MSSQL hiding (Session)
 import Data.Pool
 import qualified Data.Vector as V
 import Control.Exception (throwIO)
 import Data.String
-import Data.Dynamic
-import Data.Profunctor
-import Data.Record (HListF (..), Rec (..), (:::))
 
 newtype MSSQLDBT m (db :: *) a = MSSQLDBT { runMSSQLDB :: ReaderT (MSSQL MSSQL.Connection) m a}
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader (MSSQL MSSQL.Connection))
@@ -84,10 +80,10 @@ instance HasDelete MSSQL where
     either throwIO pure res
 
 mssqlDefaultPool :: ConnectInfo -> IO (Pool Connection)
-mssqlDefaultPool connectInfo =
+mssqlDefaultPool conn =
   createPool
-  (handleException =<< MSSQL.connect connectInfo)
-  (\conn -> handleException =<< MSSQL.disconnect conn) 10 5 10
+  (handleException =<< MSSQL.connect conn)
+  (handleException <=< MSSQL.disconnect) 10 5 10
 
   where handleException = either throwIO pure
 

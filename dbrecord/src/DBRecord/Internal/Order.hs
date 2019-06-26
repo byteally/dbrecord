@@ -5,14 +5,6 @@ module DBRecord.Internal.Order where
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.Expr
 
-import Data.Aeson
-import Data.Aeson.Types (Parser, typeMismatch)
-import qualified Data.HashMap.Strict as HM
-import Data.Proxy
-import Data.Binary
-import qualified Data.Text as T
-import Data.Semigroup
-
 newtype Order (scopes :: [*]) = Order { getOrder :: [PQ.OrderExpr] }
 
 instance Semigroup (Order sc) where

@@ -23,13 +23,12 @@ import qualified Data.Text as T
 import Data.Foldable (toList)
 import Data.Monoid ((<>))
 import Data.List (intersperse)
-import Text.PrettyPrint.HughesPJ (Doc, ($$), ($+$), (<+>), text, empty,
+import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   parens, comma, punctuate,
                                   hcat, vcat, brackets, doubleQuotes,
-                                   hsep, equals, char, empty, render,
-                                  quotes, space)
+                                  hsep, equals, char, empty, render,
+                                  space)
 import DBRecord.Schema.Interface
-import DBRecord.Internal.DBTypes
 import qualified Data.List as L
 
 ppSelect :: SqlSelect -> Doc
@@ -64,7 +63,7 @@ ppAttrs All            = text "*"
 ppAttrs (Columns cols) = (commaV nameAs . toList) cols
 
 nameAs :: (SqlExpr, Maybe SqlColumn) -> Doc
-nameAs (expr, name) = ppAs (fmap unColumn name) (ppMSSQLExpr expr)
+nameAs (expr, n) = ppAs (fmap unColumn n) (ppMSSQLExpr expr)
   where unColumn (SqlColumn s) = ppAliasedCol (map T.unpack s)
         
 ppTables :: [SqlTableExpr] -> Doc
@@ -72,11 +71,11 @@ ppTables []   = empty
 ppTables tabs = commaV ppTableExpr tabs
 
 ppSelectBinary :: Binary -> Alias -> Doc
-ppSelectBinary bin as =
+ppSelectBinary bin als =
   let selBin =    ppSelect (bSelect1 bin)
                $$ ppSelBinOp (bOp bin)
                $$ ppSelect (bSelect2 bin)
-  in case as of
+  in case als of
     Nothing -> selBin
     Just as -> ppAs (Just $ doubleQuotes . text $ as) (parens selBin)
   
@@ -92,12 +91,12 @@ ppSelBinOp op = text $ case op of
 ppSelectCTE :: [SqlWith] -> SqlSelect -> Doc
 ppSelectCTE sqWiths sel = text "WITH" <+> commaV ppSqlWith sqWiths
                          $$ ppSelect sel
-  where ppSqlWith (SqlWith tabn attrs isel) =
-              text (T.unpack tabn) <+> ppAttrs attrs
+  where ppSqlWith (SqlWith tabn atts isel) =
+              text (T.unpack tabn) <+> ppAtts atts
           $$  text "AS"
           $$  ppSelect isel
-        ppAttrs [] = empty
-        ppAttrs as = parens . commaH (text . T.unpack) $ as
+        ppAtts [] = empty
+        ppAtts as = parens . commaH (text . T.unpack) $ as
 
 ppJoin :: Join -> Doc
 ppJoin joinSt = ppJoinedTabs
@@ -276,6 +275,7 @@ ppBinOp = text . go
         go OpBitXor     = "^"
         go OpAsg        = "="
         go OpAtTimeZone = "AT TIME ZONE"
+        go _            = error "Panic: not implemented @ppBinOp"
 
 ppPrefixExpr :: UnOp -> SqlExpr -> Doc
 ppPrefixExpr op e = go op

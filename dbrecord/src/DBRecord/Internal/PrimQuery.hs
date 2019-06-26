@@ -120,8 +120,8 @@ data WindowPart = WindowPart
   } deriving (Show)
              
 data TableId = TableId
-  { database :: Name
-  , schema   :: Name
+  { database  :: Name
+  , schema    :: Name
   , tableName :: TableName
   } deriving (Show, Read, Generic, Eq, Ord)
 
@@ -222,6 +222,7 @@ instance Eq PQFun where
   
 instance Uniplate PrimExpr where
   uniplate (AttrExpr s)           = plate AttrExpr |- s
+  uniplate (RawExpr s)            = plate RawExpr |- s  
   uniplate (BaseTableAttrExpr b)  = plate BaseTableAttrExpr |- b
   uniplate (CompositeExpr pe a)   = plate CompositeExpr |* pe |- a
   uniplate (BinExpr bop pe1 pe2)  = plate BinExpr |- bop |* pe1 |* pe2

@@ -20,7 +20,7 @@ type Traversal' s a    = Traversal s s a a
 ixBy :: (Eq v) => v -> (k -> v) -> Traversal' [k] k
 ixBy k pf f xs0 = go xs0 k where
     go [] _ = pure []
-    go (a:as) k | pf a == k     = (:as) <$> f a
+    go (a:as) v | pf a == v     = (:as) <$> f a
                 | otherwise    = (a:) <$> (go as k)
   
 type ASetter s t a b = (a -> Identity b) -> s -> Identity t

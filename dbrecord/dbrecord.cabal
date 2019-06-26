@@ -15,7 +15,7 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  ghc-options:         -Wall
+  ghc-options:         -Wall -Werror
   exposed-modules:
                        DBRecord.Interface
                        DBRecord.Query

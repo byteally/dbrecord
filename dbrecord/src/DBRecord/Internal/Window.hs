@@ -5,7 +5,6 @@ import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.Expr
 import DBRecord.Internal.Order
 import GHC.TypeLits
-import Data.Binary
 #if MIN_VERSION_base(4,10,0)
 import Data.Semigroup (Semigroup (..))
 import Data.Monoid (Monoid (..))

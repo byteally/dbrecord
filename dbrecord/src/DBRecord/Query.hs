@@ -35,11 +35,9 @@ module DBRecord.Query
        , Driver
        -- , PGS(..)
        -- , withResource
-       , SessionConfig(..)
        , runTransaction
        , runSession         
        , Page(..)
-       , FromDBRow
        , ToDBRow
        , HasUpdate (..)
        , HasQuery (..)
@@ -50,8 +48,8 @@ module DBRecord.Query
        , Session (..)
        , HasTransaction (..)
        , DBDecoder (..)
-       , FromDBRowParser
        , DBTag
+       , TransactionConfig (..)
        , rawClauses
        , getBaseTable
        , getBaseTableExpr
@@ -136,7 +134,7 @@ infixr 4 .~
         , KnownSymbol fn
         , Table db tab
         , SingCtx db tab
-        , SingCtxDb db
+        , SingCtxSc db
         , alfn ~ AliasedCol fn (ColumnNames db tab)
         , KnownSymbol alfn          
         ) => Col fn -> (Expr sc val -> Expr sc val) -> Updated db tab sc -> Updated db tab sc
@@ -284,7 +282,7 @@ get :: forall tab db driver cfg tpks pks sc.
   , TupleToHList tpks ~ pks
   , pks ~ FromRights (FindFields sc (PrimaryKey db tab))
   , SingCtx db tab
-  , SingCtxDb db
+  , SingCtxSc db
   , All EqExpr pks
   , All ConstExpr pks
   , All (HasCol db tab sc) pks
@@ -307,7 +305,7 @@ getBy :: forall tab (uniq :: Symbol) db driver cfg uqKeysM uqKeys tuqs uqs sc.
   , FromDBRow driver tab
   , uqKeysM ~ (GetUniqBy uniq (Unique db tab))
   , SingCtx db tab
-  , SingCtxDb db
+  , SingCtxSc db
   , 'Just uqKeys ~ uqKeysM
   , uqs ~ FromRights (FindFields sc uqKeys)
   , All EqExpr uqs
@@ -333,7 +331,7 @@ getAll :: forall tab db driver cfg.
   , HasQuery driver
   , FromDBRow driver tab
   , SingCtx db tab
-  , SingCtxDb db
+  , SingCtxSc db
   ) =>    Expr (OriginalTableFields tab) Bool
        -> Order (OriginalTableFields tab)
        -> Maybe Page
@@ -362,7 +360,7 @@ getAll filt ord page = do
 getAll' :: forall db tab driver cfg.
            ( Table db tab
            , SingCtx db tab
-           , SingCtxDb db
+           , SingCtxSc db
            , MonadIO (DBM db)
            , MonadReader (driver cfg) (DBM db)
            , HasQuery driver
@@ -378,7 +376,7 @@ rawClauses :: forall db tab driver cfg.
              , MonadReader (driver cfg) (DBM db)
              , MonadIO (DBM db)
              , SingCtx db tab
-             , SingCtxDb db               
+             , SingCtxSc db               
              ) => PQ.Clauses -> DBM db [tab]
 rawClauses cls = do
   let tabId = getTableId (Proxy @db) (Proxy @tab)
@@ -392,7 +390,7 @@ count :: forall tab db driver cfg.
   , HasQuery driver
   , FromDBRow driver (Only Int)
   , SingCtx db tab
-  , SingCtxDb db
+  , SingCtxSc db
   ) => Expr (OriginalTableFields tab) Bool -> DBM db (ColVal tab Int)
 count filt = do
   let tabId = getTableId (Proxy @db) (Proxy @tab)
@@ -424,7 +422,7 @@ update :: forall tab db keys driver cfg sc rets.
   , HasUpdateRet driver
   , FromDBRow driver (HListToTuple keys)
   , SingCtx db tab
-  , SingCtxDb db
+  , SingCtxSc db
   , sc ~ OriginalTableFields tab
   ) => Expr (OriginalTableFields tab) Bool
   -> (Updated db tab (OriginalTableFields tab) -> Updated db tab (OriginalTableFields tab))
@@ -438,7 +436,7 @@ update_ :: forall tab sc cfg driver.
   , KnownSymbol (SchemaName sc)
   , Schema sc
   , SingCtx sc tab
-  , SingCtxDb sc
+  , SingCtxSc sc
   , MonadIO (DBM sc)
   , MonadReader (driver cfg) (DBM sc)
   , HasUpdate driver
@@ -452,7 +450,7 @@ update_ filt updateFn =
 runUpdate :: forall tab db cfg driver.
              ( Table db tab
              , SingCtx db tab
-             , SingCtxDb db
+             , SingCtxSc db
              , MonadIO (DBM db)
              , MonadReader (driver cfg) (DBM db)
              , HasUpdate driver
@@ -469,7 +467,7 @@ runUpdateRet :: forall tab db cfg driver a.
                 ( Table db tab
                 , Monad (DBM db)
                 , SingCtx db tab
-                , SingCtxDb db
+                , SingCtxSc db
                 , MonadIO (DBM db)
                 , MonadReader (driver cfg) (DBM db)
                 , HasUpdateRet driver
@@ -490,7 +488,7 @@ delete :: forall tab db driver cfg.
   , MonadReader (driver cfg) (DBM db)
   , HasDelete driver
   , SingCtx db tab
-  , SingCtxDb db
+  , SingCtxSc db
   ) => Expr (OriginalTableFields tab) Bool -> DBM db (ColVal tab Int64)
 delete filt = do
   let deleteQ = DeleteQuery (getTableId (Proxy @db) (Proxy @tab)) [getExpr filt]
@@ -532,7 +530,7 @@ insert :: forall tab db row keys defs reqCols driver cfg.
   , driver ~ Driver (DBM db)
   , MonadReader (driver cfg) (DBM db)
   , SingCtx db tab
-  , SingCtxDb db
+  , SingCtxSc db
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
   , SingI (FieldsOf reqCols)
@@ -564,7 +562,7 @@ insertRet :: forall tab db row keys rets sc defs reqCols driver cfg.
   , driver ~ Driver (DBM db)
   , MonadReader (driver cfg) (DBM db)
   , SingCtx db tab
-  , SingCtxDb db
+  , SingCtxSc db
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
   , sc ~ (OriginalTableFields tab)
@@ -600,7 +598,7 @@ insertMany :: forall tab db row defs reqCols driver keys cfg.
   , driver ~ Driver (DBM db)
   , MonadReader (driver cfg) (DBM db)
   , SingCtx db tab
-  , SingCtxDb db
+  , SingCtxSc db
   , SingI (FieldsOf reqCols)
   , SingE (FieldsOf reqCols)
   , FromDBRow driver (HListToTuple keys)
@@ -632,7 +630,7 @@ insertManyRet :: forall tab db row rets sc defs reqCols driver keys cfg.
   , MonadReader (driver cfg) (DBM db)
   , HasInsert driver
   , SingCtx db tab
-  , SingCtxDb db
+  , SingCtxSc db
   , SingI (FieldsOf reqCols)
   , SingE (FieldsOf reqCols)
   , FromDBRow driver (HListToTuple keys)
@@ -664,7 +662,7 @@ insert_ :: forall tab sc row defs reqCols driver cfg.
   , MonadReader (driver cfg) (DBM sc)
   , HasInsert driver
   , SingCtx sc tab
-  , SingCtxDb sc
+  , SingCtxSc sc
   , SingI (FieldsOf reqCols)
   , SingE (FieldsOf reqCols)
   ) => Proxy tab -> row -> DBM sc ()
@@ -694,7 +692,7 @@ insertMany_ :: forall tab sc row defs reqCols driver cfg.
   , MonadReader (driver cfg) (DBM sc)
   , HasInsert driver
   , SingCtx sc tab
-  , SingCtxDb sc
+  , SingCtxSc sc
   , SingI (FieldsOf reqCols)
   , SingE (FieldsOf reqCols)    
   ) => Proxy tab -> [row] -> DBM sc ()
@@ -720,7 +718,7 @@ getTableProjections pdb ptab = go (headColInfos pdb ptab)
           let dbColN = ci ^. columnNameInfo . dbName
           in  (dbColN, BaseTableAttrExpr dbColN)
 
-getTableId :: forall sc tab. (SingCtx sc tab, SingCtxDb sc) => Proxy sc -> Proxy tab -> TableId
+getTableId :: forall sc tab. (SingCtx sc tab, SingCtxSc sc) => Proxy sc -> Proxy tab -> TableId
 getTableId psc ptab =
   let dbTabName    = headTabNameInfo psc ptab ^. dbName
       dbSchemaName = headSchemaNameInfo psc ^. dbName
@@ -731,7 +729,7 @@ getTableId psc ptab =
 
 getBaseTableExpr :: forall db tab.
                 ( SingCtx db tab
-                , SingCtxDb db
+                , SingCtxSc db
                 ) => Proxy db -> Proxy tab -> TableExpr PrimQuery
 getBaseTableExpr _ _ =
   let tabId = getTableId (Proxy @db) (Proxy @tab)
@@ -739,7 +737,7 @@ getBaseTableExpr _ _ =
 
 getBaseTable :: forall db tab.
                 ( SingCtx db tab
-                , SingCtxDb db
+                , SingCtxSc db
                 ) => Proxy db -> Proxy tab -> PrimQuery
 getBaseTable _ _ =
   let tabId = getTableId (Proxy @db) (Proxy @tab)

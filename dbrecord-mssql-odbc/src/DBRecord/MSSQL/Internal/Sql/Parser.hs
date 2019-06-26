@@ -11,20 +11,17 @@ module DBRecord.MSSQL.Internal.Sql.Parser
 import DBRecord.Internal.Sql.DML
 import Data.Attoparsec.Text hiding (number)
 import qualified Data.Text as T
-import qualified Data.Attoparsec.Text as A
 import Data.Text (Text)
 import Control.Applicative
-import Data.Char (isAlpha, isDigit)
 import qualified Debug.Trace as DT
 import qualified Data.List.NonEmpty as NEL
 import DBRecord.Internal.DBTypes (DBType (..))
 import Data.Functor (($>))
-import qualified Data.List as DL
-
 import qualified DBRecord.Internal.Types as Type
 
 sqlExpr :: Parser SqlExpr
 sqlExpr =
+
   (
    postfixOrWindowExpr <|>
    binSqlExpr          <|>
@@ -79,7 +76,7 @@ termSqlExpr =
   ParensSqlExpr     <$> (parens sqlExpr)                              <|>  
   ListSqlExpr       <$> parens (sepByComma sqlExpr)                   <|>
   -- aggrFunSqlExpr                                                      <|>  
-  FunSqlExpr        <$> funName <*> parens (sepByComma sqlExpr)       <|>
+  FunSqlExpr        <$> funcName <*> parens (sepByComma sqlExpr)      <|>
   ColumnSqlExpr     <$> column                                        <|>
   ConstSqlExpr      <$> literal  
   -- ParamSqlExpr
@@ -99,17 +96,18 @@ caseExpr = do
   _ <- symbol "END"
   pure (CaseSqlExpr (NEL.fromList cbs) me)
 
-funName :: Parser String
-funName = do
+funcName :: Parser String
+funcName = do
   funNameQual <- identifier <|> brackets identifier
   funName <- (singleton <$> (char '.' *> (brackets identifier <|> identifier))) <|> pure []
   -- TODO: FunSqlExpr needs to be changed or we need to intercalate a separator.
   pure (concat $ funNameQual : funName)
 
 
+{-
 aggrFunSqlExpr :: Parser SqlExpr
 aggrFunSqlExpr = do
-  n <- funName
+  n <- funcName
   (es, obys) <- parens $ do
     es <- sepByComma sqlExpr
     -- obys <- orderBy
@@ -121,6 +119,7 @@ arraySqlExpr = do
   _ <- symbol "ARRAY"
   es <- brackets (sepByComma sqlExpr)
   pure (ArraySqlExpr es)
+-}
 
 castExpr :: Parser SqlExpr
 castExpr = do
@@ -218,10 +217,10 @@ sqlOrder = do
   dir <- optional (symbol "ASC"  *> pure SqlAsc <|>
                   symbol "DESC" *> pure SqlDesc
                  )
-  nullOrd <- optional (symbol "NULLS" *> symbol "FIRST" *> pure SqlNullsFirst <|>
+  nOrd <- optional (symbol "NULLS" *> symbol "FIRST" *> pure SqlNullsFirst <|>
                       symbol "NULLS" *> symbol "LAST"  *> pure SqlNullsLast
                      )
-  pure (SqlOrder (maybe SqlAsc id dir) (maybe SqlNullsLast id nullOrd))
+  pure (SqlOrder (maybe SqlAsc id dir) (maybe SqlNullsLast id nOrd))
 
 typeExpr :: Parser DBType
 typeExpr =
@@ -294,20 +293,18 @@ typeExpr =
                        )
         customType = undefined
         
-        mkFloatType Nothing  = DBFloat 0
-        mkFloatType (Just v) = DBFloat (read v)
 
         
           
 
-ordDir :: Parser SqlOrder
-ordDir = undefined
+-- ordDir :: Parser SqlOrder
+-- ordDir = undefined
 
-nullOrd :: Parser SqlOrder
-nullOrd = undefined
+-- nullOrd :: Parser SqlOrder
+-- nullOrd = undefined
 
-limit :: Parser SqlExpr
-limit = undefined
+-- limit :: Parser SqlExpr
+-- limit = undefined
 
 defaultExpr :: Parser SqlExpr
 defaultExpr = symbol "DEFAULT" *> pure DefaultSqlExpr
@@ -321,9 +318,8 @@ symbol = lexeme . string
 identifier :: Parser String
 identifier = lexeme (many1 (letter <|> char '_'))
 
-
-word :: Parser String
-word = lexeme (many1 letter)
+-- word :: Parser String
+-- word = lexeme (many1 letter)
 
 number :: Parser String
 number = lexeme (many1 digit)
@@ -479,37 +475,7 @@ data ExpWrap = Expr SqlExpr
 
 data Assoc = LeftAssoc | RightAssoc 
   deriving Show
-type Prec = Int
 
-transformBinExprByPrecedence :: SqlExpr -> SqlExpr
-transformBinExprByPrecedence initialExpr = 
-  case initialExpr of
-    BinSqlExpr fstBinOp op1 op2 ->
-      (go . flatten) initialExpr
-    e -> e
-
- where 
-  flatten :: SqlExpr -> [ExpWrap]
-  flatten (BinSqlExpr binOp exp1 exp2)   = flatten exp1 ++ [ Op binOp ] ++ flatten exp2
-  flatten x = [Expr x]
-
-  go :: {- Map BinOp (Assoc, Prec) -> -} [ExpWrap] -> SqlExpr -- [ExpWrap]
-  go xs =
-    let ops = map (\(Op c) -> c) $
-              filter (\x -> case x of
-                         Op {} -> True
-                         _     -> False) xs
-    in case DL.reverse $ DL.sort ops of -- Get the current lowest precedence operator
-         [] -> 
-          case xs of
-            Expr sqlExp:[] -> sqlExp
-            Op _:[] -> error "Panic! Did not expect an Op here, since filter function was empty!"
-            _ -> error $ "Encountered a list of ExpWrap (we need to handle this case)" ++ (show xs)
-         firstOp:_ -> 
-          let ixs = DL.elemIndices (Op firstOp) xs
-          in case ixs of
-               [ix] -> BinSqlExpr firstOp (go $ DL.take (ix +1) xs) (go $ DL.drop (ix + 2) xs)
-               multipleIx -> undefined
 
 
 
