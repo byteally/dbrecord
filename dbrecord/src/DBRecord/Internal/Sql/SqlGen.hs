@@ -98,7 +98,8 @@ toSqlTable (PQ.TableFun name attrs) = SqlTabFun name attrs
 toSqlTable (PQ.PrimQuery sq)        = NestedSqlSelect sq
 
 toSqlTableName :: PQ.TableId -> SqlTableName
-toSqlTableName (PQ.TableId s tn) = SqlTableName (Just (T.unpack s)) (T.unpack tn)
+toSqlTableName (PQ.TableId d s tn) =
+  SqlTableName (T.unpack d) (T.unpack s) (T.unpack tn)
 
 product :: NEL.NonEmpty (PQ.TableExpr SqlSelect) -> PQ.Clauses -> SqlSelect
 product tabs cs = SqlProduct (map toSqlTable $ NEL.toList tabs) $            

@@ -3,7 +3,8 @@ module DBRecord.Schema
        , Col (..)
 --       , col
        , Database (..)
-       , Table (..)  
+       , Table (..)
+       , Schema (..)
        , module DBRecord.Internal.DBTypeValidation
        , tabName
        , def
@@ -11,7 +12,6 @@ module DBRecord.Schema
        , dbDefaults
        , check
        , dbChecks
-       , GetSchemaName
        , TableFields
        , AliasedCol
        , CheckCT (..)

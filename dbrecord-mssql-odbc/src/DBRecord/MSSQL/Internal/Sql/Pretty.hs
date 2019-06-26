@@ -213,11 +213,11 @@ ppTableFun :: SqlName -> [SqlName] -> Doc
 ppTableFun funN args = text (T.unpack funN) <> parens (hsep (map (text . T.unpack) args))
 
 ppTableName :: SqlTableName -> Doc
-ppTableName st = case sqlTableSchemaName st of
-    Just sn -> doubleQuotes (text sn) <> text "." <> tname
-    Nothing -> tname
+ppTableName (SqlTableName db sc tab) = 
+    quoted db <> dot <> quoted sc <> dot <> quoted tab
   where
-    tname = doubleQuotes (text (sqlTableName st))
+    quoted = doubleQuotes . text
+    dot = text "."
 
 ppMSSQLExpr :: SqlExpr -> Doc
 ppMSSQLExpr expr =
@@ -350,8 +350,8 @@ ppLiteral l =
   case l of
     NullSql -> text "NULL"
     DefaultSql -> text "DEFAULT"
-    BoolSql True -> error "Panic: impossible boolean true literal"
-    BoolSql False -> error "Panic: impossible boolean false literal"
+    BoolSql True -> text "(1 = 1)"
+    BoolSql False -> text "(0 = 1)"
     ByteSql s -> binQuote s
     StringSql s -> text (quote (T.unpack s))
     IntegerSql i -> text (show i)

@@ -432,19 +432,20 @@ update :: forall tab db keys driver cfg sc rets.
 update filt updateFn rets =
   runUpdateRet (Proxy @tab) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) (toPrimExprs rets)
   
-update_ :: forall tab db cfg driver.
-  ( Table db tab
-  , Monad (DBM db)
-  , KnownSymbol (Schema db)
-  , SingCtx db tab
-  , SingCtxDb db
-  , MonadIO (DBM db)
-  , MonadReader (driver cfg) (DBM db)
+update_ :: forall tab sc cfg driver.
+  ( Table sc tab
+  , Monad (DBM sc)
+  , KnownSymbol (SchemaName sc)
+  , Schema sc
+  , SingCtx sc tab
+  , SingCtxDb sc
+  , MonadIO (DBM sc)
+  , MonadReader (driver cfg) (DBM sc)
   , HasUpdate driver
   , FromDBRow driver Int  
   ) => Expr (OriginalTableFields tab) Bool
-  -> (Updated db tab (OriginalTableFields tab) -> Updated db tab (OriginalTableFields tab))
-  -> DBM db ()
+  -> (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
+  -> DBM sc ()
 update_ filt updateFn =
   runUpdate (Proxy @tab) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate)
 
@@ -483,7 +484,8 @@ runUpdateRet ptab crit assoc rets = do
 delete :: forall tab db driver cfg.
   ( Table db tab
   , MonadIO (DBM db)
-  , KnownSymbol (Schema db)
+  , KnownSymbol (SchemaName db)
+  , Schema db
   , driver ~ Driver (DBM db)
   , MonadReader (driver cfg) (DBM db)
   , HasDelete driver
@@ -648,60 +650,62 @@ insertManyRet _ rows rets = do
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
 
-insert_ :: forall tab db row defs reqCols driver cfg.
-  ( Table db tab
-  , MonadIO (DBM db)
-  , KnownSymbol (Schema db)
-  , defs ~ (HasDefault db tab :++ PrimaryKey db tab)
+insert_ :: forall tab sc row defs reqCols driver cfg.
+  ( Table sc tab
+  , MonadIO (DBM sc)
+  , KnownSymbol (SchemaName sc)
+  , Schema sc
+  , defs ~ (HasDefault sc tab :++ PrimaryKey sc tab)
   , reqCols ~ (FilterNonDefaults (OriginalTableFields tab) defs)
   , TupleToHList row ~ reqCols
   , ToHList row
   , All ConstExpr reqCols
-  , driver ~ Driver (DBM db)
-  , MonadReader (driver cfg) (DBM db)
+  , driver ~ Driver (DBM sc)
+  , MonadReader (driver cfg) (DBM sc)
   , HasInsert driver
-  , SingCtx db tab
-  , SingCtxDb db
+  , SingCtx sc tab
+  , SingCtxDb sc
   , SingI (FieldsOf reqCols)
   , SingE (FieldsOf reqCols)
-  ) => Proxy tab -> row -> DBM db ()
+  ) => Proxy tab -> row -> DBM sc ()
 insert_ _ row = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
-    colIs = headColInfos (Proxy @db) (Proxy @tab)
+    colIs = headColInfos (Proxy @sc) (Proxy @tab)
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprs = toDBValues values
     values = toHList row (\v -> Identity v)
-    insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList [cexprs]) []
+    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList [cexprs]) []
   driver <- ask
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
 
-insertMany_ :: forall tab db row defs reqCols driver cfg.
-  ( Table db tab
-  , MonadIO (DBM db)
-  , KnownSymbol (Schema db)
-  , defs ~ (HasDefault db tab :++ PrimaryKey db tab)
+insertMany_ :: forall tab sc row defs reqCols driver cfg.
+  ( Table sc tab
+  , MonadIO (DBM sc)
+  , KnownSymbol (SchemaName sc)
+  , Schema sc
+  , defs ~ (HasDefault sc tab :++ PrimaryKey sc tab)
   , reqCols ~ (FilterNonDefaults (OriginalTableFields tab) defs)
   , TupleToHList row ~ reqCols
   , ToHList row
   , All ConstExpr reqCols
-  , driver ~ Driver (DBM db)
-  , MonadReader (driver cfg) (DBM db)
+  , driver ~ Driver (DBM sc)
+  , MonadReader (driver cfg) (DBM sc)
   , HasInsert driver
-  , SingCtx db tab
-  , SingCtxDb db
+  , SingCtx sc tab
+  , SingCtxDb sc
   , SingI (FieldsOf reqCols)
   , SingE (FieldsOf reqCols)    
-  ) => Proxy tab -> [row] -> DBM db ()
+  ) => Proxy tab -> [row] -> DBM sc ()
 insertMany_ _ rows = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
-    colIs = headColInfos (Proxy @db) (Proxy @tab)
+    colIs = headColInfos (Proxy @sc) (Proxy @tab)
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap toDBValues values    
     values = fmap (\row -> toHList row (\v -> Identity v)) rows
-    insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList cexprss) []
+    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList cexprss) []
   driver <- ask
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
@@ -716,12 +720,13 @@ getTableProjections pdb ptab = go (headColInfos pdb ptab)
           let dbColN = ci ^. columnNameInfo . dbName
           in  (dbColN, BaseTableAttrExpr dbColN)
 
-getTableId :: forall db tab. (SingCtx db tab, SingCtxDb db) => Proxy db -> Proxy tab -> TableId
-getTableId pdb ptab =
-  let dbTabName    = headTabNameInfo pdb ptab ^. dbName
-      dbSchemaName = headDbNameInfo pdb ^. dbName
+getTableId :: forall sc tab. (SingCtx sc tab, SingCtxDb sc) => Proxy sc -> Proxy tab -> TableId
+getTableId psc ptab =
+  let dbTabName    = headTabNameInfo psc ptab ^. dbName
+      dbSchemaName = headSchemaNameInfo psc ^. dbName
   in  TableId { PQ.schema    = dbSchemaName
               , PQ.tableName = dbTabName
+              , PQ.database  = error "Panic: unfilled"
               }
 
 getBaseTableExpr :: forall db tab.

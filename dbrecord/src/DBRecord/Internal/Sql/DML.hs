@@ -27,7 +27,8 @@ data JoinType = LeftJoin
               deriving (Show, Read, Eq)
 
 data SqlTableName = SqlTableName
-  { sqlTableSchemaName :: Maybe String
+  { sqlTableDbName     :: String
+  , sqlTableSchemaName :: String
   , sqlTableName       :: String
   } deriving (Show, Read, Eq)
   

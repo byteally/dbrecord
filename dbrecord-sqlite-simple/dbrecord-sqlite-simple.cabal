@@ -29,7 +29,7 @@ library
                     , dbrecord
                     , pretty            >= 1.1
                     , bytestring
-                    , dbrecord-migration == 0.1.*
+                    -- , dbrecord-migration == 0.1.*
                      -- , aeson
                      -- , vector
                      -- , time              >= 1.5

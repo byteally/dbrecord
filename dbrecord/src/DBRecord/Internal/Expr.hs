@@ -175,6 +175,9 @@ instance NumExpr Word where
 instance NumExpr Int where
   exprFromInteger = literalExpr . PQ.Integer . fromIntegral
 
+instance NumExpr Int32 where
+  exprFromInteger = literalExpr . PQ.Integer . fromIntegral
+
 instance NumExpr Integer where
   exprFromInteger = literalExpr . PQ.Integer
 
@@ -247,6 +250,9 @@ infix 4 .>=
 infix 4 .<=
 
 instance OrdExpr Int where
+  a .<= b = binOp PQ.OpLtEq a b
+
+instance OrdExpr Int32 where
   a .<= b = binOp PQ.OpLtEq a b
 
 instance OrdExpr Word where
@@ -523,6 +529,12 @@ instance EqExpr (CI T.Text) where
   a .== b = binOp PQ.OpEq a b
 
 instance EqExpr Int where
+  a .== b = binOp PQ.OpEq a b
+
+instance EqExpr Int32 where
+  a .== b = binOp PQ.OpEq a b
+
+instance EqExpr Int64 where
   a .== b = binOp PQ.OpEq a b
 
 instance EqExpr Word where
