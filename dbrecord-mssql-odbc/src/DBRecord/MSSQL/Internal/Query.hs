@@ -26,12 +26,9 @@ newtype MSSQLDBT m (db :: *) a = MSSQLDBT { runMSSQLDB :: ReaderT (MSSQL MSSQL.C
 
 type MSSQLDB = MSSQLDBT IO
 
-class (FromRow a) => FromDBRowCtx a 
-instance (FromRow a) => FromDBRowCtx a 
-
 instance DBDecoder MSSQL where
   type FromDBRowParser MSSQL   = RowParser
-  type FromDBRow MSSQL         = FromDBRowCtx
+  type FromDBRow MSSQL         = FromRow
   
   dbDecoder _ _ = fromRow
           
