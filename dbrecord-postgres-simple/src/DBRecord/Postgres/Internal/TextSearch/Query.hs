@@ -9,6 +9,8 @@ module DBRecord.Postgres.Internal.TextSearch.Query
        , not
        , query
        , plainQuery
+       , andsQT
+       , orsQT
        , Lexeme
        , QueryText
        , Query
@@ -20,6 +22,7 @@ import qualified Data.List as L
 import DBRecord.Internal.Expr hiding ((.&&), (.||))
 import qualified DBRecord.Internal.PrimQuery as PQ
 import Data.Monoid ((<>))
+import Data.List
 
 newtype Lexeme = Lexeme T.Text
 
@@ -84,3 +87,11 @@ query (QueryText t) = Expr (PQ.FunExpr "to_tsquery" [pqText t])
 plainQuery :: T.Text -> Expr sc Query
 plainQuery t = Expr (PQ.FunExpr "plainto_tsquery" [pqText t])
   where pqText = PQ.ConstExpr . PQ.String
+
+andsQT :: [T.Text] -> QueryText
+andsQT [] = queryText . prefix $ ""
+andsQT qts = QueryText $ foldl1' pprAnd qts
+
+orsQT :: [T.Text] -> QueryText
+orsQT [] = queryText . prefix $ ""
+orsQT qts = QueryText $ foldl1' pprOr qts
