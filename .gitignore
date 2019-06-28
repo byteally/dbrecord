@@ -7,8 +7,10 @@ cabal-dev
 *.dyn_o
 *.dyn_hi
 .hpc
+.ghc.*
 .hsenv
 .cabal-sandbox/
+dist-*
 cabal.sandbox.config
 *.prof
 *.aux
