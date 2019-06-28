@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-module DBRecord.Sqlite.Internal.Sql.Parser
+module DBRecord.Sqlite.Internal.Sql.Parser where
+{-
   ( sqlExpr
   , parseSqliteType
   , SizeInfo (..)
@@ -281,3 +282,4 @@ data SizeInfo = SizeInfo { szCharacterLength :: Maybe Integer
 
 defSizeInfo :: SizeInfo
 defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
+-}

@@ -14,7 +14,7 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  ghc-options:         -Wall
+  ghc-options:         -Wall -Werror
   exposed-modules:
                     DBRecord.MySQL
                     DBRecord.MySQL.Internal.Query
@@ -50,6 +50,7 @@ library
                      -- , base64-bytestring >= 1.0
                      -- , time              == 1.6.*
                      , mysql-haskell
+                     , mysql-haskell-nem
                      , hashable
                      , io-streams
                      , time

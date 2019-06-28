@@ -6,7 +6,9 @@
 
 module DBRecord.MySQL.Internal.Reify where
 
-
+{-
+module DBRecord.MySQL.Internal.Reify ( getMySQLDbSchemaInfo
+                                     ) where
 
 import GHC.Generics
 import Data.Vector (Vector)
@@ -32,7 +34,7 @@ import DBRecord.Internal.DDL ( createTable
                              )
 import Data.Coerce
 import Data.Maybe
-import DBRecord.Internal.Schema hiding (Sequence, dbTypeName, DbKeyName (..))
+import DBRecord.Internal.Schema hiding (Sequence, dbTypeName, DbKeyName (..), SchemaName, DatabaseName)
 import qualified DBRecord.Internal.Schema as S
 import qualified Data.HashMap.Strict as HM
 import DBRecord.Internal.Lens
@@ -462,8 +464,8 @@ customTypeNameHints = HM.foldrWithKey ctNameHints HM.empty . getHints
   where ctNameHints (CustomTypeName k) v m = HM.insert k v m
         ctNameHints _ _ m                  = m
 
-toDatabaseInfo :: Hints -> DatabaseName -> [EnumInfo] -> TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> DatabaseInfo
-toDatabaseInfo hints dbn eis cols chks defs pk uqs fks =
+toSchemaInfo :: Hints -> SchemaName -> [EnumInfo] -> TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> SchemaInfo
+toSchemaInfo hints dbn eis cols chks defs pk uqs fks =
   let tabNs = HM.keys cols
       dbNameHints = databaseNameHints hints
       tabNameHints = tableNameHints hints      
@@ -475,9 +477,9 @@ toDatabaseInfo hints dbn eis cols chks defs pk uqs fks =
                     in  mkTypeNameInfo et (EnumTypeNM etn (V.toList (enumCons ei)))
                   ) eis
       tabInfos = L.map (\dbTN ->
-                         let tUqs = HM.lookupDefault [] dbTN uqs
-                             tPk  = HM.lookup dbTN pk
-                             tFks = HM.lookupDefault [] dbTN fks
+                         let tUqs  = HM.lookupDefault [] dbTN uqs
+                             tPk   = HM.lookup dbTN pk
+                             tFks  = HM.lookupDefault [] dbTN fks
                              tDefs = HM.lookupDefault [] dbTN defs
                              tChks = HM.lookupDefault [] dbTN chks
                              tCols = HM.lookupDefault [] dbTN cols
@@ -492,7 +494,7 @@ toDatabaseInfo hints dbn eis cols chks defs pk uqs fks =
                                       , _ignoredCols    = ()
                                       }
                        ) tabNs
-  in mkDatabaseInfo dbt types 0 0 (coerce tabInfos)
+  in mkSchemaInfo sct types 0 0 (coerce tabInfos)
 
 toCheckInfo :: Hints -> TableContent ColumnInfo -> [CheckCtx] -> TableContent CheckInfo
 toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo
@@ -598,3 +600,4 @@ sizeInfo tci =
            , szDateTimePrecision = fromIntegral <$> dbDateTimePrecision tci
            , szIntervalPrecision = fromIntegral <$> dbIntervalPrecision tci
            } 
+-}

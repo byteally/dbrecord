@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-orphans            #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE DeriveFunctor              #-}

@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
-module DBRecord.MySQL.Internal.Sql.Parser
+module DBRecord.MySQL.Internal.Sql.Parser where
+
+{-
   ( sqlExpr
   , parseMySQLType
   , SizeInfo (..)
@@ -7,11 +9,10 @@ module DBRecord.MySQL.Internal.Sql.Parser
   ) where
 
 import DBRecord.Internal.Sql.DML
-import Data.Attoparsec.Text hiding (number)
 import qualified Data.Text as T
-import qualified Data.Attoparsec.Text as A
-import Data.Text (Text)
 import Control.Applicative
+import Data.Attoparsec.Text hiding (number)
+import Data.Text (Text)
 import Data.Char (isAlpha, isDigit)
 import qualified Debug.Trace as DT
 import qualified Data.List.NonEmpty as NEL
@@ -19,7 +20,6 @@ import DBRecord.Internal.DBTypes (DBType (..))
 
 sqlExpr :: Parser SqlExpr
 sqlExpr = undefined
-{-
   (
    postfixOrWindowExpr <|>
    binSqlExpr          <|>
@@ -50,7 +50,6 @@ sqlExpr = undefined
             op <- prefixOp
             e <-  sqlExpr
             pure (PrefixSqlExpr op e)
--}
 
 termSqlExpr :: Parser SqlExpr
 termSqlExpr =
@@ -328,3 +327,4 @@ parseMySQLType nullInfo sizeInfo = wrapNullable nullInfo . go
         -- ppArg (IntegerArg i) = show i
         wrapNullable True a  = DBNullable a
         wrapNullable False a = a
+-}

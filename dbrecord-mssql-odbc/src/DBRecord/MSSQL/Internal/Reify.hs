@@ -55,7 +55,7 @@ getMsSQLDatabaseInfo connStr databaseName = do
     fks <-   go con (foreignKeysQ scn) 
 
     let hints = defHints
-    let tcis = (toTabColInfo hints tcols)
+    let tcis = toTabColInfo hints tcols
     pure (toSchemaInfo hints scn [] tcis
                        (toCheckInfo hints tchks)
                        (toDefaultInfo hints tcols)

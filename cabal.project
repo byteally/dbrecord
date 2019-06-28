@@ -2,10 +2,11 @@ compiler: ghc
 packages:
   ./dbrecord
   ./dbrecord-migration
-  ./dbrecord-mongo
+  -- ./dbrecord-mongo
   ./dbrecord-postgres-simple
   ./dbrecord-sqlite-simple
   ./dbrecord-mssql-odbc
+  ./dbrecord-mysql-haskell
 
 source-repository-package
     type: git

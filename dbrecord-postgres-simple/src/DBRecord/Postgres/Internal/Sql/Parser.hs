@@ -10,11 +10,8 @@ import DBRecord.Internal.Sql.DML
 -- import qualified DBRecord.Internal.Postgres.Types as PGT
 import Data.Attoparsec.Text hiding (number)
 import qualified Data.Text as T
-import qualified Data.Attoparsec.Text as A
 import Data.Text (Text)
 import Control.Applicative
-import Data.Char (isAlpha, isDigit)
-import qualified Debug.Trace as DT
 import qualified Data.List.NonEmpty as NEL
 import DBRecord.Internal.DBTypes (DBType (..))
 import DBRecord.Internal.Types (Max (..))
@@ -46,7 +43,7 @@ sqlExpr =
             op <- eitherP (symbol "OVER" *> word) postfixOp
             case op of
               Left w -> pure (NamedWindowSqlExpr w e)
-              Right op -> pure (PostfixSqlExpr op e)
+              Right opv -> pure (PostfixSqlExpr opv e)
 
           prefixSqlExpr = do
             op <- prefixOp
@@ -86,6 +83,7 @@ caseExpr = do
 funName :: Parser String
 funName = identifier
 
+{-
 aggrFunSqlExpr :: Parser SqlExpr
 aggrFunSqlExpr = do
   n <- funName
@@ -94,7 +92,8 @@ aggrFunSqlExpr = do
     obys <- orderBy
     pure (es, obys)
   pure (AggrFunSqlExpr n es obys)
-            
+-}
+
 arraySqlExpr :: Parser SqlExpr
 arraySqlExpr = do
   _ <- symbol "ARRAY"
@@ -156,17 +155,20 @@ binOp =
   -- symbol "::"   <|>  
   symbol "AT" *> symbol "TIME" *> symbol "ZONE" $> OpAtTimeZone
 
+{-
 orderBy :: Parser [(SqlExpr, SqlOrder)]
 orderBy = option [] (symbol "ORDER" *> symbol "BY" *> sepByComma ord)
 
 ord :: Parser (SqlExpr, SqlOrder)
 ord = do
   (,) <$> termSqlExpr <*> sqlOrder
+-}
 
 placeholderExpr :: Parser SqlExpr
 placeholderExpr =
   symbol "?" *> pure PlaceHolderSqlExpr
 
+{-
 sqlOrder :: Parser SqlOrder
 sqlOrder = do
   dir <- (symbol "ASC"  *> pure SqlAsc <|>
@@ -176,10 +178,12 @@ sqlOrder = do
               symbol "NULLS" *> symbol "LAST"  *> pure SqlNullsLast
               )
   pure (SqlOrder dir nullOrd)
+-}
 
 typeExpr :: Parser DBType
 typeExpr = undefined
 
+{-
 ordDir :: Parser SqlOrder
 ordDir = undefined
 
@@ -188,6 +192,7 @@ nullOrd = undefined
 
 limit :: Parser SqlExpr
 limit = undefined
+-}
 
 defaultExpr :: Parser SqlExpr
 defaultExpr = symbol "DEFAULT" *> pure DefaultSqlExpr

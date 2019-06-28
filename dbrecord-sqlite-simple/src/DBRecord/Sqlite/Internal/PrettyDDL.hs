@@ -223,6 +223,8 @@ ppAlterType (AddAfterEnumVal newEnum prevEnum) =
   <+> ppEnumVal newEnum
   <+> text "AFTER"
   <+> ppEnumVal prevEnum
+ppAlterType _ =
+  error "TODO: not implemented @ppAlterType"
 
 ppAlterAttr :: AlterAttribute -> Doc
 ppAlterAttr (ChangeAttrType ty) =

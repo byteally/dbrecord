@@ -1,15 +1,6 @@
 {-# LANGUAGE OverloadedStrings, DuplicateRecordFields, ScopedTypeVariables, DeriveGeneric #-}
-module DBRecord.Postgres.Internal.Reify where
-{-  
-       ( getPostgresDbSchemaInfo
-       , defHints
-       , columnNameHint
-       , tableNameHint
-       , databaseNameHint
-       , uniqueNameHint
-       , foreignKeyNameHint
-       , seqNameHint
-       , checkNameHint
+module DBRecord.Postgres.Internal.Reify
+       ( getPostgresDbSchemaInfo       
        ) where
 
 -- import DBRecord.Internal.Migration.Types hiding (CheckExpr)
@@ -20,7 +11,6 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Text  (Text)
 import qualified Data.Text as T
-import Data.Proxy
 import qualified Data.List as L
 import Data.Hashable
 import Data.Attoparsec.Text (parseOnly)
@@ -28,23 +18,11 @@ import Data.Either (either)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Postgres.Internal.Sql.Parser
 import DBRecord.Internal.Sql.SqlGen (primExprGen)
-import DBRecord.Internal.DDL ( createTable
-                             , addPrimaryKey
-                             , addUnique
-                             , addForeignKey
-                             , addCheck
-                             , addDefault
-                             , setNotNull
-                             , column
-                             , single
-                             )
 import Data.Coerce
 import Data.Maybe
-import DBRecord.Internal.Schema hiding (Sequence, dbTypeName, DbKeyName (..))
-import qualified DBRecord.Internal.Schema as S
+import DBRecord.Internal.Schema hiding (Sequence, dbTypeName, DbKeyName (..), DatabaseName, SchemaName)
 import qualified Data.HashMap.Strict as HM
 import DBRecord.Internal.Lens
-import Data.Int
 import DBRecord.Internal.Types
 
 data EnumInfo = EnumInfo { enumTypeName :: Text
@@ -67,8 +45,6 @@ data TableColInfo = TableColInfo { dbTableName  :: Text
 data CheckCtx = CheckCtx Text Text Text
                deriving (Show, Eq)
 
-type CheckExpr = (Text, Text)
-
 data PrimKey = PrimKey Text Text Text Int
              deriving (Show, Eq, Ord)
 
@@ -84,50 +60,48 @@ data Seq = Seq Text Text Text Text Text Text Text (Maybe Text) (Maybe Text)
 type TableContent a = HM.HashMap Text [a]
 
 toPrimKeyInfo :: Hints -> [PrimKey] -> HM.HashMap HaskName PrimaryKeyInfo
-toPrimKeyInfo hints = HM.fromList . map toPrimKeyInfo . groupByTableName
+toPrimKeyInfo hints = HM.fromList . map toPKInfo . groupByTableName
   where groupByTableName = L.groupBy (\(PrimKey _ tna _ _) (PrimKey _ tnb _ _) -> tna == tnb)
 
-        toPrimKeyInfo pks@(PrimKey kna tna _ _ : _) =
+        toPKInfo pks@(PrimKey kna tna _ _ : _) =
           let pki      = PrimaryKeyInfo { _pkeyName = kna
                                         , _pkeyColumns = getPKCols tna pks
                                         }
           in  ( tna, pki )
-        toPrimKeyInfo []                            = error "impossible: empty group"
+        toPKInfo [] = error "impossible: empty group"
         
         getPKCols tna = map (mkHaskColumnName (colNameHints tna) . snd) . L.sortBy cmpByFst . map getPKCol
-        getPKCol (PrimKey _ _ col i) = (i, col)
+        getPKCol (PrimKey _ _ coln i) = (i, coln)
         cmpByFst a b = compare (fst a) (fst b)
 
         colNameHints tna = columnNameHints tna hints
 
 toUniqKeyInfo :: Hints -> [UniqKey] -> TableContent UniqueInfo
-toUniqKeyInfo hints = HM.fromListWith (++) . concatMap (map toUniqKeyInfo . groupByKeyName) . groupByTableName
+toUniqKeyInfo hints = HM.fromListWith (++) . concatMap (map toUQKInfo . groupByKeyName) . groupByTableName
   where groupByTableName = L.groupBy (\(UniqKey _ tna _ _) (UniqKey _ tnb _ _) -> tna == tnb)
         groupByKeyName   = L.groupBy (\(UniqKey kna _ _ _) (UniqKey knb _ _ _) -> kna == knb)
 
-        toUniqKeyInfo uqs@(UniqKey kna tna _ _ : _) =
+        toUQKInfo uqs@(UniqKey kna tna _ _ : _) =
           let uqi      = UniqueInfo { _uqName = mkEntityName (mkHaskKeyName uniqNameHints kna) kna
                                     , _uqColumns = getUQCols tna uqs
                                     } 
           in  (tna, [uqi])
-        toUniqKeyInfo [] = error "impossible: empty group"
+        toUQKInfo [] = error "impossible: empty group"
         
         getUQCols tna = map (mkHaskColumnName (colNameHints tna) . snd) . L.sortBy cmpByFst . map getUQCol
-        getUQCol (UniqKey _ _ col i) = (i, col)
+        getUQCol (UniqKey _ _ coln i) = (i, coln)
         cmpByFst a b = compare (fst a) (fst b)
 
-        tabNameHints = tableNameHints hints
         colNameHints tna = columnNameHints tna hints
         uniqNameHints = uniqueNameHints hints
 
 
-toDatabaseInfo :: Hints -> DatabaseName -> [EnumInfo] -> TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> DatabaseInfo
-toDatabaseInfo hints dbn eis cols chks defs pk uqs fks =
+toSchemaInfo :: Hints -> SchemaName -> [EnumInfo] -> TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> SchemaInfo
+toSchemaInfo hints scn eis cols chks defs pk uqs fks =
   let tabNs = HM.keys cols
       dbNameHints = databaseNameHints hints
       tabNameHints = tableNameHints hints      
-      custTypeNameHints = customTypeNameHints hints      
-      dbt = EntityName { _hsName = mkHaskTypeName dbNameHints dbn , _dbName = dbn }
+      sct = EntityName { _hsName = mkHaskTypeName dbNameHints scn , _dbName = scn }
       types = map (\ei ->
                     let et = parsePGType False defSizeInfo (T.unpack etn)
                         etn = enumTypeName ei
@@ -151,7 +125,7 @@ toDatabaseInfo hints dbn eis cols chks defs pk uqs fks =
                                       , _ignoredCols    = ()
                                       }
                        ) tabNs
-  in mkDatabaseInfo dbt types 0 0 (coerce tabInfos) Postgres
+  in mkSchemaInfo sct types 0 0 (coerce tabInfos)
 
 toCheckInfo :: Hints -> TableContent ColumnInfo -> [CheckCtx] -> TableContent CheckInfo
 toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo
@@ -165,41 +139,41 @@ toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo
                               )
 
         -- NOTE: Not null also comes up as constraints
-        isNotNullCk tcis chkOn (PQ.PostfixExpr PQ.OpIsNotNull (PQ.BaseTableAttrExpr coln)) =
+        isNotNullCk itcis chkOn (PQ.PostfixExpr PQ.OpIsNotNull (PQ.BaseTableAttrExpr coln)) =
           maybe False (const True) $ do
-            tcis' <- HM.lookup chkOn tcis
-            L.find (\tci -> (tci ^. columnNameInfo . dbName) == coln) tcis'          
+            itcis' <- HM.lookup chkOn itcis
+            L.find (\tci -> (tci ^. columnNameInfo . dbName) == coln) itcis'          
         isNotNullCk _ _ _ = True
         chkNameHints = checkKeyNameHints hints
 
 toDefaultInfo :: Hints -> [TableColInfo] -> TableContent DefaultInfo
-toDefaultInfo hints = HM.fromListWith (++) . map defaultInfo
-  where defaultInfo tci =
+toDefaultInfo _hints = HM.fromListWith (++) . map dInfo
+  where dInfo tci =
           ( dbTableName tci
           , [ {-mkDefaultInfo (colName tci)
                             (unsafeParseExpr (fromJust (dbColDefault tci)))-}
             ]
           )
-        colName tci = mkHaskColumnName (colNameHints (dbTableName tci)) (dbColumnName tci)
-        colNameHints tna = columnNameHints tna hints
+        -- colName tci = mkHaskColumnName (colNameHints (dbTableName tci)) (dbColumnName tci)
+        -- colNameHints tna = columnNameHints tna hints
 
 toForeignKeyInfo :: Hints -> [FKey] -> TableContent ForeignKeyInfo
-toForeignKeyInfo hints = HM.fromListWith (++) . concatMap (map toForeignKeyInfo . groupByKeyName) . groupByTableName
+toForeignKeyInfo hints = HM.fromListWith (++) . concatMap (map toFKInfo . groupByKeyName) . groupByTableName
   where groupByTableName = L.groupBy (\(FKey _ tna _ _ _ _ _ _) (FKey _ tnb _ _ _ _ _ _) -> tna == tnb)
         groupByKeyName   = L.groupBy (\(FKey kna _ _ _ _ _ _ _) (FKey knb _ _ _ _ _ _ _) -> kna == knb)
 
-        toForeignKeyInfo fks@(FKey kna tna _ _ _ rtna _ _ : _) =
+        toFKInfo fks@(FKey kna tna _ _ _ rtna _ _ : _) =
           let fki = mkForeignKeyInfo (mkEntityName (mkHaskKeyName fkNameHints kna) kna)
                                      (getFKCols tna fks)
                                      (mkHaskTypeName tabNameHints rtna)
                                      (getFKRefCols fks)
           in (tna , [fki])
-        toForeignKeyInfo []                                        = error "impossible: empty group"
+        toFKInfo [] = error "impossible: empty group"
         getFKCols tna = map (mkHaskColumnName (colNameHints tna) . snd) . L.sortBy cmpByFst . map getFKCol
-        getFKCol (FKey _ _ col i _ _ _ _) = (i, col)
+        getFKCol (FKey _ _ coln i _ _ _ _) = (i, coln)
 
         getFKRefCols = map snd . L.sortBy cmpByFst . map getFKRefCol
-        getFKRefCol (FKey _ _ _ _ _ rtna col i) = (i, mkHaskColumnName (colNameHints rtna) col)
+        getFKRefCol (FKey _ _ _ _ _ rtna coln i) = (i, mkHaskColumnName (colNameHints rtna) coln)
         
         cmpByFst a b = compare (fst a) (fst b)
 
@@ -242,6 +216,127 @@ instance FromRow Seq where
   fromRow = Seq <$> field <*> field <*> field <*> field
                      <*> field <*> field <*> field <*> field
                      <*> field
+
+type SchemaName   = Text
+getPostgresDbSchemaInfo :: ConnectInfo -> IO DatabaseInfo 
+getPostgresDbSchemaInfo connInfo = do
+  let dbn = connectDatabase connInfo
+  conn <- connect connInfo
+  (scs :: [Only SchemaName]) <- query_ conn schemasQ
+  schs <- mapM (mkSchema conn . fromOnly) scs
+  pure (mkDatabaseInfo (dbt (T.pack dbn)) schs Postgres)
+  
+  where mkSchema conn schn = do
+          let hints = defHints
+          enumTs <- query_ conn enumQ
+          tcols <- query_ conn tableColQ
+          tchks <- query_ conn checksQ
+          prims <- query_ conn primKeysQ
+          uniqs <- query_ conn uniqKeysQ
+          fks   <- query_ conn foreignKeysQ
+          (_seqs :: [Seq])  <- query_ conn seqsQ
+          let tcis = (toTabColInfo hints tcols)
+          pure $ (toSchemaInfo hints schn enumTs tcis
+                               (toCheckInfo hints tcis tchks)
+                               (toDefaultInfo hints tcols)
+                               (toPrimKeyInfo hints prims)
+                               (toUniqKeyInfo hints uniqs)
+                               (toForeignKeyInfo hints fks)
+                 )
+
+        dbt dbn =
+          EntityName { _hsName = mkHaskTypeName HM.empty dbn
+                     , _dbName = dbn
+                     }
+
+          
+unsafeParseExpr :: Text -> PQ.PrimExpr
+unsafeParseExpr t = primExprGen . either parsePanic id . parseOnly sqlExpr $ t
+  where parsePanic e = error $ "Panic while parsing: " ++ show e ++ " , " ++ "while parsing " ++ show t
+
+-- conversion to migrations
+
+-- Only enums for now
+{-
+mkMigrationTypes :: [EnumInfo] -> [PrimDDL]
+mkMigrationTypes = map mkMigrationType
+  where mkMigrationType e =
+          let tn = TypeName (enumTypeName e)
+              vals = map EnumVal (V.toList (enumCons e))
+          in CreateEnum tn vals
+
+mkMigrations :: [EnumInfo] -> [TableInfo] -> [PrimDDL]
+mkMigrations enumInfos tabInfos =
+  mkMigrationTypes enumInfos ++ mkMigrationTables tabInfos
+-}
+
+
+data HintKey  = ColumnName     DBName DBName -- Tablename, Columnname
+              | TableName      DBName
+              | DatabaseName   DBName                
+              | PrimaryKeyName DBName
+              | UniqueName     DBName
+              | CustomTypeName DBName
+              | ForeignKeyName DBName
+              | SeqName        DBName
+              | CheckName      DBName
+              deriving (Show, Eq, Ord, Generic)
+
+instance Hashable HintKey
+
+newtype Hints = Hints { getHints :: HM.HashMap HintKey HaskName }
+              deriving (Show)
+
+defHints :: Hints
+defHints = Hints HM.empty
+
+databaseNameHints :: Hints -> HM.HashMap DBName HaskName
+databaseNameHints = HM.foldrWithKey dbNameHints HM.empty . getHints
+  where dbNameHints (DatabaseName k) v m = HM.insert k v m
+        dbNameHints _ _ m                = m
+
+tableNameHints :: Hints -> HM.HashMap DBName HaskName
+tableNameHints = HM.foldrWithKey tabNameHints HM.empty . getHints
+  where tabNameHints (TableName k) v m = HM.insert k v m
+        tabNameHints _ _ m             = m
+
+columnNameHints :: DBName -> Hints -> HM.HashMap DBName HaskName
+columnNameHints dbTabN = HM.foldrWithKey colNameHints HM.empty . getHints
+  where colNameHints (ColumnName tab coln) v m
+          | dbTabN == tab = HM.insert coln v m
+          | otherwise    = m
+        colNameHints _ _ m = m
+
+uniqueNameHints :: Hints -> HM.HashMap DBName HaskName
+uniqueNameHints = HM.foldrWithKey uniqNameHints HM.empty . getHints
+  where uniqNameHints (UniqueName k) v m = HM.insert k v m
+        uniqNameHints _ _ m              = m
+
+foreignKeyNameHints :: Hints -> HM.HashMap DBName HaskName
+foreignKeyNameHints = HM.foldrWithKey fkNameHints HM.empty . getHints
+  where fkNameHints (ForeignKeyName k) v m = HM.insert k v m
+        fkNameHints _ _ m                  = m
+
+checkKeyNameHints :: Hints -> HM.HashMap DBName HaskName
+checkKeyNameHints = HM.foldrWithKey ckNameHints HM.empty . getHints
+  where ckNameHints (CheckName k) v m = HM.insert k v m
+        ckNameHints _ _ m             = m
+
+{-
+seqKeyNameHints :: Hints -> HM.HashMap DBName HaskName
+seqKeyNameHints = HM.foldrWithKey seqNameHints HM.empty . getHints
+  where seqNameHints (SeqName k) v m = HM.insert k v m
+        seqNameHints _ _ m           = m
+-}
+
+sizeInfo :: TableColInfo -> SizeInfo
+sizeInfo tci =
+  SizeInfo { szCharacterLength   = fromIntegral <$> dbCharacterLength tci
+           , szNumericPrecision  = fromIntegral <$> dbNumericPrecision tci
+           , szNumericScale      = fromIntegral <$> dbNumericScale tci
+           , szDateTimePrecision = fromIntegral <$> dbDateTimePrecision tci
+           , szIntervalPrecision = fromIntegral <$> dbIntervalPrecision tci
+           } 
 
 enumQ :: Query
 enumQ =
@@ -384,139 +479,9 @@ seqsQ =
    \where s.relkind='S' and d.deptype='a' and n.nspname = 'public') as pg_seq_info \
    \ON pg_seq_info.seq = sequence_schema.sequence_name"
    
+schemasQ :: Query
+schemasQ =
+  "SELECT schema_name from information_schema.schemata \
+   \schema_name <> 'information_schema' AND \
+   \schema_name NOT LIKE 'pg_%'"
  
-type SchemaName = Text
-type DatabaseName = Text
-
-getPostgresDbSchemaInfo ::  SchemaName -> Hints -> ConnectInfo -> IO DatabaseInfo 
-getPostgresDbSchemaInfo sn hints connInfo = do
-  let dbn = connectDatabase connInfo
-  conn <- connect connInfo    
-  enumTs <- query_ conn enumQ
-  tcols <- query_ conn tableColQ
-  tchks <- query_ conn checksQ
-  prims <- query_ conn primKeysQ
-  uniqs <- query_ conn uniqKeysQ
-  fks   <- query_ conn foreignKeysQ
-  (seqs :: [Seq])  <- query_ conn seqsQ
-  let tcis = (toTabColInfo hints tcols)
-  pure $ (toDatabaseInfo hints (T.pack dbn) enumTs tcis
-                         (toCheckInfo hints tcis tchks)
-                         (toDefaultInfo hints tcols)
-                         (toPrimKeyInfo hints prims)
-                         (toUniqKeyInfo hints uniqs)
-                         (toForeignKeyInfo hints fks)
-         )
-
-unsafeParseExpr :: Text -> PQ.PrimExpr
-unsafeParseExpr t = primExprGen . either parsePanic id . parseOnly sqlExpr $ t
-  where parsePanic e = error $ "Panic while parsing: " ++ show e ++ " , " ++ "while parsing " ++ show t
-
--- conversion to migrations
-
--- Only enums for now
-{-
-mkMigrationTypes :: [EnumInfo] -> [PrimDDL]
-mkMigrationTypes = map mkMigrationType
-  where mkMigrationType e =
-          let tn = TypeName (enumTypeName e)
-              vals = map EnumVal (V.toList (enumCons e))
-          in CreateEnum tn vals
-
-mkMigrations :: [EnumInfo] -> [TableInfo] -> [PrimDDL]
-mkMigrations enumInfos tabInfos =
-  mkMigrationTypes enumInfos ++ mkMigrationTables tabInfos
--}
-
-columnNameHint :: DBName -> DBName -> HaskName -> Hints -> Hints
-columnNameHint dbTabN dbColN hsColN = Hints . HM.insert (ColumnName dbTabN dbColN) hsColN . getHints
-
-tableNameHint :: DBName -> HaskName -> Hints -> Hints
-tableNameHint dbN hsN = Hints . HM.insert (TableName dbN) hsN . getHints
-
-databaseNameHint :: DBName -> HaskName -> Hints -> Hints
-databaseNameHint dbN hsN = Hints . HM.insert (DatabaseName dbN) hsN . getHints
-
-uniqueNameHint :: DBName -> HaskName -> Hints -> Hints
-uniqueNameHint dbN hsN = Hints . HM.insert (UniqueName dbN) hsN . getHints
-
-foreignKeyNameHint :: DBName -> HaskName -> Hints -> Hints
-foreignKeyNameHint dbN hsN = Hints . HM.insert (ForeignKeyName dbN) hsN . getHints
-
-seqNameHint :: DBName -> HaskName -> Hints -> Hints
-seqNameHint dbN hsN = Hints . HM.insert (SeqName dbN) hsN . getHints
-
-checkNameHint :: DBName -> HaskName -> Hints -> Hints
-checkNameHint dbN hsN = Hints . HM.insert (CheckName dbN) hsN . getHints
-
-
-data HintKey  = ColumnName     DBName DBName -- Tablename, Columnname
-              | TableName      DBName
-              | DatabaseName   DBName                
-              | PrimaryKeyName DBName
-              | UniqueName     DBName
-              | CustomTypeName DBName
-              | ForeignKeyName DBName
-              | SeqName        DBName
-              | CheckName      DBName
-              deriving (Show, Eq, Ord, Generic)
-
-instance Hashable HintKey
-
-newtype Hints = Hints { getHints :: HM.HashMap HintKey HaskName }
-              deriving (Show)
-
-defHints :: Hints
-defHints = Hints HM.empty
-
-databaseNameHints :: Hints -> HM.HashMap DBName HaskName
-databaseNameHints = HM.foldrWithKey dbNameHints HM.empty . getHints
-  where dbNameHints (DatabaseName k) v m = HM.insert k v m
-        dbNameHints _ _ m                = m
-
-tableNameHints :: Hints -> HM.HashMap DBName HaskName
-tableNameHints = HM.foldrWithKey tabNameHints HM.empty . getHints
-  where tabNameHints (TableName k) v m = HM.insert k v m
-        tabNameHints _ _ m             = m
-
-columnNameHints :: DBName -> Hints -> HM.HashMap DBName HaskName
-columnNameHints dbTabN = HM.foldrWithKey colNameHints HM.empty . getHints
-  where colNameHints (ColumnName tab col) v m
-          | dbTabN == tab = HM.insert col v m
-          | otherwise    = m
-        colNameHints _ _ m = m
-
-uniqueNameHints :: Hints -> HM.HashMap DBName HaskName
-uniqueNameHints = HM.foldrWithKey uniqNameHints HM.empty . getHints
-  where uniqNameHints (UniqueName k) v m = HM.insert k v m
-        uniqNameHints _ _ m              = m
-
-foreignKeyNameHints :: Hints -> HM.HashMap DBName HaskName
-foreignKeyNameHints = HM.foldrWithKey fkNameHints HM.empty . getHints
-  where fkNameHints (ForeignKeyName k) v m = HM.insert k v m
-        fkNameHints _ _ m                  = m
-
-checkKeyNameHints :: Hints -> HM.HashMap DBName HaskName
-checkKeyNameHints = HM.foldrWithKey ckNameHints HM.empty . getHints
-  where ckNameHints (CheckName k) v m = HM.insert k v m
-        ckNameHints _ _ m             = m
-
-seqKeyNameHints :: Hints -> HM.HashMap DBName HaskName
-seqKeyNameHints = HM.foldrWithKey seqNameHints HM.empty . getHints
-  where seqNameHints (SeqName k) v m = HM.insert k v m
-        seqNameHints _ _ m           = m
-
-customTypeNameHints :: Hints -> HM.HashMap DBName HaskName
-customTypeNameHints = HM.foldrWithKey ctNameHints HM.empty . getHints
-  where ctNameHints (CustomTypeName k) v m = HM.insert k v m
-        ctNameHints _ _ m                  = m
-
-sizeInfo :: TableColInfo -> SizeInfo
-sizeInfo tci =
-  SizeInfo { szCharacterLength   = fromIntegral <$> dbCharacterLength tci
-           , szNumericPrecision  = fromIntegral <$> dbNumericPrecision tci
-           , szNumericScale      = fromIntegral <$> dbNumericScale tci
-           , szDateTimePrecision = fromIntegral <$> dbDateTimePrecision tci
-           , szIntervalPrecision = fromIntegral <$> dbIntervalPrecision tci
-           } 
--}

@@ -7,6 +7,7 @@
 
 module DBRecord.Sqlite.Internal.Reify where
 
+{-
 import           Control.Applicative
 import qualified Data.Text as T
 import           Database.SQLite.Simple
@@ -480,4 +481,5 @@ sizeInfo tci =
            , szNumericScale      = fromIntegral <$> dbNumericScale tci
            , szDateTimePrecision = fromIntegral <$> dbDateTimePrecision tci
            , szIntervalPrecision = fromIntegral <$> dbIntervalPrecision tci
-           } 
+           }
+-}

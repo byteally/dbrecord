@@ -27,9 +27,8 @@ import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   parens, comma, punctuate,
                                   hcat, vcat, brackets, doubleQuotes,
                                    hsep, equals, char, empty, render,
-                                  quotes, space)
+                                  space)
 import DBRecord.Schema.Interface
-import DBRecord.Internal.DBTypes
 import qualified Data.List as L
 
 ppSelect :: SqlSelect -> Doc
@@ -65,7 +64,7 @@ ppAttrs All            = text "*"
 ppAttrs (Columns cols) = (commaV nameAs . toList) cols
 
 nameAs :: (SqlExpr, Maybe SqlColumn) -> Doc
-nameAs (expr, name) = ppAs (fmap unColumn name) (ppSqliteExpr expr)
+nameAs (expr, n) = ppAs (fmap unColumn n) (ppSqliteExpr expr)
   where unColumn (SqlColumn s) = ppAliasedCol (map T.unpack s)
         
 ppTables :: [SqlTableExpr] -> Doc
@@ -79,7 +78,7 @@ ppSelectBinary bin as =
                $$ ppSelect (bSelect2 bin)
   in case as of
     Nothing -> selBin
-    Just as -> ppAs (Just $ doubleQuotes . text $ as) (parens selBin)
+    Just als -> ppAs (Just $ doubleQuotes . text $ als) (parens selBin)
 
 ppSelBinOp :: SelectBinOp -> Doc
 ppSelBinOp op = text $ case op of
@@ -93,12 +92,12 @@ ppSelBinOp op = text $ case op of
 ppSelectCTE :: [SqlWith] -> SqlSelect -> Doc
 ppSelectCTE sqWiths sel = text "WITH" <+> commaV ppSqlWith sqWiths
                          $$ ppSelect sel
-  where ppSqlWith (SqlWith tabn attrs isel) =
-              text (T.unpack tabn) <+> ppAttrs attrs
+  where ppSqlWith (SqlWith tabn atts isel) =
+              text (T.unpack tabn) <+> ppAtts atts
           $$  text "AS"
           $$  ppSelect isel
-        ppAttrs [] = empty
-        ppAttrs as = parens . commaH (text . T.unpack) $ as
+        ppAtts [] = empty
+        ppAtts as = parens . commaH (text . T.unpack) $ as
 
 ppJoin :: Join -> Doc
 ppJoin joinSt = ppJoinedTabs
@@ -249,6 +248,7 @@ ppSqliteExpr expr =
     AnonWindowSqlExpr p o e -> ppSqliteExpr e <+> text "OVER" <+> parens (partPP p <> ppOrderBy o)
       where partPP     [] = empty
             partPP     xs = text "PARTITION BY" <+> (commaH ppSqliteExpr xs <> space)
+    TableSqlExpr {} -> error "TODO: TableSqlExpr not implemented @ppSqliteExpr"
 
 ppBinOp :: BinOp -> Doc
 ppBinOp = text . go
@@ -275,6 +275,7 @@ ppBinOp = text . go
         go OpBitXor     = "^"
         go OpAsg        = "="
         go OpAtTimeZone = "AT TIME ZONE"
+        go _            = error "TODO: not implemented @ppBinOp"
 
 ppPrefixExpr :: UnOp -> SqlExpr -> Doc
 ppPrefixExpr op e = go op

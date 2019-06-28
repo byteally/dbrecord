@@ -1,10 +1,9 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE DeriveGeneric, GeneralizedNewtypeDeriving, StandaloneDeriving #-}
 module DBRecord.Postgres where
 
 import Data.Aeson
 import Database.PostgreSQL.Simple.FromField
-import qualified Data.Text as T
-import GHC.Generics
 import Data.Typeable
 import DBRecord.Internal.Types
 

@@ -29,9 +29,8 @@ import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   parens, comma, punctuate,
                                   hcat, vcat, brackets,
                                    hsep, equals, char, empty, render,
-                                  quotes, space)
+                                  space)
 import DBRecord.Schema.Interface
-import DBRecord.Internal.DBTypes
 import qualified Data.List as L
 
 
@@ -68,7 +67,7 @@ ppAttrs All            = text "*"
 ppAttrs (Columns cols) = (commaV nameAs . toList) cols
 
 nameAs :: (SqlExpr, Maybe SqlColumn) -> Doc
-nameAs (expr, name) = ppAs (fmap unColumn name) (ppMysqlExpr expr)
+nameAs (expr, n) = ppAs (fmap unColumn n) (ppMysqlExpr expr)
   where unColumn (SqlColumn s) = ppAliasedCol (map T.unpack s)
         
 ppTables :: [SqlTableExpr] -> Doc
@@ -81,8 +80,8 @@ ppSelectBinary bin as =
                $$ ppSelBinOp (bOp bin)
                $$ ppSelect (bSelect2 bin)
   in case as of
-    Nothing -> selBin
-    Just as -> ppAs (Just $ backtickQuotes . text $ as) (parens selBin)
+    Nothing  -> selBin
+    Just als -> ppAs (Just $ backtickQuotes . text $ als) (parens selBin)
 
 
 ppSelBinOp :: SelectBinOp -> Doc
@@ -97,12 +96,12 @@ ppSelBinOp op = text $ case op of
 ppSelectCTE :: [SqlWith] -> SqlSelect -> Doc
 ppSelectCTE sqWiths sel = text "WITH" <+> commaV ppSqlWith sqWiths
                          $$ ppSelect sel
-  where ppSqlWith (SqlWith tabn attrs isel) =
-              text (T.unpack tabn) <+> ppAttrs attrs
+  where ppSqlWith (SqlWith tabn atts isel) =
+              text (T.unpack tabn) <+> ppAtts atts
           $$  text "AS"
           $$  ppSelect isel
-        ppAttrs [] = empty
-        ppAttrs as = parens . commaH (text . T.unpack) $ as
+        ppAtts [] = empty
+        ppAtts as = parens . commaH (text . T.unpack) $ as
 
 ppJoin :: Join -> Doc
 ppJoin joinSt = ppJoinedTabs
@@ -257,6 +256,7 @@ ppMysqlExpr expr =
     AnonWindowSqlExpr p o e -> ppMysqlExpr e <+> text "OVER" <+> parens (partPP p <> ppOrderBy o)
       where partPP     [] = empty
             partPP     xs = text "PARTITION BY" <+> (commaH ppMysqlExpr xs <> space)
+    TableSqlExpr {} -> error "Panic: table sql expr not implemented @ppMysqlExpr"
 
 
 ppBinOp :: BinOp -> Doc
@@ -284,6 +284,7 @@ ppBinOp = text . go
         go OpBitXor     = "^"
         go OpAsg        = "="
         go OpAtTimeZone = "AT TIME ZONE"
+        go _            = error "Panic: not implemented @ppBinOp"
 
 ppPrefixExpr :: UnOp -> SqlExpr -> Doc
 ppPrefixExpr op e = go op
@@ -414,9 +415,9 @@ ppMysqlType = go
         go (DBVarchar i)            = "VARCHAR (" ++ show i ++ " )"
         go (DBBinary i)             = "BINARY (" ++ show i ++ ")"
         go (DBVarbinary (Right i))  = "VARBINARY (" ++ show i ++ ")"
-        go (DBTimestamp i)          = "DATETIME"
+        go (DBTimestamp _)          = "DATETIME"
         go DBDate                   = "DATE"
-        go (DBTime i)               = "TIME"
+        go (DBTime _)               = "TIME"
         go (DBBit i)                = "BIT (" ++ show i ++ ")"        
         
         go (DBNullable t)           = go t
