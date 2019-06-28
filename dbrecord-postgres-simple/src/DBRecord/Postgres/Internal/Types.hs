@@ -17,6 +17,9 @@ import Data.Proxy
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text.Encoding as T
 
+newtype Interval = Interval T.Text
+                  deriving (Show, Generic, FromJSON, ToJSON)
+
 instance FromField Interval where                                                                                                                    
   fromField f Nothing   = returnError UnexpectedNull f ""
   fromField f (Just val) = do                                                 
