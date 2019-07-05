@@ -2,7 +2,7 @@
 module DBRecord.Postgres.Internal.PrettyDDL where
 
 import DBRecord.Internal.DDL
--- import DBRecord.Internal.Postgres (ppPGExpr)
+-- import DBRecord.Internal.Postgres (ppExpr)
 import Data.Text (Text, unpack, pack)
 import qualified Text.PrettyPrint.HughesPJ as Pretty
 import Text.PrettyPrint.HughesPJ (Doc, (<+>), text, 
@@ -58,10 +58,10 @@ ppColumnType :: ColType -> Doc
 ppColumnType (ColType tn) = text (ppPGType tn)
 
 ppCheckExpr :: CheckExpr -> Doc
-ppCheckExpr (CheckExpr e) = parens (ppPGExpr (genSqlExpr e))
+ppCheckExpr (CheckExpr e) = parens (ppExpr (genSqlExpr e))
 
 ppDefaultExpr :: DefExpr -> Doc
-ppDefaultExpr (DefExpr e) = parens (ppPGExpr (genSqlExpr e))
+ppDefaultExpr (DefExpr e) = parens (ppExpr (genSqlExpr e))
 
 ppEnumVal :: EnumVal -> Doc
 ppEnumVal (EnumVal e) = quotes e

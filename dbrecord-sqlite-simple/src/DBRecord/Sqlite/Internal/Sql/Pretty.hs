@@ -9,7 +9,7 @@ module DBRecord.Sqlite.Internal.Sql.Pretty
   , renderDelete
   , renderInsert
   , renderUpdate
-  , ppSqliteExpr
+  , ppExpr
   , ppSqliteType
   ) where
 
@@ -33,21 +33,21 @@ import qualified Data.List as L
 
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
-  SqlProduct sqSels selectFrom -> ppSelectWith selectFrom (ppProduct sqSels) 
-  SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTableExpr tab)
-  SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (ppJoin joinSt)
+  SqlProduct sqSels selectFrom -> ppSelectWith selectFrom (Just (ppProduct sqSels)) 
+  SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTableExpr <$> tab)
+  SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (Just (ppJoin joinSt))
   SqlBin binSt as              -> ppSelectBinary binSt as
   SqlCTE withs sql             -> ppSelectCTE withs sql  
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
   -- SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
 
-ppSelectWith :: SelectFrom -> Doc -> Doc
+ppSelectWith :: SelectFrom -> Maybe Doc -> Doc
 ppSelectWith from tabDoc =
     ppAs (doubleQuotes . text <$> DML.alias from) $
     parens $ 
       text "SELECT"
   <+> ppAttrs (attrs from)
-  $$  text "FROM " <+> tabDoc
+  $$  ppTab
   $$  ppWhere (DML.criteria from)
   $$  ppGroupBy (groupby from)
   $$  ppHaving (having from)  
@@ -55,6 +55,11 @@ ppSelectWith from tabDoc =
   $$  ppOrderBy (orderby from)
   $$  ppLimit (limit from)
   $$  ppOffset (offset from)
+
+  where ppTab = case tabDoc of
+          Nothing  -> empty
+          Just doc -> text "FROM " <+> doc
+
 
 ppProduct :: [SqlTableExpr] -> Doc
 ppProduct = ppTables
@@ -64,7 +69,7 @@ ppAttrs All            = text "*"
 ppAttrs (Columns cols) = (commaV nameAs . toList) cols
 
 nameAs :: (SqlExpr, Maybe SqlColumn) -> Doc
-nameAs (expr, n) = ppAs (fmap unColumn n) (ppSqliteExpr expr)
+nameAs (expr, n) = ppAs (fmap unColumn n) (ppExpr expr)
   where unColumn (SqlColumn s) = ppAliasedCol (map T.unpack s)
         
 ppTables :: [SqlTableExpr] -> Doc
@@ -111,7 +116,7 @@ ppJoin joinSt = ppJoinedTabs
         (s1, s2) = jTables joinSt
         ppOn Nothing  = empty
         ppOn (Just e) =   text "ON"
-                      $$  ppSqliteExpr e
+                      $$  ppExpr e
 
 ppJoinType :: JoinType -> Lateral -> Doc
 ppJoinType LeftJoin  False = text "LEFT OUTER JOIN"
@@ -129,7 +134,7 @@ ppValues :: [[SqlExpr]] -> Doc
 ppValues vals = ppAs (Just (text "V")) (parens (text "VALUES" $$ commaV ppValuesRow vals))
 
 ppValuesRow :: [SqlExpr] -> Doc
-ppValuesRow = parens . commaH ppSqliteExpr
+ppValuesRow = parens . commaH ppExpr
 
 ppWindows :: [WindowExpr] -> Doc
 ppWindows [] = empty
@@ -144,35 +149,35 @@ ppPartition :: WindowPart -> Doc
 ppPartition (WindowPart [] [])
   = empty
 ppPartition (WindowPart es [])
-  = text "PARTITION BY" <+> commaH ppSqliteExpr es
+  = text "PARTITION BY" <+> commaH ppExpr es
 ppPartition (WindowPart es oeds)
-  = text "PARTITION BY" <+> commaH ppSqliteExpr es <+> text "ORDER BY" <+> commaH ppOrd oeds
+  = text "PARTITION BY" <+> commaH ppExpr es <+> text "ORDER BY" <+> commaH ppOrd oeds
   
 ppWhere :: [SqlExpr] -> Doc
 ppWhere []    = empty
 ppWhere exprs = text "WHERE" <+>  hsep (intersperse (text "AND")
-                                        (map (parens . ppSqliteExpr) exprs))
+                                        (map (parens . ppExpr) exprs))
 
 ppGroupBy :: Maybe (NEL.NonEmpty SqlExpr) -> Doc
 ppGroupBy Nothing      = empty
 ppGroupBy (Just exprs) = go (toList exprs)
   where
     go es = text "GROUP BY" <+> ppGroupAttrs es
-    ppGroupAttrs es = commaV (ppSqliteExpr . deliteral) es
+    ppGroupAttrs es = commaV (ppExpr . deliteral) es
 
 ppHaving :: [SqlExpr] -> Doc
 ppHaving []    = empty
 ppHaving exprs = go (toList exprs)
   where
     go es = text "HAVING" <+> ppGroupAttrs es
-    ppGroupAttrs es = commaV (ppSqliteExpr . deliteral) es
+    ppGroupAttrs es = commaV (ppExpr . deliteral) es
 
 ppOrderBy :: [(SqlExpr,SqlOrder)] -> Doc
 ppOrderBy []   = empty
 ppOrderBy ords = text "ORDER BY" <+> commaV ppOrd ords
 
 ppOrd :: (SqlExpr, SqlOrder) -> Doc
-ppOrd (e, o) = ppSqliteExpr (deliteral e)
+ppOrd (e, o) = ppExpr (deliteral e)
                     <+> ppOrdDir o
                     <+> ppNullOrd o
 
@@ -188,11 +193,11 @@ ppNullOrd sqlOrd = text $ case sqlNullOrd sqlOrd of
 
 ppLimit :: Maybe SqlExpr -> Doc
 ppLimit Nothing    = empty
-ppLimit (Just lmt) = text "LIMIT " <> ppSqliteExpr lmt
+ppLimit (Just lmt) = text "LIMIT " <> ppExpr lmt
 
 ppOffset :: Maybe SqlExpr -> Doc
 ppOffset Nothing    = empty
-ppOffset (Just off) = text "OFFSET " <> ppSqliteExpr off
+ppOffset (Just off) = text "OFFSET " <> ppExpr off
 
 -- ppOid :: SqlOidName -> Doc
 -- ppOid (SqlOidName n) = quotes (doubleQuotes (text (T.unpack n)))
@@ -218,37 +223,37 @@ ppTableName (SqlTableName db _ n) =
   where
     quoted = doubleQuotes . text 
 
-ppSqliteExpr :: SqlExpr -> Doc
-ppSqliteExpr expr =
+ppExpr :: SqlExpr -> Doc
+ppExpr expr =
   case expr of
     ColumnSqlExpr c     -> ppColumn c
     -- OidSqlExpr s        -> ppOid s
-    CompositeSqlExpr s x -> parens (ppSqliteExpr s) <> text "." <> text x
-    ParensSqlExpr e -> parens (ppSqliteExpr e)
-    BinSqlExpr op e1 e2 -> ppSqliteExpr e1 <+> ppBinOp op <+> ppSqliteExpr e2
+    CompositeSqlExpr s x -> parens (ppExpr s) <> text "." <> text x
+    ParensSqlExpr e -> parens (ppExpr e)
+    BinSqlExpr op e1 e2 -> ppExpr e1 <+> ppBinOp op <+> ppExpr e2
     PrefixSqlExpr op e  -> ppPrefixExpr op e
     PostfixSqlExpr op e -> ppPostfixExpr op e
-    FunSqlExpr f es     -> text f <> parens (commaH ppSqliteExpr es)
-    AggrFunSqlExpr f es ord -> text f <> parens (commaH ppSqliteExpr es <+> ppOrderBy ord)
+    FunSqlExpr f es     -> text f <> parens (commaH ppExpr es)
+    AggrFunSqlExpr f es ord -> text f <> parens (commaH ppExpr es <+> ppOrderBy ord)
     ConstSqlExpr c      -> ppLiteral c
     CaseSqlExpr cs el   -> text "CASE" <> space <> vcat (toList (fmap ppWhen cs))
       <> ppElse el <> space <> text "END"
-      where ppWhen (w,t) = text "WHEN" <+> ppSqliteExpr w
-                       <+> text "THEN" <+> ppSqliteExpr t
-            ppElse (Just e) = space <> (text "ELSE" <+> ppSqliteExpr e)
+      where ppWhen (w,t) = text "WHEN" <+> ppExpr w
+                       <+> text "THEN" <+> ppExpr t
+            ppElse (Just e) = space <> (text "ELSE" <+> ppExpr e)
             ppElse Nothing  = space 
-    ListSqlExpr es      -> parens (commaH ppSqliteExpr es)
-    ParamSqlExpr _ v -> ppSqliteExpr v
+    ListSqlExpr es      -> parens (commaH ppExpr es)
+    ParamSqlExpr _ v -> ppExpr v
     PlaceHolderSqlExpr -> text "?"
-    CastSqlExpr typ e -> text "CAST" <> parens (ppSqliteExpr e <+> text "AS" <+> text (ppSqliteType typ))
+    CastSqlExpr typ e -> text "CAST" <> parens (ppExpr e <+> text "AS" <+> text (ppSqliteType typ))
     DefaultSqlExpr    -> text "DEFAULT"
-    ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppSqliteExpr es)
+    ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppExpr es)
     ExistsSqlExpr s     -> text "EXISTS" <+> parens (ppSelect s)
-    NamedWindowSqlExpr w e -> ppSqliteExpr e <+> text "OVER" <+> text w
-    AnonWindowSqlExpr p o e -> ppSqliteExpr e <+> text "OVER" <+> parens (partPP p <> ppOrderBy o)
+    NamedWindowSqlExpr w e -> ppExpr e <+> text "OVER" <+> text w
+    AnonWindowSqlExpr p o e -> ppExpr e <+> text "OVER" <+> parens (partPP p <> ppOrderBy o)
       where partPP     [] = empty
-            partPP     xs = text "PARTITION BY" <+> (commaH ppSqliteExpr xs <> space)
-    TableSqlExpr {} -> error "TODO: TableSqlExpr not implemented @ppSqliteExpr"
+            partPP     xs = text "PARTITION BY" <+> (commaH ppExpr xs <> space)
+    TableSqlExpr {} -> error "TODO: TableSqlExpr not implemented @ppExpr"
 
 ppBinOp :: BinOp -> Doc
 ppBinOp = text . go
@@ -279,21 +284,21 @@ ppBinOp = text . go
 
 ppPrefixExpr :: UnOp -> SqlExpr -> Doc
 ppPrefixExpr op e = go op
-  where go OpNot              = text "NOT" <> parens (ppSqliteExpr e)
-        go OpLength           = text "LENGTH" <> parens (ppSqliteExpr e)
-        go OpAbs              = text "ABS" <> parens (ppSqliteExpr e)
-        go OpNegate           = text "-" <> parens (ppSqliteExpr e)
-        go OpLower            = text "LOWER" <> parens (ppSqliteExpr e)
-        go OpUpper            = text "UPPER" <> parens (ppSqliteExpr e)
-        go (OpOtherFun s)     = text s <> parens (ppSqliteExpr e)
-        go (OpOtherPrefix s)  = text s <+> (ppSqliteExpr e)
+  where go OpNot              = text "NOT" <> parens (ppExpr e)
+        go OpLength           = text "LENGTH" <> parens (ppExpr e)
+        go OpAbs              = text "ABS" <> parens (ppExpr e)
+        go OpNegate           = text "-" <> parens (ppExpr e)
+        go OpLower            = text "LOWER" <> parens (ppExpr e)
+        go OpUpper            = text "UPPER" <> parens (ppExpr e)
+        go (OpOtherFun s)     = text s <> parens (ppExpr e)
+        go (OpOtherPrefix s)  = text s <+> (ppExpr e)
         go _                  = error "Panic: unsupported combination @ppPrefixExpr"
 
 ppPostfixExpr :: UnOp -> SqlExpr -> Doc
 ppPostfixExpr op e = go op
-  where go OpIsNull           = ppSqliteExpr e <+> text "IS NULL"
-        go OpIsNotNull        = ppSqliteExpr e <+> text "IS NOT NULL"
-        go (OpOtherPostfix s) = ppSqliteExpr e <+> text s 
+  where go OpIsNull           = ppExpr e <+> text "IS NULL"
+        go OpIsNotNull        = ppExpr e <+> text "IS NOT NULL"
+        go (OpOtherPostfix s) = ppExpr e <+> text s 
         
         go _              = error "Panic: unsupported combination @ppPostfixExpr"
 
@@ -301,7 +306,7 @@ ppInsert :: SqlInsert -> Doc
 ppInsert (SqlInsert table names values rets)
     = text "INSERT INTO" <+> ppTableName table
       <+> parens (commaV ppColumn names)
-      $$ text "VALUES" <+> commaV (\v -> parens (commaV ppSqliteExpr v))
+      $$ text "VALUES" <+> commaV (\v -> parens (commaV ppExpr v))
                                   (toList values)
       $$ ppReturning rets
 
@@ -312,7 +317,7 @@ ppUpdate (SqlUpdate table assigns criteria rets)
         $$ ppWhere criteria
         $$ ppReturning rets
     where
-      ppAssign (c,e) = ppColumn c <+> equals <+> ppSqliteExpr e
+      ppAssign (c,e) = ppColumn c <+> equals <+> ppExpr e
 
 ppDelete :: SqlDelete -> Doc
 ppDelete (SqlDelete table criteria) =
@@ -322,7 +327,7 @@ ppReturning :: [SqlExpr] -> Doc
 ppReturning []   = empty
 ppReturning rets =
   text "RETURNING"
-  <+> commaV ppSqliteExpr (toList rets)
+  <+> commaV ppExpr (toList rets)
 
 deliteral :: SqlExpr -> SqlExpr
 deliteral expr@(ConstSqlExpr _) = FunSqlExpr "COALESCE" [expr]

@@ -60,7 +60,7 @@ instance HasUpdate MSSQL where
 instance HasQuery MSSQL where
   dbQueryWith par (MSSQL conn) primQ = do
     let sqlQ = renderQuery primQ
-    liftIO $ putStrLn sqlQ
+    -- liftIO $ putStrLn sqlQ
     res <- queryWith par conn (fromString sqlQ)
     either throwIO (pure . V.toList) res
 

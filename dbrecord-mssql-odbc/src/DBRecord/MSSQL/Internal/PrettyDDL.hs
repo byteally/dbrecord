@@ -58,10 +58,10 @@ ppColumnType :: ColType -> Doc
 ppColumnType (ColType tn) = text (ppMSSQLType tn)
 
 ppCheckExpr :: CheckExpr -> Doc
-ppCheckExpr (CheckExpr e) = parens (ppMSSQLExpr (genSqlExpr e))
+ppCheckExpr (CheckExpr e) = parens (ppExpr (genSqlExpr e))
 
 ppDefaultExpr :: DefExpr -> Doc
-ppDefaultExpr (DefExpr e) = parens (ppMSSQLExpr (genSqlExpr e))
+ppDefaultExpr (DefExpr e) = parens (ppExpr (genSqlExpr e))
 
 ppEnumVal :: EnumVal -> Doc
 ppEnumVal (EnumVal e) = quotes e

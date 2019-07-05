@@ -46,6 +46,33 @@ instance ConstExpr Text where
 instance ConstExpr Int where
   constExpr = exprFromInteger . fromIntegral
 
+instance ConstExpr Int8 where
+  constExpr = exprFromInteger . fromIntegral
+
+instance ConstExpr Int16 where
+  constExpr = exprFromInteger . fromIntegral
+
+instance ConstExpr Int32 where
+  constExpr = exprFromInteger . fromIntegral
+
+instance ConstExpr Int64 where
+  constExpr = exprFromInteger . fromIntegral
+
+instance ConstExpr Word where
+  constExpr = exprFromInteger . fromIntegral
+
+instance ConstExpr Word8 where
+  constExpr = exprFromInteger . fromIntegral
+
+instance ConstExpr Word16 where
+  constExpr = exprFromInteger . fromIntegral
+
+instance ConstExpr Word32 where
+  constExpr = exprFromInteger . fromIntegral
+
+instance ConstExpr Word64 where
+  constExpr = exprFromInteger . fromIntegral
+
 instance ConstExpr SB.ByteString where
   constExpr = bytes
 
@@ -55,6 +82,15 @@ instance ConstExpr t => ConstExpr (fn ::: t) where
 instance ConstExpr Double where
   constExpr = literalExpr . PQ.Double
 
+instance ConstExpr Float where
+  constExpr = literalExpr . PQ.Double . fromRational . toRational
+
+{-
+instance ConstExpr Day where
+instance ConstExpr TimeOfDay where
+instance ConstExpr LocalTime where  
+-}
+
 instance (ConstExpr a) => ConstExpr (Identity a) where
   constExpr = toIdentity . constExpr . I.runIdentity
 
@@ -63,6 +99,9 @@ instance ( DBTypeCtx (GetDBTypeRep 'Postgres a)
          , ConstExpr a
          ) => ConstExpr [a] where
   constExpr = array . map constExpr
+
+instance ConstExpr Bool where
+  constExpr = literalExpr . PQ.Bool
 
 class HasInsertValues t where
   insertValues :: t -> PQ.Assoc
@@ -177,10 +216,31 @@ instance (FractionalExpr a, OrdExpr a) => Fractional (Expr sc a) where
 instance NumExpr Word where
   exprFromInteger = literalExpr . PQ.Integer . fromIntegral
 
+instance NumExpr Word8 where
+  exprFromInteger = literalExpr . PQ.Integer . fromIntegral
+
+instance NumExpr Word16 where
+  exprFromInteger = literalExpr . PQ.Integer . fromIntegral
+
+instance NumExpr Word32 where
+  exprFromInteger = literalExpr . PQ.Integer . fromIntegral
+
+instance NumExpr Word64 where
+  exprFromInteger = literalExpr . PQ.Integer . fromIntegral
+
 instance NumExpr Int where
   exprFromInteger = literalExpr . PQ.Integer . fromIntegral
 
+instance NumExpr Int8 where
+  exprFromInteger = literalExpr . PQ.Integer . fromIntegral
+
+instance NumExpr Int16 where
+  exprFromInteger = literalExpr . PQ.Integer . fromIntegral
+
 instance NumExpr Int32 where
+  exprFromInteger = literalExpr . PQ.Integer . fromIntegral
+
+instance NumExpr Int64 where
   exprFromInteger = literalExpr . PQ.Integer . fromIntegral
 
 instance NumExpr Integer where
