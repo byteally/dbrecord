@@ -226,8 +226,8 @@ ppTableFun :: SqlName -> [SqlName] -> Doc
 ppTableFun funN args = text (T.unpack funN) <> parens (hsep (map (text . T.unpack) args))
 
 ppTableName :: SqlTableName -> Doc
-ppTableName (SqlTableName db sc tab) =
-  quoted db <> dot <> quoted sc <> dot <> quoted tab
+ppTableName (SqlTableName _db sc tab) =
+  quoted sc <> dot <> quoted tab
   where
     quoted = doubleQuotes . text
     dot = text "."
