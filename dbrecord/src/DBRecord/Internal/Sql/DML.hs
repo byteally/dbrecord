@@ -77,8 +77,8 @@ data SqlTableExpr = NestedSqlSelect SqlSelect
 data SqlWith = SqlWith SqlName [SqlName] SqlSelect
              deriving (Show, Read, Eq)
 
-data SqlSelect = SqlProduct [SqlTableExpr] SelectFrom      -- ^ product
-               | SqlSelect SqlTableExpr SelectFrom          -- ^ base case
+data SqlSelect = SqlProduct [SqlTableExpr] SelectFrom       -- ^ product
+               | SqlSelect (Maybe SqlTableExpr) SelectFrom  -- ^ base case
                | SqlJoin Join SelectFrom                -- ^ join
                | SqlBin Binary Alias                    -- ^ binary
                | SqlCTE [SqlWith] SqlSelect             -- ^ CTEs

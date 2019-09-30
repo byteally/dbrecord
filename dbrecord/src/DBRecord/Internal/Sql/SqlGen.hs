@@ -87,8 +87,8 @@ baseClauses cs =
               , orderby  = map toSqlOrder (PQ.orderbys cs)
               }
 
-table :: PQ.TableExpr SqlSelect -> PQ.Clauses -> SqlSelect
-table tab cs = SqlSelect (toSqlTable tab) $ 
+table :: Maybe (PQ.TableExpr SqlSelect) -> PQ.Clauses -> SqlSelect
+table tab cs = SqlSelect (toSqlTable <$> tab) $ 
   (baseClauses cs) { DML.alias  = (T.unpack <$> (PQ.alias cs)) }
 
 toSqlTable :: PQ.TableExpr SqlSelect -> SqlTableExpr
@@ -101,7 +101,7 @@ toSqlTableName (PQ.TableId d s tn) =
   SqlTableName (T.unpack d) (T.unpack s) (T.unpack tn)
 
 product :: NEL.NonEmpty (PQ.TableExpr SqlSelect) -> PQ.Clauses -> SqlSelect
-product tabs cs = SqlProduct (map toSqlTable $ NEL.toList tabs) $            
+product tabs cs = SqlProduct (map toSqlTable $ NEL.toList tabs) $    
   (baseClauses cs) { DML.alias = T.unpack <$> (PQ.alias cs) } 
 
 cte :: PQ.CTE SqlSelect SqlSelect -> SqlSelect

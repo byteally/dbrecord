@@ -380,7 +380,7 @@ rawClauses :: forall db tab driver cfg.
              ) => PQ.Clauses -> DBM db [tab]
 rawClauses cls = do
   let tabId = getTableId (Proxy @db) (Proxy @tab)
-  runQuery (Table (TableName tabId) cls)
+  runQuery (Table (Just (TableName tabId)) cls)
 
 {-
 count :: forall tab db driver cfg.
@@ -742,5 +742,5 @@ getBaseTable :: forall db tab.
 getBaseTable _ _ =
   let tabId = getTableId (Proxy @db) (Proxy @tab)
       tabFlds = getTableProjections (Proxy @db) (Proxy @tab)      
-  in  Table (TableName tabId) (clauses { projections = tabFlds })
+  in  Table (Just (TableName tabId)) (clauses { projections = tabFlds })
   

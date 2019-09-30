@@ -66,7 +66,7 @@ data TableExpr p = PrimQuery p
 queryExpr :: p -> TableExpr p
 queryExpr = PrimQuery
 
-data PrimQuery = Table (TableExpr PrimQuery) Clauses
+data PrimQuery = Table (Maybe (TableExpr PrimQuery)) Clauses
                | Product (NEL.NonEmpty (TableExpr PrimQuery)) Clauses
                | Join JoinType Lateral (Maybe PrimExpr) (TableExpr PrimQuery) (TableExpr PrimQuery) Clauses
                | Binary BinType PrimQuery PrimQuery (Maybe Text)
@@ -250,7 +250,7 @@ instance Biplate OrderExpr PrimExpr where
   biplate (OrderExpr oop pe) = plate OrderExpr |- oop |* pe
 
 data PrimQueryFold p = PrimQueryFold
-  { table     :: TableExpr p -> Clauses -> p
+  { table     :: Maybe (TableExpr p) -> Clauses -> p
   , product   :: NEL.NonEmpty (TableExpr p) -> Clauses -> p
   , join      :: JoinType -> Lateral -> Maybe PrimExpr -> TableExpr p -> TableExpr p -> Clauses -> p
   , binary    :: BinType -> p -> p -> Maybe Text -> p
@@ -263,7 +263,7 @@ data PrimQueryFold p = PrimQueryFold
   }
 
 baseTable :: PrimQueryFold p -> TableId -> Clauses -> p
-baseTable p tId = table p (TableName tId)
+baseTable p tId = table p (Just (TableName tId))
 
 innerJoin :: PrimQueryFold p -> PrimExpr -> TableExpr p -> TableExpr p -> Clauses -> p
 innerJoin p e = join p InnerJoin False (Just e)
@@ -286,7 +286,7 @@ primQueryFoldDefault = PrimQueryFold
 foldPrimQuery :: PrimQueryFold p -> PrimQuery -> p
 foldPrimQuery f = fix fold
   where fold self primQ = case primQ of
-          Table ti cs              -> table     f (goTExpr self ti) cs
+          Table ti cs              -> table     f (goTExpr self <$> ti) cs
           Product qs cs            -> product   f (fmap (goTExpr self) qs) cs
           Join j lt cond q1 q2 cs  -> join      f j lt cond (goTExpr self q1) (goTExpr self q2) cs
           CTEQuery ctev            -> cte       f (goCTE self ctev)
