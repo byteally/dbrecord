@@ -566,7 +566,9 @@ addInterval :: Expr sc Interval -> Expr sc Interval -> Expr sc Interval
 addInterval e1 e2 = binOp PQ.OpPlus e1 e2
 
 uuid :: UUID -> Expr sc UUID
-uuid = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . UUID.toString
+uuid = annotateType . Expr . PQ.ConstExpr . PQ.Other . quoteVal . T.pack . UUID.toString
+  where
+    quoteVal str = "\'" <> str <> "\'"
 
 addToDate :: Expr sc UTCTime -> Expr sc Interval -> Expr sc UTCTime
 addToDate e1 e2 = binOp PQ.OpPlus e1 e2
