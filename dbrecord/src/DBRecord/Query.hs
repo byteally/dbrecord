@@ -51,6 +51,7 @@ module DBRecord.Query
        , DBTag
        , TransactionConfig (..)
        , rawClauses
+       , runQuery
        , getBaseTable
        , getBaseTableExpr
        ) where
