@@ -41,37 +41,31 @@ instance HasTransaction PGS where
 instance HasUpdateRet PGS where
   dbUpdateRetWith parser (PGS conn) updateQ = do
     let updateSQL = PG.renderUpdate $ PG.updateSql $ updateQ
-    putStrLn updateSQL
     returningWith parser conn (fromString updateSQL) ([]::[()])
 
 instance HasUpdate PGS where
   dbUpdate (PGS conn) updateQ = do
     let updateSQL = PG.renderUpdate $ PG.updateSql $ updateQ
-    putStrLn updateSQL
     execute_ conn (fromString updateSQL)
 
 instance HasQuery PGS where
   dbQueryWith parser (PGS conn) primQ = do
     let sqlQ = PG.renderQuery $ PG.sql primQ
-    putStrLn sqlQ
     queryWith_ parser conn (fromString sqlQ)
 
 instance HasInsert PGS where
   dbInsert (PGS conn) insQ = do
     let insSQL = PG.renderInsert $ PG.insertSql insQ
-    putStrLn insSQL
     execute_ conn (fromString insSQL)
 
 instance HasInsertRet PGS where
   dbInsertRetWith parser (PGS conn) insQ = do
     let insSQL = PG.renderInsert $ PG.insertSql insQ
-    putStrLn insSQL
     returningWith parser conn (fromString insSQL) ([]::[()])
 
 instance HasDelete PGS where
   dbDelete (PGS conn) deleteQ = do
     let delSQL = PG.renderDelete $ PG.deleteSql $ deleteQ
-    putStrLn delSQL
     execute_ conn (fromString delSQL)
 
 pgDefaultPool :: ConnectInfo -> IO (Pool Connection)
