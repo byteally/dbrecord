@@ -303,7 +303,7 @@ ppPostfixExpr op e = go op
         go _              = error "Panic: unsupported combination @ppPostfixExpr"
 
 ppInsert :: SqlInsert -> Doc
-ppInsert (SqlInsert table names values rets)
+ppInsert (SqlInsert table names values _cfts rets)
     = text "INSERT INTO" <+> ppTableName table
       <+> parens (commaV ppColumn names)
       $$ text "VALUES" <+> commaV (\v -> parens (commaV ppExpr v))

@@ -17,6 +17,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Test.DBRecord.RoundTrip
+                       Test.DBRecord.PPCheck
 
   -- other-modules:
   -- other-extensions:
@@ -30,6 +31,12 @@ library
                      , uuid-types
                      , tasty
                      , tasty-hunit
+                     , aeson
+
+                     , dbrecord-mssql-odbc
+                     , dbrecord-sqlite-simple
+                     , dbrecord-postgres-simple
+                     , dbrecord-mysql-haskell
                      
   hs-source-dirs:      src
   default-language:    Haskell2010

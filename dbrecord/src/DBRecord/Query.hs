@@ -547,7 +547,7 @@ insert _ row = do
     colIs = headColInfos (Proxy @db) (Proxy @tab)
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprs = toDBValues values
-    insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) []
+    insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) [] []
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
 
@@ -578,7 +578,7 @@ insertRet _ row rets = do
     colIs = headColInfos (Proxy @db) (Proxy @tab)
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprs = toDBValues values
-    insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) (toPrimExprs rets)
+    insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) [] (toPrimExprs rets)
   driver <- ask
   out <- liftIO $ dbInsertRet driver insertQ
   pure $ case out of
@@ -613,7 +613,7 @@ insertMany _ rows = do
     cexprss = fmap toDBValues values
     
     values = fmap (\row -> toHList row (\v -> Identity v)) rows
-    insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList cexprss) []
+    insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList cexprss) [] []
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
 
@@ -645,7 +645,7 @@ insertManyRet _ rows rets = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap toDBValues values
     values = fmap (\row -> toHList row (\v -> Identity v)) rows
-    insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList cexprss) (toPrimExprs rets)
+    insertQ = InsertQuery (getTableId (Proxy @db) (Proxy @tab)) cnames (NE.fromList cexprss) [] (toPrimExprs rets)
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
 
@@ -674,7 +674,7 @@ insert_ _ row = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprs = toDBValues values
     values = toHList row (\v -> Identity v)
-    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList [cexprs]) []
+    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList [cexprs]) [] []
   driver <- ask
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
@@ -704,7 +704,7 @@ insertMany_ _ rows = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap toDBValues values    
     values = fmap (\row -> toHList row (\v -> Identity v)) rows
-    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList cexprss) []
+    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList cexprss) [] []
   driver <- ask
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
