@@ -318,9 +318,9 @@ ppConflict (Just (SqlConflict mtgt act)) =
   text "ON CONFLICT" <> ppTgt mtgt <> space <> ppAct act
 
   where ppTgt (SqlConflictConstraint ctx) =
-          text "ON CONSTRAINT" <+> text (T.unpack ctx)
+          space <> text "ON CONSTRAINT" <> space <> text (T.unpack ctx)
         ppTgt  (SqlConflictColumn cols) =
-          brackets (commaH ppColumn cols)
+          space <> parens (commaH ppColumn cols)
         ppTgt SqlConflictAnon =
           empty
 
@@ -342,7 +342,7 @@ ppUpdate = ppUpdate' True
 
 ppUpdate' :: Bool -> SqlUpdate -> Doc
 ppUpdate' b (SqlUpdate table assigns criteria rets)
-        = text "UPDATE" <> if b then space <> ppTableName table else space
+        = text "UPDATE" <> (if b then space <> ppTableName table else space)
         $$ text "SET" <+> commaV ppAssign assigns
         $$ ppWhere criteria
         $$ ppReturning rets

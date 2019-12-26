@@ -29,16 +29,19 @@ ppUpsert qid groupId viewId {-offset-} = do
                   -- , BinExpr OpEq (AttrExpr (Sym [] "view_id")) (toConst viewId)                  
                   ]
 
-        insQ = toInsQuery "queue_offset" keyVals (Just (Conflict ConflictAnon (ConflictUpdate updRunQ))) []
+        insQ = toInsQuery "queue_offset" keyVals (Just (Conflict (ConflictColumn ["view_id", "queue_id"])  (ConflictUpdate updRunQ))) []
         keyVals = [ -- ("current_offset", getExpr . E.toNullable . toJson $ offset)
                     ("queue_id", toConst qid)
                   , ("consumer_group_id", toConst groupId)
                   -- , ("view_id", toConst viewId)                      
                   ]
         insQSql = insertSql insQ 
+        updQSql = updateSql updRunQ
                   
     putStrLn "-----Postgresql-------"
     putStrLn (PG.renderInsert insQSql)
+    putStrLn (PG.renderUpdate updQSql)
+    
     putStrLn "----------------------"
     
     putStrLn "--------MSSQL---------"

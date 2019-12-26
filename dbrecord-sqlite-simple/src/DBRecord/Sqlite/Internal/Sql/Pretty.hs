@@ -309,7 +309,7 @@ ppConflict (Just (SqlConflict tgt act)) =
 
   where ppTgt SqlConflictAnon = empty
         ppTgt (SqlConflictColumn cols) =
-          brackets (commaH ppColumn cols)
+          parens (commaH ppColumn cols)
         ppTgt (SqlConflictConstraint _ct) =
           error "constraint not supported @ppConflict"
 
