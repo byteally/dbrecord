@@ -302,28 +302,27 @@ ppPostfixExpr op e = go op
         
         go _              = error "Panic: unsupported combination @ppPostfixExpr"
 
-ppConflicts :: [SqlConflict] -> Doc
-ppConflicts =
-  vcat . map ppConflict
+ppConflict :: Maybe SqlConflict -> Doc
+ppConflict Nothing = empty
+ppConflict (Just (SqlConflict tgt act)) =
+  text "ON CONFLICT" <> ppTgt tgt <> space <> ppAct act
 
-ppConflict :: SqlConflict -> Doc
-ppConflict (SqlConflict mtgt act) =
-  text "ON CONFLICT" <> ppTgt mtgt <> space <> ppAct act
-
-  where ppTgt Nothing = empty
-        ppTgt (Just (SqlConflictTarget tgt)) =
-          text "ON CONSTRAINT" <+> text (T.unpack tgt)
+  where ppTgt SqlConflictAnon = empty
+        ppTgt (SqlConflictColumn cols) =
+          brackets (commaH ppColumn cols)
+        ppTgt (SqlConflictConstraint _ct) =
+          error "constraint not supported @ppConflict"
 
         ppAct SqlConflictDoNothing = text "DO NOTHING"
         ppAct (SqlConflictUpdate upd) = text "DO" <> space <> ppUpdate upd
 
 ppInsert :: SqlInsert -> Doc
-ppInsert (SqlInsert table names values cfts rets)
+ppInsert (SqlInsert table names values mcft rets)
     = text "INSERT INTO" <+> ppTableName table
       <+> parens (commaV ppColumn names)
       $$ text "VALUES" <+> commaV (\v -> parens (commaV ppExpr v))
                                   (toList values)
-      $$ ppConflicts cfts
+      $$ ppConflict mcft
       $$ ppReturning rets
 
 ppUpdate :: SqlUpdate -> Doc

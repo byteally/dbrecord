@@ -58,14 +58,16 @@ data SqlNullOrd = SqlNullsFirst
                 | SqlNullsLast
                 deriving (Show, Read, Eq)
 
-data SqlInsert = SqlInsert SqlTableName [SqlColumn] (NEL.NonEmpty [SqlExpr]) [SqlConflict] [SqlExpr]
+data SqlInsert = SqlInsert SqlTableName [SqlColumn] (NEL.NonEmpty [SqlExpr]) (Maybe SqlConflict) [SqlExpr]
                  deriving (Show, Read, Eq)
 
-data SqlConflict = SqlConflict (Maybe SqlConflictTarget) SqlConflictAction
+data SqlConflict = SqlConflict SqlConflictTarget SqlConflictAction
                  deriving (Show, Read, Eq)
 
-newtype SqlConflictTarget = SqlConflictTarget Text 
-                 deriving (Show, Read, Eq)
+data SqlConflictTarget = SqlConflictConstraint Text
+                       | SqlConflictColumn [SqlColumn]
+                       | SqlConflictAnon
+                       deriving (Show, Read, Eq)
 
 data SqlConflictAction = SqlConflictDoNothing
                        | SqlConflictUpdate SqlUpdate

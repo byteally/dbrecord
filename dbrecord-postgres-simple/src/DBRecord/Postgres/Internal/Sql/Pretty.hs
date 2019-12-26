@@ -311,38 +311,43 @@ ppPostfixExpr op e = go op
         
         go _              = error "Panic: unsupported combination @ppPostfixExpr"
 
-ppConflicts :: [SqlConflict] -> Doc
-ppConflicts =
-  vcat . map ppConflict
-
-ppConflict :: SqlConflict -> Doc
-ppConflict (SqlConflict mtgt act) =
+ppConflict :: Maybe SqlConflict -> Doc
+ppConflict Nothing =
+  empty
+ppConflict (Just (SqlConflict mtgt act)) =
   text "ON CONFLICT" <> ppTgt mtgt <> space <> ppAct act
 
-  where ppTgt Nothing = empty
-        ppTgt (Just (SqlConflictTarget tgt)) =
-          text "ON CONSTRAINT" <+> text (T.unpack tgt)
+  where ppTgt (SqlConflictConstraint ctx) =
+          text "ON CONSTRAINT" <+> text (T.unpack ctx)
+        ppTgt  (SqlConflictColumn cols) =
+          brackets (commaH ppColumn cols)
+        ppTgt SqlConflictAnon =
+          empty
 
         ppAct SqlConflictDoNothing = text "DO NOTHING"
-        ppAct (SqlConflictUpdate upd) = text "DO" <> space <> ppUpdate upd
+        ppAct (SqlConflictUpdate upd) =
+          text "DO" <> space <> ppUpdate' False upd
 
 ppInsert :: SqlInsert -> Doc
-ppInsert (SqlInsert table names values conflicts rets)
+ppInsert (SqlInsert table names values mconflict rets)
     = text "INSERT INTO" <+> ppTableName table
       <+> parens (commaV ppColumn names)
       $$ text "VALUES" <+> commaV (\v -> parens (commaV ppExpr v))
                                   (toList values)
-      $$ ppConflicts conflicts
+      $$ ppConflict mconflict
       $$ ppReturning rets
 
 ppUpdate :: SqlUpdate -> Doc
-ppUpdate (SqlUpdate table assigns criteria rets)
-        = text "UPDATE" <+> ppTableName table
+ppUpdate = ppUpdate' True 
+
+ppUpdate' :: Bool -> SqlUpdate -> Doc
+ppUpdate' b (SqlUpdate table assigns criteria rets)
+        = text "UPDATE" <> if b then space <> ppTableName table else space
         $$ text "SET" <+> commaV ppAssign assigns
         $$ ppWhere criteria
         $$ ppReturning rets
     where
-      ppAssign (c,e) = ppColumn c <+> equals <+> ppExpr e
+      ppAssign (c,e) = ppColumn c <+> equals <+> ppExpr e      
 
 ppDelete :: SqlDelete -> Doc
 ppDelete (SqlDelete table criteria) =

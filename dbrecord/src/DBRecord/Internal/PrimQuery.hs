@@ -74,7 +74,7 @@ data PrimQuery = Table (Maybe (TableExpr PrimQuery)) Clauses
                -- Values
                deriving (Show)
 
-data InsertQuery = InsertQuery TableId [Attribute] (NEL.NonEmpty [PrimExpr]) [Conflict] [PrimExpr]
+data InsertQuery = InsertQuery TableId [Attribute] (NEL.NonEmpty [PrimExpr]) (Maybe Conflict) [PrimExpr]
                  deriving (Show)
 
 data UpdateQuery = UpdateQuery TableId [PrimExpr] Assoc [PrimExpr]
@@ -83,11 +83,13 @@ data UpdateQuery = UpdateQuery TableId [PrimExpr] Assoc [PrimExpr]
 data DeleteQuery = DeleteQuery TableId [PrimExpr]
                  deriving (Show)
 
-data Conflict = Conflict (Maybe ConflictTarget) ConflictAction
+data Conflict = Conflict ConflictTarget ConflictAction
               deriving Show
 
-newtype ConflictTarget = ConflictTarget Text
-                       deriving Show
+data ConflictTarget = ConflictConstraint Text
+                    | ConflictColumn [Sym]
+                    | ConflictAnon
+                    deriving Show
 
 data ConflictAction = ConflictDoNothing
                     | ConflictUpdate UpdateQuery
@@ -316,7 +318,7 @@ fix :: (t -> t) -> t
 fix g = let x = g x in x
 
 newtype InsertQueryFold p = InsertQueryFold
-  { insertQ :: TableId -> [Attribute] -> (NEL.NonEmpty [PrimExpr]) -> [Conflict] -> [PrimExpr] -> p
+  { insertQ :: TableId -> [Attribute] -> (NEL.NonEmpty [PrimExpr]) -> Maybe Conflict -> [PrimExpr] -> p
   }
 
 insertQueryFoldDefault :: InsertQueryFold InsertQuery
@@ -324,7 +326,7 @@ insertQueryFoldDefault = InsertQueryFold { insertQ = InsertQuery}
 
 foldInsertQuery :: InsertQueryFold p -> InsertQuery -> p
 foldInsertQuery f = fix fold
-  where fold _self (InsertQuery tid attr vals cfts rets) = insertQ f tid attr vals cfts rets
+  where fold _self (InsertQuery tid attr vals mcft rets) = insertQ f tid attr vals mcft rets
 
 newtype UpdateQueryFold p = UpdateQueryFold
   { updateQ :: TableId -> [PrimExpr] -> Assoc -> [PrimExpr] -> p

@@ -24,12 +24,12 @@ ppUpsert qid groupId viewId {-offset-} = do
         runKeyVals = [ -- ("current_offset", getExpr . E.toNullable . toJson $ offset)
           ("view_id", toConst viewId)
                      ]
-        runFlts = [ BinExpr OpEq (AttrExpr (Sym [] "queue_id")) (toConst qid)
-                  , BinExpr OpEq (AttrExpr (Sym [] "consumer_group_id")) (toConst groupId)
+        runFlts = [ BinExpr OpEq (AttrExpr (Sym ["queue_offset"] "queue_id")) (toConst qid)
+                  , BinExpr OpEq (AttrExpr (Sym ["queue_offset"] "consumer_group_id")) (toConst groupId)
                   -- , BinExpr OpEq (AttrExpr (Sym [] "view_id")) (toConst viewId)                  
                   ]
 
-        insQ = toInsQuery "queue_offset" keyVals [Conflict Nothing (ConflictUpdate updRunQ)] []
+        insQ = toInsQuery "queue_offset" keyVals (Just (Conflict ConflictAnon (ConflictUpdate updRunQ))) []
         keyVals = [ -- ("current_offset", getExpr . E.toNullable . toJson $ offset)
                     ("queue_id", toConst qid)
                   , ("consumer_group_id", toConst groupId)

@@ -17,7 +17,6 @@ import qualified DBRecord.Internal.Sql.DML as DML
 import qualified Data.Text as T
 import qualified Data.Maybe as M
 import qualified DBRecord.Internal.PrimQuery as PQ
-import Data.Coerce (coerce)
 
 sql :: PQ.PrimQuery -> SqlSelect
 sql = PQ.foldPrimQuery sqlQueryGenerator
@@ -170,7 +169,7 @@ data SqlGenerator = SqlGenerator
     {
      sqlUpdate      :: SqlTableName -> [PQ.PrimExpr] -> PQ.Assoc -> [PQ.PrimExpr] -> SqlUpdate,
      sqlDelete      :: SqlTableName -> [PQ.PrimExpr] -> SqlDelete,
-     sqlInsert      :: SqlTableName -> [PQ.Attribute] -> NEL.NonEmpty [PQ.PrimExpr] -> [PQ.Conflict] -> [PQ.PrimExpr] -> SqlInsert,
+     sqlInsert      :: SqlTableName -> [PQ.Attribute] -> NEL.NonEmpty [PQ.PrimExpr] -> Maybe PQ.Conflict -> [PQ.PrimExpr] -> SqlInsert,
      sqlExpr        :: PQ.PrimExpr -> SqlExpr,
      sqlLiteral     :: PQ.Lit -> LitSql,
      -- | Turn a string into a quoted string. Quote characters
@@ -411,11 +410,11 @@ defaultSqlInsert :: SqlGenerator
                    -> SqlTableName
                    -> [PQ.Attribute]
                    -> NEL.NonEmpty [PQ.PrimExpr]
-                   -> [PQ.Conflict]
+                   -> Maybe PQ.Conflict
                    -> [PQ.PrimExpr] -- ^ Returning these expressions.
                    -> SqlInsert
-defaultSqlInsert gen tbl attrs exprs conflicts rets =
-  SqlInsert tbl (map toSqlColumn attrs) ((fmap . map) (sqlExpr gen) exprs) (map toSqlConflict conflicts) (map (sqlExpr gen) rets)
+defaultSqlInsert gen tbl attrs exprs conflict rets =
+  SqlInsert tbl (map toSqlColumn attrs) ((fmap . map) (sqlExpr gen) exprs) (fmap toSqlConflict conflict) (map (sqlExpr gen) rets)
 
 defaultSqlDelete :: SqlGenerator
                    -> SqlTableName
@@ -426,7 +425,12 @@ defaultSqlDelete gen tbl criteria = SqlDelete tbl (map (sqlExpr gen) criteria)
 
 toSqlConflict :: PQ.Conflict -> SqlConflict
 toSqlConflict (PQ.Conflict cft act) =
-  SqlConflict (fmap coerce cft) (toSqlConflictAction act)
+  SqlConflict (toSqlConflictTarget cft) (toSqlConflictAction act)
+
+toSqlConflictTarget :: PQ.ConflictTarget -> SqlConflictTarget
+toSqlConflictTarget (PQ.ConflictConstraint t) = SqlConflictConstraint t
+toSqlConflictTarget (PQ.ConflictColumn cols) = SqlConflictColumn (map sqlColumn cols)
+toSqlConflictTarget PQ.ConflictAnon = SqlConflictAnon
 
 toSqlConflictAction :: PQ.ConflictAction -> SqlConflictAction
 toSqlConflictAction PQ.ConflictDoNothing = SqlConflictDoNothing

@@ -311,27 +311,25 @@ ppPostfixExpr op e = go op
         go _              = error "Panic: unsupported combination @ppPostfixExpr"
 
 ppInsert :: SqlInsert -> Doc
-ppInsert (SqlInsert table names values [] rets)
+ppInsert (SqlInsert table names values Nothing rets)
     = text "INSERT IGNORE INTO" <+> ppTableName table
       <+> parens (commaV ppColumn names)
       $$ text "VALUES" <+> commaV (\v -> parens (commaV ppExpr v))
                                   (toList values)
       $$ ppReturning rets
-ppInsert (SqlInsert table names values [SqlConflict _ SqlConflictDoNothing] rets)
+ppInsert (SqlInsert table names values (Just (SqlConflict _ SqlConflictDoNothing)) rets)
     = text "INSERT IGNORE INTO" <+> ppTableName table
       <+> parens (commaV ppColumn names)
       $$ text "VALUES" <+> commaV (\v -> parens (commaV ppExpr v))
                                   (toList values)
       $$ ppReturning rets
-ppInsert (SqlInsert table names values [SqlConflict _ (SqlConflictUpdate upd)] rets)
+ppInsert (SqlInsert table names values (Just (SqlConflict _ (SqlConflictUpdate upd))) rets)
     = text "INSERT INTO" <+> ppTableName table
       <+> parens (commaV ppColumn names)
       $$ text "VALUES" <+> commaV (\v -> parens (commaV ppExpr v))
                                   (toList values)
       $$ text "ON DUPLICATE KEY" <+> ppUpdate upd
       $$ ppReturning rets
-ppInsert _ =
-  error "Panic: unexpected multiple sqlconflict statements"
 
 ppUpdate :: SqlUpdate -> Doc
 ppUpdate (SqlUpdate table assigns criteria rets)
