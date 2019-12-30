@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wwarn #-}
 {-# LANGUAGE OverloadedStrings, DuplicateRecordFields, ScopedTypeVariables, DeriveGeneric #-}
 module DBRecord.Postgres.Internal.Reify
        ( getPostgresDbSchemaInfo       
@@ -125,7 +126,7 @@ toSchemaInfo hints scn eis cols chks defs pk uqs fks =
                                       , _ignoredCols    = ()
                                       }
                        ) tabNs
-  in mkSchemaInfo sct types 0 0 (coerce tabInfos)
+  in mkSchemaInfo sct types 0 0 (coerce tabInfos) undefined undefined
 
 toCheckInfo :: Hints -> TableContent ColumnInfo -> [CheckCtx] -> TableContent CheckInfo
 toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo
@@ -218,6 +219,11 @@ instance FromRow Seq where
                      <*> field
 
 type SchemaName   = Text
+
+getPostgresDbSchemaInfo :: ConnectInfo -> IO ()
+getPostgresDbSchemaInfo = undefined
+
+{-
 getPostgresDbSchemaInfo :: ConnectInfo -> IO DatabaseInfo 
 getPostgresDbSchemaInfo connInfo = do
   let dbn = connectDatabase connInfo
@@ -248,7 +254,7 @@ getPostgresDbSchemaInfo connInfo = do
           EntityName { _hsName = mkHaskTypeName HM.empty dbn
                      , _dbName = dbn
                      }
-
+-}
           
 unsafeParseExpr :: Text -> PQ.PrimExpr
 unsafeParseExpr t = primExprGen . either parsePanic id . parseOnly sqlExpr $ t

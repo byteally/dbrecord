@@ -1,15 +1,21 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE DeriveGeneric, GeneralizedNewtypeDeriving, StandaloneDeriving #-}
-module DBRecord.Postgres where
+module DBRecord.Postgres
+       ( module DBRecord.Postgres.Internal.Query
+       , module Database.PostgreSQL.Simple
+       , module Database.PostgreSQL.Simple.FromField 
+       ) where
 
 import Data.Aeson
-import Database.PostgreSQL.Simple.FromField
+import Database.PostgreSQL.Simple
+import Database.PostgreSQL.Simple.FromField (FromField (..))
+import qualified Database.PostgreSQL.Simple.FromField as FF
 import Data.Typeable
 import DBRecord.Internal.Types
-
+import DBRecord.Postgres.Internal.Query
 
 instance (FromJSON a, Typeable a) => FromField (Json a) where
-  fromField f dat = Json <$> fromJSONField f dat
+  fromField f dat = Json <$> FF.fromJSONField f dat
 
 deriving instance FromField Interval  
 

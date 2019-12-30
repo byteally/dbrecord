@@ -14,10 +14,10 @@ import Data.Pool
 import Data.String
 import Control.Monad.Reader
 
-newtype PostgresDBT m (db :: *) a = PostgresDBT { runPostgresDB :: ReaderT (PGS PGS.Connection) m a}
+newtype PostgresDBT (db :: *) m a = PostgresDBT { runPostgresDB :: ReaderT (PGS PGS.Connection) m a}
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader (PGS PGS.Connection))
 
-type PostgresDB = PostgresDBT IO
+type PostgresDB db = PostgresDBT db IO
 
 instance DBDecoder PGS where
   type FromDBRowParser PGS = RowParser

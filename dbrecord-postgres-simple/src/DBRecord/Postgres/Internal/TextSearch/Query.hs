@@ -80,11 +80,11 @@ pprNot t = "!" <> t
 
 data Query
 
-query :: QueryText -> Expr sc Query
+query :: QueryText -> Expr sc scopes Query
 query (QueryText t) = Expr (PQ.FunExpr "to_tsquery" [pqText t])
   where pqText = PQ.ConstExpr . PQ.String
 
-plainQuery :: T.Text -> Expr sc Query
+plainQuery :: T.Text -> Expr sc scopes Query
 plainQuery t = Expr (PQ.FunExpr "plainto_tsquery" [pqText t])
   where pqText = PQ.ConstExpr . PQ.String
 
