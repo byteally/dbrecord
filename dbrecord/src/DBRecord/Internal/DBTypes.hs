@@ -336,8 +336,8 @@ quoteBy ch esc s = T.pack $ ch : go esc (T.unpack s) ++ (ch:[])
     go esc' (x:xs)          = x : go esc' xs
 
 class ( Generic ty
-      ) => UDType (db :: *) (ty :: *) where
-  type TypeMappings db ty :: UDTypeMappings
+      ) => UDType (sc :: *) (ty :: *) where
+  type TypeMappings sc ty :: UDTypeMappings
   -- type TypeMappings db ty = 'Flat '[]
 
 -- TODO: Support other type mappings as well

@@ -6,6 +6,7 @@ module DBRecord.Schema
        , Database (..)
        , Table (..)
        , Schema (..)
+       , UDType (..)
        , module DBRecord.Internal.DBTypeValidation
        , tabName
        , def
@@ -24,12 +25,13 @@ module DBRecord.Schema
        , Serial
        , Owned
        , TypeName (..)
+       , UDTypeMappings (..)
        ) where
 
 import DBRecord.Internal.Types 
 import DBRecord.Internal.Schema hiding (DBType)
 import DBRecord.Internal.DBTypeValidation ()
-
+import DBRecord.Internal.DBTypes
 {-
 IgnoredCol
 ForeignRef

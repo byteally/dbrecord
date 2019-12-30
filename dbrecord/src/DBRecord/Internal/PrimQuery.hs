@@ -476,10 +476,11 @@ instance ToJSON ByteString where
 transformPE :: (PrimExpr -> PrimExpr) -> PrimExpr -> PrimExpr
 transformPE = transform
 
-newtype Expr (scopes :: [*]) (t :: *) = Expr { getExpr :: PrimExpr }
-                                      deriving Show
+newtype Expr (sc :: *) (scopes :: [*]) (t :: *) =
+  Expr { getExpr :: PrimExpr }
+  deriving Show
 
-unsafeCol :: [T.Text] -> Expr sc a
+unsafeCol :: [T.Text] -> Expr sc scopes a
 unsafeCol = Expr . AttrExpr . sym
   where sym = maybe (error "Panic: Empty col @col_") id . toSym
 
