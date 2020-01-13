@@ -480,11 +480,16 @@ newtype Expr (sc :: *) (scopes :: [*]) (t :: *) =
   Expr { getExpr :: PrimExpr }
   deriving Show
 
+newtype AggExpr (sc :: *) (scopes :: [*]) (t :: *) =
+  AggExpr { getAggExpr :: Expr sc scopes t }
+  deriving Show
+
 unsafeCol :: [T.Text] -> Expr sc scopes a
-unsafeCol = Expr . AttrExpr . sym
+unsafeCol = Expr . unsafeAttrExpr
+
+unsafeAttrExpr :: [T.Text] -> PrimExpr
+unsafeAttrExpr = AttrExpr . sym
   where sym = maybe (error "Panic: Empty col @col_") id . toSym
-
-
 {-
 
 class BackendExpr (b :: *) where

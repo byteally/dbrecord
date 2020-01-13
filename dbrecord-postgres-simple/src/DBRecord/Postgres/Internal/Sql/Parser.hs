@@ -349,7 +349,9 @@ parsePGType nullInfo sz = wrapNullable nullInfo . go
         go "jsonb"                     = DBJsonB
         go "json"                      = DBJson
         go v | isArray v               = DBArray (parseArray v)
-             | otherwise               = DBCustomType (DBTypeName (T.pack v) []) False
+             | otherwise               = error "TODO: incomplete pattern @parsePGType"
+             -- | otherwise               = DBCustomType (DBTypeName (T.pack v) []) False
+
 
         isArray v = case splitAt 2 v of
           ("[]", _) -> True

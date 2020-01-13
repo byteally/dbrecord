@@ -19,6 +19,7 @@
 {-# LANGUAGE RankNTypes              #-}
 {-# LANGUAGE ConstraintKinds         #-}
 {-# LANGUAGE OverloadedStrings       #-}
+{-# LANGUAGE FunctionalDependencies  #-}
 
 module DBRecord.Internal.Schema where
 
@@ -27,16 +28,15 @@ import Data.Proxy
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.TypeLits
-import GHC.Generics (Generic (..), D1, Meta (..))
+import GHC.Generics
 import GHC.Exts
 import GHC.OverloadedLabels
 import Data.Kind
 import Data.Functor.Const
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
--- import DBRecord.Internal.Expr
 import qualified DBRecord.Internal.PrimQuery as PQ
-import DBRecord.Internal.DBTypes hiding (DBType (..))
+import DBRecord.Internal.DBTypes hiding (DBType (..), DBTypeName (..))
 import qualified DBRecord.Internal.DBTypes as Type
 import qualified Data.List as L
 import DBRecord.Internal.Lens ((^.), Lens', coerceL, Traversal', ixBy, view)
@@ -50,6 +50,9 @@ type ColName  = Text
 type ColType  = Text
 data Column   = Column !ColName !ColType
   deriving (Show)
+
+type family GetDBTypeRep sc t where
+  GetDBTypeRep sc t = GetDBTypeRep' sc (DB (SchemaDB sc)) t
 
 class ( -- TypeCxts db (Types db)
       ) => Database (db :: *) where
@@ -83,7 +86,7 @@ class ( -- TypeCxts db (Types db)
   type SchemaDB sc :: Type
 
 class ( Schema sc
-      , AssertCxt (Elem (Tables sc) tab) ('Text "Schema " ':<>: 'ShowType sc ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
+      -- , AssertCxt (Elem (Tables sc) tab) ('Text "Schema " ':<>: 'ShowType sc ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
       , ValidateTableProps sc tab    
       , Generic tab
       ) => Table (sc :: *) (tab :: *) where
@@ -182,9 +185,6 @@ data instance Sing (uq :: Sequence) where
 data instance Sing (t :: TypeName Symbol) where
   STypeName :: Sing (pkgN :: Symbol) -> Sing (modN :: Symbol) -> Sing (typN :: Symbol) -> Sing ('TypeName pkgN modN typN)
 
-data instance Sing (tm :: UDTypeMappings) where
-  SEnumType :: Sing (tn :: Symbol) -> Sing (dcons :: [Symbol]) -> Sing ('EnumType tn dcons)
-
 instance ( SingI a
          , SingI tag
          ) => SingI ('Tag tag a)  where
@@ -217,11 +217,6 @@ instance ( SingI cols
          ) => SingI ('CheckOn cols cname) where
   sing = SCheck sing sing
 
-instance ( SingI tn
-         , SingI dcons
-         ) => SingI ('EnumType tn dcons) where
-  sing = SEnumType sing sing
-  
 type family UqCtx (ctx :: Symbol -> Constraint) (uq :: UniqueCT) :: Constraint where
   UqCtx ctx ('UniqueOn uniqFlds uniqOn) = (All ctx uniqFlds, ctx uniqOn)
 
@@ -249,13 +244,20 @@ instance (TagDBTypeCtx taggedDbt) => SingE (taggedDbt :: TagHK DbK DBTypeK) wher
   type Demote taggedDbt     = Type.DBType
   fromSing (STag _ stype) = fromSing stype
 
-type family UDTCtx (taggedDbt :: UDTypeMappings) where
+type family UDTCtx (udt :: UDTypeMappings) where
   UDTCtx ('EnumType tn dcons) = (SingE tn, SingE dcons)
+  UDTCtx ('Composite tn ss)   = (SingE tn, SingE ss)  
+  UDTCtx ('Flat ss)           = (SingE ss)
+  UDTCtx ('Sum tagn tss)      = (SingE tss, SingE tagn)    
+  UDTCtx ('EnumText es)       = (SingE es)
 
 instance (UDTCtx udt) => SingE (udt :: UDTypeMappings) where
   type Demote udt = TypeNameMap
-  fromSing (SEnumType stn sdcons) =
-    EnumTypeNM (fromSing stn) (fromSing sdcons)
+  fromSing (SEnumType s ss)   = EnumTypeNM (fromSing s) (fromSing ss)
+  fromSing (SComposite s tss) = CompositeNM (fromSing s) (fromSing tss)
+  fromSing (SFlat tss)        = FlatNM (fromSing tss)
+  fromSing (SEnumText t)      = EnumTextNM (fromSing t)
+  fromSing (SSum t tss)       = SumNM (fromSing t) (fromSing tss)
 
 showDBTypeSing :: forall db dbTy.
                    ( DBTypeCtx dbTy
@@ -758,15 +760,14 @@ data TypeNameInfo = TypeNameInfo { _typeNameVal   :: Type.DBType
                                  , _typeNameMap   :: TypeNameMap
                                  } deriving (Show, Eq)
 
-data TypeNameMap = EnumTypeNM Text [Text]
-{-
-                 -- | CompositeNM Text [(Text, TypeName Text)]
-                 -- | FlatNM [(Text, TypeName Text)]
-                 -- | EnumTextNM [Text]
-                 -- | SumNM [(Text, [(Text, DBTypeK)])]
--}
+data TypeNameMap = EnumTypeNM (Maybe Text) [(Text, Text)]
+                 | CompositeNM (Maybe Text) [(Text, Text)]
+                 | EnumTextNM [(Text, Text)]                 
+                 | FlatNM [(Text, Text)]
+                 | SumNM (Maybe Text) [(Text, [(Text, Text)])]
                  deriving (Show, Eq)
 
+{-
 addEnumValAfter :: Text -> Text -> TypeNameMap -> TypeNameMap
 addEnumValAfter eVal eAfter (EnumTypeNM et es) =
   EnumTypeNM et (go es)
@@ -789,6 +790,7 @@ addEnumValBefore eVal eBefore (EnumTypeNM et es) =
 addEnumVal :: Text -> TypeNameMap -> TypeNameMap
 addEnumVal eVal (EnumTypeNM et evs) =
   EnumTypeNM et (evs ++ [eVal])
+-}
 
 typeNameVal :: Lens' TypeNameInfo Type.DBType 
 typeNameVal k t = fmap (\a -> t { _typeNameVal = a }) (k (_typeNameVal t))
@@ -1095,13 +1097,14 @@ headTypeNameInfo :: forall sc ty.
                       , SingI (TypeMappings sc ty)
                       , UDTCtx (TypeMappings sc ty)
                       , Generic ty
-                      , DBTypeCtx (GetDBTypeRep (DB (SchemaDB sc)) ty)
-                      , SingI (GetDBTypeRep (DB (SchemaDB sc)) ty)
+                      , DBTypeCtx (GetDBTypeRep sc ty)
+                      , SingI (GetDBTypeRep sc ty)
                       ) => Proxy sc -> Sing (ty :: *) -> TypeNameInfo
 headTypeNameInfo _ _ =
-  let tnm = fromSing (sing :: Sing (TypeMappings sc ty))
-      tnv = fromSing (sing :: Sing (GetDBTypeRep (DB (SchemaDB sc)) ty))
-  in  mkTypeNameInfo tnv tnm
+  let _tnm = error "Panic: TODO Sing TypeMappings"
+      -- fromSing (sing :: Sing (TypeMappings sc ty))
+      tnv = fromSing (sing :: Sing (GetDBTypeRep sc ty))
+  in  mkTypeNameInfo tnv _tnm
 
 type family AllUDCtx sc tys :: Constraint where
   AllUDCtx sc (ty ': tys) = ( UDType sc ty
@@ -1109,12 +1112,12 @@ type family AllUDCtx sc tys :: Constraint where
                             , UDTCtx (TypeMappings sc ty)
                             , AllUDCtx sc tys
                             , Generic ty
-                            , DBTypeCtx (GetDBTypeRep (DB (SchemaDB sc)) ty)
-                            , SingI (GetDBTypeRep (DB (SchemaDB sc)) ty)
+                            , DBTypeCtx (GetDBTypeRep sc ty)
+                            , SingI (GetDBTypeRep sc ty)
                             )
   AllUDCtx sc '[]         = ()                                  
 
-
+{-
 dbTypeName :: TypeNameMap -> Text
 dbTypeName tyMap =
   case tyMap of
@@ -1124,6 +1127,7 @@ dbConstructors :: TypeNameMap -> [Text]
 dbConstructors tyMap =
   case tyMap of
     EnumTypeNM _ ctors -> ctors
+-}
 
 headTableInfos :: (All (SingCtx sc) xs) => Proxy (sc :: *) -> Sing (xs :: [*]) -> [TableInfo]
 headTableInfos psc (SCons st sxs) =
@@ -1465,11 +1469,11 @@ instance ( Schema sc
          ) => SingCtxSc sc where  
 
 type family OriginalTableFieldInfo (sc :: *) (tab :: *) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where
-  OriginalTableFieldInfo sc tab = GetFieldInfo (DB (SchemaDB sc)) (OriginalTableFields tab)
+  OriginalTableFieldInfo sc tab = GetFieldInfo sc (DB (SchemaDB sc)) (OriginalTableFields tab)
 
-type family GetFieldInfo (db :: DbK) (xs :: [*]) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where
-  GetFieldInfo db (fld ::: x ': xs) = '(TagTypeInfo db (GetDBTypeRep db x), fld) ': GetFieldInfo db xs
-  GetFieldInfo db '[]               = '[]
+type family GetFieldInfo (sc :: Type) (db :: DbK) (xs :: [*]) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where
+  GetFieldInfo sc db (fld ::: x ': xs) = '(TagTypeInfo db (GetDBTypeRep sc x), fld) ': GetFieldInfo sc db xs
+  GetFieldInfo _ _ '[]                 = '[]
 
 type family TagTypeInfo (db :: DbK) (dbt :: DBTypeK) :: (TagHK DbK DBTypeK, Bool) where
   TagTypeInfo db t              =  '( 'Tag db t, (IsNullable t))
@@ -1482,6 +1486,14 @@ reproxy :: proxy a -> Proxy a
 reproxy _ = Proxy
 
 col :: forall (sc :: *) (tab :: *) (col :: Symbol) (a :: *) scope.
+  ( PlainColumnCtx sc tab col a
+  ) => Proxy (DBTag sc tab col) -> PQ.Expr sc scope a
+col _ = PQ.Expr (PQ.AttrExpr sym)
+  where sym = maybe (error "Panic: Empty col @col_") id (PQ.toSym [dbColN])
+        dbColN = _dbName (_columnNameInfo (getColumnInfo (headColInfos (Proxy @sc) (Proxy @tab)) fld))
+        fld = T.pack (symbolVal (Proxy @col))
+
+type PlainColumnCtx sc tab col a =
   ( KnownSymbol col
   , UnifyField (OriginalTableFields tab) col a ('Text "Unable to find column " ':<>: 'ShowType col)
   , Table sc tab
@@ -1490,11 +1502,227 @@ col :: forall (sc :: *) (tab :: *) (col :: Symbol) (a :: *) scope.
   , SingI (ColumnNames sc tab)
   , SingE (OriginalTableFieldInfo sc tab)
   , SingI (OriginalTableFieldInfo sc tab)
-  ) => Proxy (DBTag sc tab col) -> PQ.Expr sc scope a
-col _ = PQ.Expr (PQ.AttrExpr sym)
-  where sym = maybe (error "Panic: Empty col @col_") id (PQ.toSym [dbColN])
-        dbColN = _dbName (_columnNameInfo (getColumnInfo (headColInfos (Proxy @sc) (Proxy @tab)) fld))
-        fld = T.pack (symbolVal (Proxy @col))
+  )  
+
+class (PlainColumnCtx sc tab col a) => PlainColumnCtx_ a rep sc tab col where
+instance (PlainColumnCtx sc tab col a) => PlainColumnCtx_ a rep sc tab col where
+  
+class Column_ a (rep :: DBTypeK) where
+  type ColumnCtx a rep :: * -> * -> Symbol -> Constraint
+  column_ :: (ColumnCtx a rep sc tab col) => Proxy (DBTag sc tab col) -> Proxy rep -> PQ.Expr sc scope a
+
+instance Column_ a 'DBInt2 where
+  type ColumnCtx a 'DBInt2 =
+    PlainColumnCtx_ a 'DBInt2
+  column_ tag _ = col tag
+
+instance Column_ a 'DBInt4 where
+  type ColumnCtx a 'DBInt4 =
+    PlainColumnCtx_ a 'DBInt4
+  column_ tag _ = col tag
+
+instance Column_ a 'DBInt8 where
+  type ColumnCtx a 'DBInt8 =
+    PlainColumnCtx_ a 'DBInt8
+  column_ tag _ = col tag
+
+instance Column_ a ('DBFloat i) where
+  type ColumnCtx a ('DBFloat i) =
+    PlainColumnCtx_ a ('DBFloat i)
+  column_ tag _ = col tag
+
+instance Column_ a ('DBNumeric i j) where
+  type ColumnCtx a ('DBNumeric i j) =
+    PlainColumnCtx_ a ('DBNumeric i j)
+  column_ tag _ = col tag
+
+instance Column_ a ('DBChar c) where
+  type ColumnCtx a ('DBChar c) =
+    PlainColumnCtx_ a ('DBChar c)
+  column_ tag _ = col tag
+
+instance Column_ a ('DBVarchar e) where
+  type ColumnCtx a ('DBVarchar e) =
+    PlainColumnCtx_ a ('DBVarchar e)
+  column_ tag _ = col tag
+
+instance Column_ a 'DBBool where
+  type ColumnCtx a 'DBBool =
+    PlainColumnCtx_ a 'DBBool
+  column_ tag _ = col tag
+
+instance Column_ a 'DBDate where
+  type ColumnCtx a 'DBDate =
+    PlainColumnCtx_ a 'DBDate
+  column_ tag _ = col tag
+
+instance Column_ a ('DBTime i) where
+  type ColumnCtx a ('DBTime i) =
+    PlainColumnCtx_ a ('DBTime i)
+  column_ tag _ = col tag
+
+instance Column_ a ('DBTimetz i) where
+  type ColumnCtx a ('DBTimetz i) =
+    PlainColumnCtx_ a ('DBTimetz i)
+  column_ tag _ = col tag
+
+instance Column_ a ('DBTimestamp i) where
+  type ColumnCtx a ('DBTimestamp i) =
+    PlainColumnCtx_ a ('DBTimestamp i)
+  column_ tag _ = col tag
+
+instance Column_ a ('DBTimestamptz i) where
+  type ColumnCtx a ('DBTimestamptz i) =
+    PlainColumnCtx_ a ('DBTimestamptz i)
+  column_ tag _ = col tag
+
+instance Column_ a ('DBInterval m i) where
+  type ColumnCtx a ('DBInterval m i) =
+    PlainColumnCtx_ a ('DBInterval m i)
+  column_ tag _ = col tag
+
+instance Column_ a ('DBNullable t) where
+  type ColumnCtx a ('DBNullable t) =
+    PlainColumnCtx_ a ('DBNullable t)
+  column_ tag _ = col tag
+
+instance Column_ a 'DBXml where
+  type ColumnCtx a 'DBXml =
+    PlainColumnCtx_ a 'DBXml
+  column_ tag _ = col tag
+
+instance Column_ a 'DBJson where
+  type ColumnCtx a 'DBJson =
+    PlainColumnCtx_ a 'DBJson
+  column_ tag _ = col tag
+
+instance Column_ a ('DBBinary b) where
+  type ColumnCtx a ('DBBinary b) =
+    PlainColumnCtx_ a ('DBBinary b)
+  column_ tag _ = col tag
+
+instance Column_ a ('DBVarbinary b) where
+  type ColumnCtx a ('DBVarbinary b) =
+    PlainColumnCtx_ a ('DBVarbinary b)
+  column_ tag _ = col tag
+
+instance Column_ a 'DBText where
+  type ColumnCtx a 'DBText =
+    PlainColumnCtx_ a 'DBText
+  column_ tag _ = col tag
+
+instance Column_ a 'DBCiText where
+  type ColumnCtx a 'DBCiText =
+    PlainColumnCtx_ a 'DBCiText
+  column_ tag _ = col tag
+
+instance Column_ a 'DBUuid where
+  type ColumnCtx a 'DBUuid =
+    PlainColumnCtx_ a 'DBUuid
+  column_ tag _ = col tag
+
+instance Column_ a ('DBBit i) where
+  type ColumnCtx a ('DBBit i) =
+    PlainColumnCtx_ a ('DBBit i)
+  column_ tag _ = col tag
+
+instance Column_ a ('DBVarbit i) where
+  type ColumnCtx a ('DBVarbit i) =
+    PlainColumnCtx_ a ('DBVarbit i)
+  column_ tag _ = col tag
+
+instance Column_ a 'DBJsonB where
+  type ColumnCtx a 'DBJsonB =
+    PlainColumnCtx_ a 'DBJsonB
+  column_ tag _ = col tag
+
+instance Column_ a ('DBArray t) where
+  type ColumnCtx a ('DBArray t) =
+    PlainColumnCtx_ a ('DBArray t)
+  column_ tag _ = col tag
+
+instance Column_ a ('DBCustomType (typ :: Type) ('DBTypeName name args ('EnumType en es))) where
+  type ColumnCtx a ('DBCustomType typ ('DBTypeName name args ('EnumType en es))) =
+    PlainColumnCtx_ a ('DBCustomType typ ('DBTypeName name args ('EnumType en es)))
+  column_ tag _ = col tag 
+
+instance Column_ a ('DBCustomType (typ :: Type) ('DBTypeName name args ('Composite en es))) where
+  type ColumnCtx a ('DBCustomType typ ('DBTypeName name args ('Composite en es))) =
+    PlainColumnCtx_ a ('DBCustomType typ ('DBTypeName name args ('Composite en es)))
+  column_ tag _ = col tag
+
+class CustomColumnCtx_ sc tab col where
+instance CustomColumnCtx_ sc tab col where
+
+{-  
+instance (SingI es, SingE es) => Column_ a ('DBCustomType typ ('DBTypeName name args ('Flat es))) where
+  type ColumnCtx a ('DBCustomType typ ('DBTypeName name args ('Flat es))) = CustomColumnCtx_
+  column_ _tag _ =
+    let cols = map fst $ fromSing (sing :: Sing es)
+        exprs = map (PQ.unsafeAttrExpr . pure) $ cols
+    in  PQ.Expr (PQ.FlatComposite (zip cols exprs))
+
+instance (SingI ess, SingE ess) => Column_ a ('DBCustomType typ ('DBTypeName name args ('Sum tn ess))) where
+  type ColumnCtx a ('DBCustomType typ ('DBTypeName name args ('Sum ess))) = CustomColumnCtx_
+  column_ _tag _ =
+    let sumCols = fromSing (sing :: Sing ess)
+        sumExprs = concatMap (\(_tag, es) ->
+                                let exprs = map (\s -> caseExpr s . PQ.unsafeAttrExpr . pure $ s) (map fst es)
+                                    caseExpr s _e = (s, PQ.CaseExpr [(PQ.BinExpr PQ.OpEq undefined undefined, undefined)] undefined)
+                                in  exprs
+                             ) sumCols
+    in  PQ.Expr (PQ.FlatComposite sumExprs)
+-}
+  
+-- project :: (UDType sc a) => PQ.Expr sc scope a -> 
+
+-- class Project sc a field where
+
+instance (UDType sc a, UDTargetType (TypeMappings sc a) x r a) => HasField x (PQ.Expr sc scopes a) (PQ.Expr sc scopes r) where
+  hasField = udTargetType (Proxy @'(x, (TypeMappings sc a)))
+
+class UDTargetType (ud :: UDTypeMappings) fld r a | ud fld a -> r  where
+  udTargetType :: Proxy '(fld, ud) -> PQ.Expr sc scopes a -> (PQ.Expr sc scopes r -> PQ.Expr sc scopes a, PQ.Expr sc scopes r)
+
+-- NOTE: if unresolved, then does not meet specifications
+type family GTarget (fld :: Symbol) (rep :: Type -> Type) :: Type where
+  GTarget fld (D1 _ c) = GTarget fld c 
+  GTarget fld (C1 _ p) = GTarget fld p
+  GTarget fld ((S1 ('MetaSel ('Just fld) _ _ _) (K1 _ t)) :*: _) = t
+  GTarget fld ((S1 ('MetaSel _ _ _ _) (K1 _ t)) :*: p) = GTarget fld p
+  GTarget fld (S1 ('MetaSel ('Just fld) _ _ _) (K1 _ t)) = t
+
+instance ( r ~ GTarget fld (Rep a)
+         , als ~ FindAlias flds fld
+         ) => UDTargetType ('Composite tyn flds) fld r a where
+  udTargetType _ (PQ.Expr _e) =
+    let get = undefined
+        setter _a = undefined
+    in  (setter, get)
+
+instance ( r ~ GTarget fld (Rep a) 
+         , als ~ FindAlias flds fld
+         , KnownSymbol fld
+         , SingI als
+         , SingE als
+         ) => UDTargetType ('Flat flds) fld r a where
+  udTargetType _ (PQ.Expr e) =
+    let getter = case e of
+          (PQ.FlatComposite es) -> case lookup als es of
+            Just t -> PQ.Expr t
+            _      -> error "Panic: impossible case @UDTargetType. Field not found"
+          _ -> error "Panic: impossible case @UDTargetType. Found non FlatComposite"
+        setter a = case e of
+          (PQ.FlatComposite es) -> PQ.Expr (PQ.FlatComposite (map (set a) es))
+          pq                    -> PQ.Expr pq
+        set (PQ.Expr a) (fld, e0) | als == fld
+          = (fld, a)
+                                  | otherwise
+          = (fld, e0)
+        als = maybe (T.pack (symbolVal (Proxy @fld)))
+                    id
+                    (fromSing (sing :: Sing als))
+    in  (setter, getter)
 
 insert :: a -> [a] -> [a]
 insert = (:)
@@ -1571,6 +1799,9 @@ uncapitalizeHead :: Text -> Text
 uncapitalizeHead txt = case T.uncons txt of
   Just (h, rest) -> T.toLower (T.singleton h) <> rest
   Nothing        -> txt
+
+columnExpr :: ColumnInfo -> PQ.PrimExpr
+columnExpr ci = PQ.unsafeAttrExpr (pure (ci ^. columnNameInfo . dbName))
 
 {-
 ppDatabaseInfo :: DatabaseInfo -> String

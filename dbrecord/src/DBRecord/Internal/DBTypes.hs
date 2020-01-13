@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
-{-# LANGUAGE TypeApplications, DataKinds, KindSignatures, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, TypeFamilyDependencies, UndecidableInstances, FlexibleInstances, OverloadedStrings, GADTs #-}
+{-# LANGUAGE TypeApplications, DataKinds, KindSignatures, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, TypeFamilyDependencies, UndecidableInstances, FlexibleInstances, OverloadedStrings, GADTs, TypeOperators #-}
 module DBRecord.Internal.DBTypes where
 
 import Data.Aeson
@@ -13,11 +13,10 @@ import Data.Int
 import Data.Word
 
 -- import Data.Vector (Vector)
-import DBRecord.Internal.Types (DbK (..), Interval, Json, JsonStr, CustomType (..))
+import DBRecord.Internal.Types (DbK (..), Interval, {-Json, JsonStr,-} CustomType (..))
 import qualified DBRecord.Internal.Types as Type
 import DBRecord.Internal.Types (Sing (..), SingE (..))
 import DBRecord.Internal.Common
-import GHC.TypeLits
 import qualified Data.Text as T
 import GHC.Generics
 import Data.Kind
@@ -48,9 +47,11 @@ data DBType = DBInt4
             | DBVarbit Integer
             | DBJsonB
             | DBArray DBType
-            | DBTypeName T.Text [TypeArg]
-            | DBCustomType DBType Bool
+            | DBCustomType DBTypeName
             deriving (Show, Eq, Ord, Read)
+
+data DBTypeName = DBTypeName T.Text [TypeArg]
+                deriving (Show, Eq, Ord, Read)
 
 data TypeArg = TextArg    T.Text
              | IntegerArg Integer
@@ -72,49 +73,54 @@ type family DBTypeCtx (t :: Type.DBTypeK) :: Constraint where
   DBTypeCtx ('Type.DBBit v)               = SingE v
   DBTypeCtx ('Type.DBVarbit v)            = SingE v
   DBTypeCtx ('Type.DBArray v)             = SingE v
-  DBTypeCtx ('Type.DBCustomType _ dbt b)  = (SingE b, SingE dbt)
-  DBTypeCtx ('Type.DBTypeName s tyArgs)   = (SingE s, SingE tyArgs)
+  DBTypeCtx ('Type.DBCustomType _ dbt )   = SingE dbt
   DBTypeCtx _                             = ()
   
 instance (DBTypeCtx t) => SingE (t :: Type.DBTypeK) where
   type Demote t = DBType
   
-  fromSing SDBInt4              = DBInt4
-  fromSing SDBInt8              = DBInt8
-  fromSing SDBInt2              = DBInt2
-  fromSing (SDBFloat v)         = DBFloat (fromSing v)
-  fromSing (SDBNumeric n1 n2)   = DBNumeric (fromSing n1) (fromSing n2)
-  fromSing (SDBChar n)          = DBChar (fromSing n)
-  fromSing (SDBVarchar n)       = DBVarchar (fromSing n)
-  fromSing SDBBool              = DBBool
-  fromSing SDBDate              = DBDate
-  fromSing (SDBTime n)          = DBTime (fromSing n)
-  fromSing (SDBTimetz n)        = DBTimetz (fromSing n)
-  fromSing (SDBTimestamp n)     = DBTimestamp (fromSing n)
-  fromSing (SDBTimestamptz n)   = DBTimestamptz (fromSing n)
-  fromSing (SDBInterval _ n2)   = DBInterval Nothing (fromSing n2)
-  fromSing (SDBNullable n)      = DBNullable (fromSing n)
-  fromSing SDBXml               = DBXml
-  fromSing (SDBBinary n)        = DBBinary (fromSing n)
-  fromSing (SDBVarbinary n)     = DBVarbinary (fromSing n)
-  fromSing SDBText              = DBText
-  fromSing SDBCiText            = DBCiText
-  fromSing SDBUuid              = DBUuid
-  fromSing (SDBBit n)           = DBBit (fromSing n)
-  fromSing (SDBVarbit n)        = DBVarbit (fromSing n)
-  fromSing SDBJson              = DBJson  
-  fromSing SDBJsonB             = DBJsonB
-  fromSing (SDBArray a)         = DBArray (fromSing a)
-  fromSing (SDBCustomType _ dbt b) = DBCustomType (fromSing dbt) (fromSing b)
-  fromSing (SDBTypeName tn args)   = DBTypeName (fromSing tn) (fromSing args)
+  fromSing SDBInt4                 = DBInt4
+  fromSing SDBInt8                 = DBInt8
+  fromSing SDBInt2                 = DBInt2
+  fromSing (SDBFloat v)            = DBFloat (fromSing v)
+  fromSing (SDBNumeric n1 n2)      = DBNumeric (fromSing n1) (fromSing n2)
+  fromSing (SDBChar n)             = DBChar (fromSing n)
+  fromSing (SDBVarchar n)          = DBVarchar (fromSing n)
+  fromSing SDBBool                 = DBBool
+  fromSing SDBDate                 = DBDate
+  fromSing (SDBTime n)             = DBTime (fromSing n)
+  fromSing (SDBTimetz n)           = DBTimetz (fromSing n)
+  fromSing (SDBTimestamp n)        = DBTimestamp (fromSing n)
+  fromSing (SDBTimestamptz n)      = DBTimestamptz (fromSing n)
+  fromSing (SDBInterval _ n2)      = DBInterval Nothing (fromSing n2)
+  fromSing (SDBNullable n)         = DBNullable (fromSing n)
+  fromSing SDBXml                  = DBXml
+  fromSing (SDBBinary n)           = DBBinary (fromSing n)
+  fromSing (SDBVarbinary n)        = DBVarbinary (fromSing n)
+  fromSing SDBText                 = DBText
+  fromSing SDBCiText               = DBCiText
+  fromSing SDBUuid                 = DBUuid
+  fromSing (SDBBit n)              = DBBit (fromSing n)
+  fromSing (SDBVarbit n)           = DBVarbit (fromSing n)
+  fromSing SDBJson                 = DBJson  
+  fromSing SDBJsonB                = DBJsonB
+  fromSing (SDBArray a)            = DBArray (fromSing a)
+  fromSing (SDBCustomType _ t )    = DBCustomType (fromSing t)
 
-type family TypeArgCtx (t :: Type.TypeArg) where
+type family DBTypeNameKCtx (typn :: Type.DBTypeNameK) where
+  DBTypeNameKCtx ('Type.DBTypeName s args _) = (SingE s, SingE args)
+
+instance (DBTypeNameKCtx typn) => SingE (typn :: Type.DBTypeNameK) where
+  type Demote typn = DBTypeName
+  fromSing (SDBTypeName s args _udm) = DBTypeName (fromSing s) (fromSing args)
+
+type family TypeArgCtx (t :: Type.TypeArgK) where
   TypeArgCtx ('Type.SymArg sym) = SingE sym
   TypeArgCtx ('Type.NatArg n)   = SingE n
 
 instance ( TypeArgCtx t
-         ) => SingE (t :: Type.TypeArg) where
-  type Demote (t :: Type.TypeArg) = TypeArg
+         ) => SingE (t :: Type.TypeArgK) where
+  type Demote (t :: Type.TypeArgK) = TypeArg
 
   fromSing (SSymArg s) = TextArg (fromSing s)
   fromSing (SNatArg s) = IntegerArg (fromSing s)
@@ -265,63 +271,77 @@ instance (ShowDBType 'Postgres dbTy, Typeable dbTy) => ShowDBType 'Postgres ('Ty
                     else showDBType db (Proxy :: Proxy dbTy)
 -}
 
-type family GetDBTypeRep db t where
-  GetDBTypeRep 'Postgres t = GetPGTypeRep t
-  GetDBTypeRep 'MSSQL    t = GetMSSQLTypeRep t
+type family GetDBTypeRep' sc dbk t where
+  GetDBTypeRep' sc 'Postgres t = GetPGTypeRep sc t
+  GetDBTypeRep' sc 'MSSQL    t = GetMSSQLTypeRep sc t
 
-type family GetMSSQLTypeRep (t :: *) = (r :: Type.DBTypeK) {-| r -> t-} where
-  GetMSSQLTypeRep Int                = 'Type.DBInt8
-  GetMSSQLTypeRep Int8               = 'Type.DBNumeric 3 0
-  GetMSSQLTypeRep Int16              = 'Type.DBInt2
-  GetMSSQLTypeRep Int32              = 'Type.DBInt4
-  GetMSSQLTypeRep Int64              = 'Type.DBInt8
-  GetMSSQLTypeRep Word               = 'Type.DBNumeric 20 0
-  GetMSSQLTypeRep Word8              = 'Type.DBNumeric 3 0
-  GetMSSQLTypeRep Word16             = 'Type.DBNumeric 5 0
-  GetMSSQLTypeRep Word32             = 'Type.DBNumeric 10 0
-  GetMSSQLTypeRep Word64             = 'Type.DBNumeric 20 0
-  GetMSSQLTypeRep Float              = 'Type.DBFloat 24
-  GetMSSQLTypeRep Double             = 'Type.DBFloat 53
-  GetMSSQLTypeRep Char               = 'Type.DBChar 1
-  GetMSSQLTypeRep T.Text             = 'Type.DBText
-  GetMSSQLTypeRep ByteString         = 'Type.DBVarbinary ('Left 'Type.Max)
-  GetMSSQLTypeRep Bool               = 'Type.DBBit 1
-  GetMSSQLTypeRep Day                = 'Type.DBDate
-  GetMSSQLTypeRep UTCTime            = 'Type.DBTimestamptz 7
-  GetMSSQLTypeRep LocalTime          = 'Type.DBTimestamp 7
-  GetMSSQLTypeRep TimeOfDay          = 'Type.DBTime 7
-  GetMSSQLTypeRep (Maybe t)          = 'Type.DBNullable (GetMSSQLTypeRep t)
-  GetMSSQLTypeRep [t]                = 'Type.DBArray (GetMSSQLTypeRep t)
-  GetMSSQLTypeRep (CustomType a)     = 'Type.DBCustomType (CustomType a) (CustomDBTypeRep 'MSSQL a) 'False
-  GetMSSQLTypeRep a                  = 'Type.DBCustomType a ('Type.DBTypeName (GetTypeName a) '[]) (IsNewType (Rep a))
+type family GetMSSQLTypeRep (sc :: *) (t :: *) = (r :: Type.DBTypeK) {-| r -> t-} where
+  GetMSSQLTypeRep _ Int                = 'Type.DBInt8
+  GetMSSQLTypeRep _ Int8               = 'Type.DBNumeric 3 0
+  GetMSSQLTypeRep _ Int16              = 'Type.DBInt2
+  GetMSSQLTypeRep _ Int32              = 'Type.DBInt4
+  GetMSSQLTypeRep _ Int64              = 'Type.DBInt8
+  GetMSSQLTypeRep _ Word               = 'Type.DBNumeric 20 0
+  GetMSSQLTypeRep _ Word8              = 'Type.DBNumeric 3 0
+  GetMSSQLTypeRep _ Word16             = 'Type.DBNumeric 5 0
+  GetMSSQLTypeRep _ Word32             = 'Type.DBNumeric 10 0
+  GetMSSQLTypeRep _ Word64             = 'Type.DBNumeric 20 0
+  GetMSSQLTypeRep _ Float              = 'Type.DBFloat 24
+  GetMSSQLTypeRep _ Double             = 'Type.DBFloat 53
+  GetMSSQLTypeRep _ Char               = 'Type.DBChar 1
+  GetMSSQLTypeRep _ T.Text             = 'Type.DBText
+  GetMSSQLTypeRep _ ByteString         = 'Type.DBVarbinary ('Left 'Type.Max)
+  GetMSSQLTypeRep _ Bool               = 'Type.DBBit 1
+  GetMSSQLTypeRep _ Day                = 'Type.DBDate
+  GetMSSQLTypeRep _ UTCTime            = 'Type.DBTimestamptz 7
+  GetMSSQLTypeRep _ LocalTime          = 'Type.DBTimestamp 7
+  GetMSSQLTypeRep _ TimeOfDay          = 'Type.DBTime 7
+  GetMSSQLTypeRep sc (Maybe t)         = 'Type.DBNullable (GetMSSQLTypeRep sc t)
+  GetMSSQLTypeRep sc [t]               = 'Type.DBArray (GetMSSQLTypeRep sc t)
+  GetMSSQLTypeRep sc (CustomType a)    = CustomDBTypeRep sc a
+  GetMSSQLTypeRep sc a                 =
+    GetMSSQLTypeRepCustom sc a (NewtypeRep a)
 
-type family GetPGTypeRep (t :: *) = (r :: Type.DBTypeK) | r -> t where
-  GetPGTypeRep Int                = 'Type.DBInt4
-  GetPGTypeRep Int16              = 'Type.DBInt2
-  GetPGTypeRep Int64              = 'Type.DBInt8
-  GetPGTypeRep Float              = 'Type.DBFloat 24
-  GetPGTypeRep Double             = 'Type.DBFloat 53
-  GetPGTypeRep Char               = 'Type.DBChar 1
-  GetPGTypeRep T.Text             = 'Type.DBText
-  GetPGTypeRep (CI T.Text)        = 'Type.DBCiText
-  GetPGTypeRep ByteString         = 'Type.DBVarbinary ('Left 'Type.Max)
-  GetPGTypeRep Bool               = 'Type.DBBool
-  GetPGTypeRep Day                = 'Type.DBDate
-  GetPGTypeRep UTCTime            = 'Type.DBTimestamptz 6
-  GetPGTypeRep LocalTime          = 'Type.DBTimestamp 6
-  GetPGTypeRep TimeOfDay          = 'Type.DBTime 6
-  GetPGTypeRep Value              = 'Type.DBJsonB
-  GetPGTypeRep Interval           = 'Type.DBInterval 'Nothing 6
-  GetPGTypeRep (Json a)           = 'Type.DBCustomType (Json a) 'Type.DBJsonB 'False
-  GetPGTypeRep (JsonStr a)        = 'Type.DBCustomType (JsonStr a) 'Type.DBJson 'False
-  GetPGTypeRep UUID               = 'Type.DBUuid
-  GetPGTypeRep (Maybe t)          = 'Type.DBNullable (GetPGTypeRep t)
+type family GetMSSQLTypeRepCustom sc (ot :: Type) (t :: Maybe Type) where
+  GetMSSQLTypeRepCustom sc a 'Nothing =
+    'Type.DBCustomType a ('Type.DBTypeName (GetTypeName a) '[] (TypeMappings sc a))
+  GetMSSQLTypeRepCustom sc _ ('Just a) =
+    GetMSSQLTypeRep sc a
+
+type family GetPGTypeRep (sc :: *) (t :: *) = (r :: Type.DBTypeK) {-| r -> t-} where
+  GetPGTypeRep _ Int                = 'Type.DBInt4
+  GetPGTypeRep _ Int16              = 'Type.DBInt2
+  GetPGTypeRep _ Int64              = 'Type.DBInt8
+  GetPGTypeRep _ Float              = 'Type.DBFloat 24
+  GetPGTypeRep _ Double             = 'Type.DBFloat 53
+  GetPGTypeRep _ Char               = 'Type.DBChar 1
+  GetPGTypeRep _ T.Text             = 'Type.DBText
+  GetPGTypeRep _ (CI T.Text)        = 'Type.DBCiText
+  GetPGTypeRep _ ByteString         = 'Type.DBVarbinary ('Left 'Type.Max)
+  GetPGTypeRep _ Bool               = 'Type.DBBool
+  GetPGTypeRep _ Day                = 'Type.DBDate
+  GetPGTypeRep _ UTCTime            = 'Type.DBTimestamptz 6
+  GetPGTypeRep _ LocalTime          = 'Type.DBTimestamp 6
+  GetPGTypeRep _ TimeOfDay          = 'Type.DBTime 6
+  GetPGTypeRep _ Value              = 'Type.DBJsonB
+  GetPGTypeRep _ Interval           = 'Type.DBInterval 'Nothing 6
+  -- GetPGTypeRep sc (Json a)          = 'Type.DBCustomType (Json a) 'Type.DBJsonB (TypeMappings sc (Json a))
+  -- GetPGTypeRep sc (JsonStr a)       = 'Type.DBCustomType (JsonStr a) 'Type.DBJson (TypeMappings sc (JsonStr a))
+  GetPGTypeRep _ UUID               = 'Type.DBUuid
+  GetPGTypeRep sc (Maybe t)         = 'Type.DBNullable (GetPGTypeRep sc t)
   -- GetPGTypeRep (Vector t)         = 'DBArray (GetPGTypeRep t)
-  GetPGTypeRep [t]                = 'Type.DBArray (GetPGTypeRep t)
-  GetPGTypeRep (CustomType a)     = 'Type.DBCustomType (CustomType a) (CustomDBTypeRep 'Postgres a) 'False
-  GetPGTypeRep a                  = 'Type.DBCustomType a ('Type.DBTypeName (GetTypeName a) '[]) (IsNewType (Rep a))
+  GetPGTypeRep sc [t]               = 'Type.DBArray (GetPGTypeRep sc t)
+  GetPGTypeRep sc (CustomType a)    = CustomDBTypeRep sc a
+  GetPGTypeRep sc a                 =
+    GetPGTypeRepCustom sc a (NewtypeRep a)
 
-type family CustomDBTypeRep (db :: DbK) (ty :: *) :: Type.DBTypeK
+type family GetPGTypeRepCustom sc (ot :: Type) (t :: Maybe Type) where
+  GetPGTypeRepCustom sc a 'Nothing =
+    'Type.DBCustomType a ('Type.DBTypeName (GetTypeName a) '[] (TypeMappings sc a)) 
+  GetPGTypeRepCustom sc _ ('Just a) =
+    GetPGTypeRep sc a
+
+type family CustomDBTypeRep (sc :: *) (ty :: *) :: Type.DBTypeK
 
 doubleQuote :: T.Text -> T.Text
 doubleQuote = quoteBy '"' (Just '"')
@@ -337,17 +357,23 @@ quoteBy ch esc s = T.pack $ ch : go esc (T.unpack s) ++ (ch:[])
 
 class ( Generic ty
       ) => UDType (sc :: *) (ty :: *) where
-  type TypeMappings sc ty :: UDTypeMappings
-  -- type TypeMappings db ty = 'Flat '[]
+  type TypeMappings sc ty :: Type.UDTypeMappings
+  type TypeMappings sc ty = GTypeMappings sc (Rep ty)
 
--- TODO: Support other type mappings as well
-data UDTypeMappings = EnumType Symbol [Symbol]
-{-
-                    | Composite Symbol [(Symbol, DBTypeK)]
-                    | Flat [(Symbol, DBTypeK)]
-                    | EnumText [Symbol]
-                    | Sum [(Symbol, [(Symbol, DBTypeK)])]
--}
+type family GTypeMappings sc rep where
+  GTypeMappings sc (D1 _ g)    = GTypeMappings sc g
+  GTypeMappings sc (g1 :+: g2) =
+    GTypeMappingsSum sc (GTypeMappingsSum' (g1 :+: g2))
+  GTypeMappings sc (C1 _ g)    = 'Type.Flat '[]
+
+type family GTypeMappingsSum sc (isEnum :: Bool) where
+  GTypeMappingsSum sc 'True  = 'Type.EnumType 'Nothing '[]
+  GTypeMappingsSum sc 'False = 'Type.Sum 'Nothing '[]  
+
+type family GTypeMappingsSum' rep where
+  GTypeMappingsSum' (g1 :+: g2)  = GTypeMappingsSum' g1 && GTypeMappingsSum' g2
+  GTypeMappingsSum' (C1 _ U1)    = 'True
+  GTypeMappingsSum' (C1 _ _)     = 'False
 
 toNullable :: DBType -> DBType
 toNullable = DBNullable
@@ -360,5 +386,7 @@ isNullable :: DBType -> Bool
 isNullable (DBNullable _) = True
 isNullable _              = False
 
-enumType :: T.Text -> DBType
-enumType v = DBCustomType (DBTypeName v []) False
+-- enumType :: T.Text -> DBType
+-- enumType v = DBCustomType (DBTypeName v []) False
+
+-- NOTE: newtype handling.

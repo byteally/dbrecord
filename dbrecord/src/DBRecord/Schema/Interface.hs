@@ -6,7 +6,7 @@ module DBRecord.Schema.Interface
        , module DBRecord.Internal.DBTypeValidation
        ) where
 
-import DBRecord.Internal.Types hiding (DBTypeK (..), TypeArg (..))
+import DBRecord.Internal.Types hiding (DBTypeK (..), TypeArgK (..), DBTypeNameK (..))
 import DBRecord.Internal.Common
 import DBRecord.Internal.Schema hiding (DBType (..))
 import DBRecord.Internal.DBTypes

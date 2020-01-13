@@ -37,6 +37,7 @@ library
                        DBRecord.Internal.DDL
                        DBRecord.Internal.DBTypes
                        DBRecord.Internal.Schema
+                       DBRecord.Internal.Query
 
   build-depends:       base              >= 4.7 && < 5
                      , text              >=0.11.1

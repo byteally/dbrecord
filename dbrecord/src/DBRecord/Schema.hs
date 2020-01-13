@@ -2,7 +2,7 @@
 module DBRecord.Schema
        ( DbK (..)
        , Col (..)
---       , col
+       , col
        , Database (..)
        , Table (..)
        , Schema (..)
@@ -26,6 +26,7 @@ module DBRecord.Schema
        , Owned
        , TypeName (..)
        , UDTypeMappings (..)
+       , Json (..)
        ) where
 
 import DBRecord.Internal.Types 

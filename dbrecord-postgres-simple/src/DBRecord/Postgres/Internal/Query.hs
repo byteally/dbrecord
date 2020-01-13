@@ -51,6 +51,7 @@ instance HasUpdate PGS where
 instance HasQuery PGS where
   dbQueryWith parser (PGS conn) primQ = do
     let sqlQ = PG.renderQuery $ PG.sql primQ
+    liftIO $ putStrLn sqlQ
     queryWith_ parser conn (fromString sqlQ)
 
 instance HasInsert PGS where
@@ -70,3 +71,4 @@ instance HasDelete PGS where
 
 pgDefaultPool :: ConnectInfo -> IO (Pool Connection)
 pgDefaultPool connectInfo = createPool (PGS.connect connectInfo) PGS.close 10 5 10
+

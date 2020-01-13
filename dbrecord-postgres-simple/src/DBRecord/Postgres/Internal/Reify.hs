@@ -98,7 +98,8 @@ toUniqKeyInfo hints = HM.fromListWith (++) . concatMap (map toUQKInfo . groupByK
 
 
 toSchemaInfo :: Hints -> SchemaName -> [EnumInfo] -> TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> SchemaInfo
-toSchemaInfo hints scn eis cols chks defs pk uqs fks =
+toSchemaInfo hints scn eis cols chks defs pk uqs fks = undefined
+{-
   let tabNs = HM.keys cols
       dbNameHints = databaseNameHints hints
       tabNameHints = tableNameHints hints      
@@ -127,6 +128,7 @@ toSchemaInfo hints scn eis cols chks defs pk uqs fks =
                                       }
                        ) tabNs
   in mkSchemaInfo sct types 0 0 (coerce tabInfos) undefined undefined
+-}
 
 toCheckInfo :: Hints -> TableContent ColumnInfo -> [CheckCtx] -> TableContent CheckInfo
 toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo

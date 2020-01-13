@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, TypeFamilies, UndecidableInstances, UndecidableSuperClasses, ScopedTypeVariables #-}
+{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, TypeFamilies, UndecidableInstances, UndecidableSuperClasses, ScopedTypeVariables, FunctionalDependencies, AllowAmbiguousTypes, RankNTypes #-}
 module DBRecord.Internal.Types where
 
 import GHC.Generics
@@ -46,6 +46,16 @@ data HList :: (k -> *) -> [k] -> * where
 
 infixr 7 :&
 
+instance (Show (f x), Show (HList f xs)) => Show (HList f (x ': xs)) where
+  show (x :& xs) = show x ++ ", " ++ show xs
+  
+instance Show (HList f '[]) where
+  show Nil = "Done"
+
+hnat :: (forall a. f a -> g a) -> HList f xs -> HList g xs
+hnat f (a :& as) = f a :& hnat f as
+hnat _ Nil       = Nil
+  
 data DbK = Postgres
          | MySQL
          | SQLite
@@ -88,16 +98,32 @@ data DBTypeK
   | DBVarbit Nat
   | DBJsonB
   | DBArray DBTypeK
-  | DBCustomType Type DBTypeK Bool
-  | DBTypeName Symbol [TypeArg]
+  | DBCustomType Type DBTypeNameK
 
-data TypeArg = SymArg Symbol
-             | NatArg Nat
+data DBTypeNameK = DBTypeName Symbol [TypeArgK] UDTypeMappings
+
+data TypeArgK = SymArg Symbol
+              | NatArg Nat
     
 {-
 instance (FromJSON a, Typeable a) => FromField (Json a) where
   fromField f dat = Json <$> fromJSONField f dat
 -}
+
+data UDTypeMappings = EnumType
+                               (Maybe Symbol)      -- ^ Alias for typename
+                               [(Symbol, Symbol)]  -- ^ Aliases for datacons
+                               
+                    | Composite (Maybe Symbol)     -- ^ Alias for typename
+                                [(Symbol, Symbol)] -- ^ Alias for composite field names
+                      
+                    | EnumText [(Symbol, Symbol)]  -- ^ Aliases for datacons
+                    
+                    | Flat [(Symbol, Symbol)]      -- ^ Aliases for flattened field names
+                    
+                    | Sum (Maybe Symbol)           -- ^ Alias for tag column
+                          [(Symbol, [(Symbol, Symbol)])] -- ^ Alias for flattened field names, in a particular con
+                    -- | Json
 
 newtype Interval = Interval T.Text
                  deriving (Show, Generic, FromJSON, ToJSON) --, FromField)
@@ -294,12 +320,21 @@ data instance Sing (t :: DBTypeK) where
   SDBVarbit      :: Sing n -> Sing ('DBVarbit n)
   SDBJsonB       :: Sing 'DBJsonB  
   SDBArray       :: Sing a -> Sing ('DBArray a)
-  SDBCustomType  :: Sing t -> Sing dbt -> Sing b -> Sing ('DBCustomType t dbt b)
-  SDBTypeName    :: Sing sym -> Sing args -> Sing ('DBTypeName sym args)
+  SDBCustomType  :: Sing t -> Sing dbt -> Sing ('DBCustomType t dbt)
 
-data instance Sing (t :: TypeArg) where
+data instance Sing (t :: DBTypeNameK) where
+  SDBTypeName :: Sing s -> Sing args -> Sing udm -> Sing ('DBTypeName s args udm)
+
+data instance Sing (t :: TypeArgK) where
   SSymArg :: Sing n -> Sing ('SymArg n)
   SNatArg :: Sing n -> Sing ('NatArg n)
+
+data instance Sing (t :: UDTypeMappings) where
+  SEnumType :: Sing s -> Sing ss -> Sing ('EnumType s ss)
+  SComposite :: Sing s -> Sing tss -> Sing ('Composite s tss)
+  SEnumText :: Sing ss -> Sing ('EnumText ss)
+  SFlat :: Sing tss -> Sing ('Flat tss)  
+  SSum :: Sing tagn -> Sing tsss -> Sing ('Sum tagn tsss)
 
 data instance Sing (m :: Max) where
   SMax :: Sing 'Max
@@ -388,12 +423,27 @@ instance SingI ('DBJsonB) where
 instance (SingI n) => SingI ('DBArray n) where
   sing = SDBArray sing
 
-instance ( SingI t, SingI dbt, SingI b
-         ) => SingI ('DBCustomType t dbt b) where
-  sing = SDBCustomType sing sing sing
+instance ( SingI t, SingI dbt
+         ) => SingI ('DBCustomType t dbt) where
+  sing = SDBCustomType sing sing
 
-instance (SingI s, SingI args) => SingI ('DBTypeName s args) where
-  sing = SDBTypeName sing sing
+instance (SingI s, SingI args, SingI udm) => SingI ('DBTypeName s args udm) where
+  sing = SDBTypeName sing sing sing
+
+instance (SingI s, SingI ss) => SingI ('EnumType s ss) where
+  sing = SEnumType sing sing
+
+instance (SingI s, SingI tss) => SingI ('Composite s tss) where
+  sing = SComposite sing sing
+
+instance (SingI tss) => SingI ('Flat tss) where
+  sing = SFlat sing
+
+instance (SingI ss) => SingI ('EnumText ss) where
+  sing = SEnumText sing
+
+instance (SingI tsss, SingI tagn) => SingI ('Sum tagn tsss) where
+  sing = SSum sing sing
 
 instance SingI 'Max where
   sing = SMax
@@ -414,3 +464,10 @@ type instance AllF  c (x ': xs) = (c x, All c xs)
 class (AllF (All f) xss) => All2 f xss
 instance (AllF (All f) xss) => All2 f xss
 
+---
+
+-- NOTE: from https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0158-record-set-field.rst
+
+class HasField x r a | x r -> a where
+  -- | Function to get and set a field in a record.
+  hasField :: r -> (a -> r, a)

@@ -459,8 +459,9 @@ ppPGType = go
         go DBXml                        = "XML"
         go (DBArray t)                  = go t ++ "[]"
         go (DBNullable t)               = go t
-        go (DBTypeName t args)          = T.unpack (doubleQuote t) ++ ppArgs args
-        go (DBCustomType t _)           = go t
+        go (DBCustomType tn)            = ppDbTypeName tn
+
+        ppDbTypeName (DBTypeName t args) = T.unpack (doubleQuote t) ++ ppArgs args
 
         ppArgs []  = ""
         ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"

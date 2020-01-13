@@ -18,6 +18,7 @@ import Data.Aeson
 import Data.Text
 import GHC.Exts
 import Data.Functor.Identity
+import Data.Kind
 
 type family GenTyCon (rep :: * -> *) :: Symbol where
   GenTyCon (D1 ('MetaData tyName _ _ _) _) = tyName
@@ -99,6 +100,13 @@ type family GetTypeName (t :: *) :: Symbol where
 
 type family IsNewType (rep :: * -> *) :: Bool where
   IsNewType (D1 ('MetaData _ _ _ isNew) _) = isNew
+
+type family NewtypeRep t where
+  NewtypeRep t = NewtypeRep' (Rep t)
+
+type family NewtypeRep' t :: Maybe Type where
+  NewtypeRep' (D1 ('MetaData _ _ _ 'False) _) = 'Nothing
+  NewtypeRep' (D1 _ (C1 _ (S1 _ (K1 _ a))))   = 'Just a
 
 infixr 5 :++
 type family (:++) (as :: [k]) (bs :: [k]) :: [k] where
@@ -206,6 +214,9 @@ type family FromRight (x :: Either k k1) where
 type family FromLeft (x :: Either k k1) where
   FromLeft ('Left t) = t
 
+type family FromJust (x :: Maybe k) where
+  FromJust ('Just t) = t
+
 type family If (c :: Bool) (t :: k) (f :: k) :: k where
   If 'True t f  = t
   If 'False t f = f
@@ -225,7 +236,34 @@ instance ToHList (x1, x2) where
 instance ToHList (x1, x2, x3) where
   toHList (x1, x2, x3) lift = lift x1 :& lift x2 :& lift x3 :& Nil  
 
-  
+instance ToHList (x1, x2, x3, x4) where
+  toHList (x1, x2, x3, x4) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& Nil  
+
+instance ToHList (x1, x2, x3, x4, x5) where
+  toHList (x1, x2, x3, x4, x5) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& Nil  
+
+instance ToHList (x1, x2, x3, x4, x5, x6) where
+  toHList (x1, x2, x3, x4, x5, x6) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& Nil
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7) where
+  toHList (x1, x2, x3, x4, x5, x6, x7) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& Nil
+ 
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& Nil    
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& Nil    
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& Nil
+
 type family HListToTuple (xs :: [*]) = (ret :: *) | ret -> xs where
   HListToTuple '[]  = ()
   HListToTuple '[x] = Identity x
@@ -246,6 +284,13 @@ type family TupleToHList (t :: *) = (res :: [*]) | res -> t where
   TupleToHList (Identity x) = '[x]
   TupleToHList (x1, x2) = '[x1, x2]
   TupleToHList (x1, x2, x3) = '[x1, x2, x3]
+  TupleToHList (x1, x2, x3, x4) = '[x1, x2, x3, x4]
+  TupleToHList (x1, x2, x3, x4, x5) = '[x1, x2, x3, x4, x5]
+  TupleToHList (x1, x2, x3, x4, x5, x6) = '[x1, x2, x3, x4, x5, x6]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7) = '[x1, x2, x3, x4, x5, x6, x7]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8) = '[x1, x2, x3, x4, x5, x6, x7, x8]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10]
 
 type family FilterNonDefaults (xs :: [*]) (defs :: [Symbol]) :: [*] where
   FilterNonDefaults '[] _ = '[]
