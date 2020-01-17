@@ -1,7 +1,12 @@
+{-# OPTIONS_GHC -fno-warn-orphans       #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeOperators              #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE FlexibleContexts           #-}
 
 module DBRecord.Postgres.Internal.Query where
 
@@ -9,10 +14,13 @@ import qualified DBRecord.Internal.Sql.SqlGen as PG
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
 import Database.PostgreSQL.Simple as PGS
 import Database.PostgreSQL.Simple.FromRow as PGS
+import Database.PostgreSQL.Simple.FromField
+import DBRecord.Internal.Types
 import DBRecord.Query
 import Data.Pool
 import Data.String
 import Control.Monad.Reader
+import Data.Functor.Identity
 
 newtype PostgresDBT (db :: *) m a = PostgresDBT { runPostgresDB :: ReaderT (PGS PGS.Connection) m a}
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader (PGS PGS.Connection))
@@ -71,4 +79,21 @@ instance HasDelete PGS where
 
 pgDefaultPool :: ConnectInfo -> IO (Pool Connection)
 pgDefaultPool connectInfo = createPool (PGS.connect connectInfo) PGS.close 10 5 10
+
+instance (FromField a) => FromField (Identity a) where
+  fromField f m = Identity <$> fromField f m
+
+instance (FromField a) => FromField (fld ::: a) where
+  fromField f m = Field <$> fromField f m
+
+instance (FromField a) => FromRow (Identity a) where
+  fromRow = Identity <$> field
+
+instance ( FromField (f x)
+         , FromRow (HList f a)
+         ) => FromRow (HList f (x ': a)) where
+  fromRow = (:&) <$> field <*> fromRow
+
+instance FromRow (HList f '[]) where
+  fromRow = pure Nil
 

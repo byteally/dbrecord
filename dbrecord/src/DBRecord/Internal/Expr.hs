@@ -500,6 +500,9 @@ instance EqExpr sc Double where
 instance EqExpr sc Day where
   a .== b = binOp PQ.OpEq a b
 
+instance EqExpr sc A.Value where
+  a .== b = binOp PQ.OpEq a b
+
 instance OrdExpr sc Day where
   a .<= b = binOp PQ.OpLtEq a b
 
@@ -1115,7 +1118,7 @@ coerceAggExpr = unsafeCoerceAggExpr
 rawExpr :: T.Text -> Expr sc scope a
 rawExpr = (Expr . PQ.RawExpr)
 
-count :: Expr sc scopes a -> AggExpr sc scopes Int
+count :: Expr sc scopes a -> AggExpr sc scopes Int64
 count = coerce . funOp "count"
 
 class Alias f where

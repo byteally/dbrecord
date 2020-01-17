@@ -28,6 +28,8 @@ module DBRecord.Query
        , getBy, get, getAll
        , delete
        , insert, insert_, insertMany, insertMany_, insertRet, insertManyRet
+       , insertWithConflict_
+       , insertManyWithConflict_
        , update, update_
        -- , count
        , (.~) , (%~)
@@ -65,12 +67,14 @@ module DBRecord.Query
        , Q.table
        , Q.project
        , Q.aggregate
-       -- , Q.restrict
-       -- , Q.tabular
-       -- , Q.extend
-       -- , Q.contract
-       -- , Q.join
        , Q.Tab
+       , Q.Columns
+
+       , onConflictUpdate
+       , onConflictDoNothing
+       , conflictingConstraint
+       , conflictingColumns
+       , conflictingAnon
        ) where
 
 import DBRecord.Schema
@@ -99,6 +103,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import DBRecord.Internal.Lens ((^.))
 import Control.Exception hiding (TypeError)
+import Data.Kind 
 
 import GHC.Generics
 
@@ -331,12 +336,12 @@ getBy _ tuqs = do
 
 getAll :: forall sc tab driver cfg scopes scopes2.
   ( QueryCtx sc tab driver cfg
-  ) =>    (Proxy tab -> Expr sc scopes Bool)
+  ) =>    (Q.Columns tab -> Expr sc scopes Bool)
        -> Order sc scopes2
        -> Maybe Page
        -> DBM (SchemaDB sc) [tab]
 getAll filt ord page = do
-  let filtE = case filt Proxy of
+  let filtE = case filt (Q.Columns prjs) of
         TRUE -> []
         e    -> [getExpr e]
       ordE = case ord of
@@ -347,7 +352,7 @@ getAll filt ord page = do
         (Just (Offset n)) -> (Just n, Nothing)
         (Just (Limit n)) -> (Nothing, Just n)
         (Just (OffsetLimit o l)) -> (Just o, Just l)
-        
+      prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
       cls = clauses
         { criteria = filtE
         , limit = (ConstExpr . Integer . fromIntegral) <$> lmt
@@ -428,11 +433,13 @@ update :: forall sc tab keys driver cfg scopes rets.
   , FromDBRow driver (HListToTuple keys)
   , SingCtx sc tab
   , SingCtxSc sc
-  ) => Expr sc scopes Bool
+  ) => (Q.Columns tab -> Expr sc scopes Bool)
   -> (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
   -> HList (Expr sc scopes) rets -> DBM (SchemaDB sc) [HListToTuple keys]  
 update filt updateFn rets =
-  runUpdateRet (Proxy @sc) (Proxy @tab) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) (toPrimExprs rets)
+  runUpdateRet (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) (toPrimExprs rets)
+
+  where prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
   
 update_ :: forall sc tab cfg driver scopes.
   ( Table sc tab
@@ -443,11 +450,13 @@ update_ :: forall sc tab cfg driver scopes.
   , MonadIO (DBM (SchemaDB sc))
   , MonadReader (driver cfg) (DBM (SchemaDB sc))
   , HasUpdate driver
-  ) => Expr sc scopes Bool
+  ) => (Q.Columns tab -> Expr sc scopes Bool)
   -> (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
   -> DBM (SchemaDB sc) ()
 update_ filt updateFn =
-  runUpdate (Proxy @sc) (Proxy @tab) [getExpr filt] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate)
+  runUpdate (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate)
+
+  where prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
 
 runUpdate :: forall sc tab cfg driver.
              ( Table sc tab
@@ -480,7 +489,7 @@ runUpdateRet psc ptab crit assoc rets = do
   driver <- ask
   liftIO $ dbUpdateRet driver updateQ
 
-delete :: forall tab sc driver cfg scopes.
+delete :: forall sc tab driver cfg scopes.
   ( Table sc tab
   , MonadIO (DBM (SchemaDB sc))
   , KnownSymbol (SchemaName sc)
@@ -490,11 +499,14 @@ delete :: forall tab sc driver cfg scopes.
   , HasDelete driver
   , SingCtx sc tab
   , SingCtxSc sc
-  ) => Expr sc scopes Bool -> DBM (SchemaDB sc) (ColVal tab Int64)
+  ) => (Q.Columns tab -> Expr sc scopes Bool) -> DBM (SchemaDB sc) (ColVal tab Int64)
 delete filt = do
-  let deleteQ = DeleteQuery (getTableId (Proxy @sc) (Proxy @tab)) [getExpr filt]
+  let deleteQ = DeleteQuery (getTableId (Proxy @sc) (Proxy @tab)) [getExpr $ filt (Q.Columns prjs)]
   driver <- ask
   ColVal <$> (liftIO $ dbDelete driver deleteQ)
+
+    where prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
+
 
 -- TODO: is list reversed?
 toPrimExprs :: HList (Expr sc scopes) xs ->
@@ -578,7 +590,7 @@ insertRet :: forall sc tab row keys rets scopes defs reqCols driver cfg.
   , HasInsertRet driver
   , SingI (FieldsOf reqCols)
   , SingE (FieldsOf reqCols)    
-  ) => Row sc tab row -> HList (Expr sc scopes) rets -> DBM (SchemaDB sc) (Maybe (HListToTuple keys))
+  ) => Row sc tab row -> (Q.Columns tab -> HList (Expr sc scopes) rets) -> DBM (SchemaDB sc) (Maybe (HListToTuple keys))
 insertRet row rets = do
   let
     tabId = getTableId (Proxy @sc) (Proxy @tab)
@@ -586,14 +598,61 @@ insertRet row rets = do
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
     colIs = headColInfos (Proxy @sc) (Proxy @tab)
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
+    prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)    
     cexprs = toDBValues (Proxy @sc) values
-    insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) Nothing (toPrimExprs rets)
+    insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) Nothing (toPrimExprs $ rets (Q.Columns prjs))
   driver <- ask
   out <- liftIO $ dbInsertRet driver insertQ
   pure $ case out of
     [] -> Nothing
     [x] -> Just x
     _ ->  error "insertRet: insert query with return more than 1 rows"
+
+onConflictUpdate :: (Q.Columns tab -> Expr sc scopes Bool) ->
+                   (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab)) ->
+                   ConflictAction' sc tab scopes
+onConflictUpdate = ConflictUpdate'
+
+onConflictDoNothing :: ConflictAction' sc tab scopes
+onConflictDoNothing = ConflictDoNothing'
+                      
+data ConflictAction' sc tab scopes =
+    ConflictDoNothing'
+  | ConflictUpdate' (Q.Columns tab -> Expr sc scopes Bool) (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
+
+data ConflictTarget' sc tab =
+    ConflictTargetConstraint' T.Text
+  | ConflictTargetColumns' [T.Text]
+  | ConflictTargetAnon'
+
+type family MissingUniqueOrCheck (ctx :: Symbol) (tab :: Type) (hasCheckOrUniq :: Bool) :: Constraint where
+  MissingUniqueOrCheck ctx tab 'False = (TypeError ('Text "constraint " ':<>: 'ShowType ctx ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)))
+  MissingUniqueOrCheck ctx tab 'True  = ()
+
+conflictingConstraint :: forall ctx sc tab.
+                          ( KnownSymbol ctx
+                          , MissingUniqueOrCheck ctx tab (Elem (OriginalCheckNames sc tab :++ OriginalUQNames sc tab) ctx)
+                          ) => Proxy (ctx :: Symbol) -> ConflictTarget' sc tab
+conflictingConstraint _ = ConflictTargetConstraint' (T.pack (symbolVal (Proxy @ctx)))
+
+type family MissingColumns  (sc :: Type) (tab :: Type) (cols :: [Symbol]) (fields :: [Symbol]) :: Constraint where
+  MissingColumns sc tab (col ': cols) fields = (MissingColumn col sc tab (Elem fields col), MissingColumns sc tab cols fields)
+  MissingColumns sc tab '[] fields  = ()
+
+type family MissingColumn (col :: Symbol) (sc :: Type) (tab :: Type) (isCol :: Bool) :: Constraint where
+  MissingColumn col sc tab 'False = (TypeError ('Text "Column " ':<>: 'ShowType col ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)))
+  MissingColumn _ _ _ 'True  = ()
+  
+conflictingColumns :: forall cols sc tab.
+                       ( MissingColumns sc tab cols (FieldsOf (OriginalTableFields tab))
+                       , Table sc tab
+                       , SingI cols
+                       , SingE cols
+                       ) => Proxy (cols :: [Symbol]) -> ConflictTarget' sc tab
+conflictingColumns _ = ConflictTargetColumns' (fromSing (sing :: Sing cols))
+
+conflictingAnon :: (Table sc tab) => ConflictTarget' sc tab
+conflictingAnon = ConflictTargetAnon'
 
 insertMany :: forall sc tab row defs reqCols driver keys cfg.
   ( Table sc tab
@@ -646,7 +705,7 @@ insertManyRet :: forall sc tab row rets defs reqCols driver keys cfg scopes.
   , SingE (FieldsOf reqCols)
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
-  ) => Rows sc tab row -> HList (Expr sc scopes) rets -> DBM (SchemaDB sc) [HListToTuple keys]
+  ) => Rows sc tab row -> (Q.Columns tab -> HList (Expr sc scopes) rets) -> DBM (SchemaDB sc) [HListToTuple keys]
 insertManyRet rows rets = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
@@ -654,7 +713,8 @@ insertManyRet rows rets = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap (toDBValues (Proxy @sc)) values
     values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
-    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList cexprss) Nothing (toPrimExprs rets)
+    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList cexprss) Nothing (toPrimExprs $ rets (Q.Columns prjs))
+    prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)    
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
 
@@ -677,6 +737,53 @@ insert_ :: forall sc tab row defs reqCols driver cfg.
   , SingE (FieldsOf reqCols)    
   ) => Row sc tab row -> DBM (SchemaDB sc) ()
 insert_ = insertMany_ . Rows @sc @tab . pure . getRow
+
+insertWithConflict_ :: forall sc tab row keys keyFields defs scopes reqCols driver cfg.
+  ( Table sc tab
+  , MonadIO (DBM (SchemaDB sc))
+  , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
+  , keyFields ~ FieldsOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
+  , defs ~ HasDefault sc tab 
+  , reqCols ~ (FilterNonDefaults (OriginalTableFields tab) defs)
+  , TupleToHList row ~ reqCols
+  , ToHList row
+  , All (ConstExpr sc) reqCols
+  , driver ~ Driver (DBM (SchemaDB sc))
+  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , SingCtx sc tab
+  , SingCtxSc sc
+  , HasInsert driver
+  , SingI (FieldsOf reqCols)
+  , SingE (FieldsOf reqCols)
+  , SingI keyFields
+  , SingE keyFields
+  ) => ConflictTarget' sc tab        -> 
+      ConflictAction' sc tab scopes ->   
+      Row sc tab row ->      
+      DBM (SchemaDB sc) ()
+insertWithConflict_ ctgt cact row = do
+  let
+    tabId = getTableId (Proxy @sc) (Proxy @tab)
+    values = toHList (getRow row) (\v -> Identity v)
+    reqFlds = fromSing (sing :: Sing (FieldsOf reqCols))
+    pkFlds = fromSing (sing :: Sing keyFields)
+    colIs = headColInfos (Proxy @sc) (Proxy @tab)
+    cnames = map (^. columnNameInfo . dbName) (filterColumns reqFlds colIs)
+    crets = map columnExpr (filterColumns pkFlds colIs)
+    cexprs = toDBValues (Proxy @sc) values
+    prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
+    tgt = case ctgt of
+      ConflictTargetConstraint' t -> ConflictConstraint t
+      ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
+      ConflictTargetAnon' -> ConflictAnon
+    insertQ = case cact of
+      ConflictDoNothing' -> InsertQuery tabId cnames (NE.fromList [cexprs]) (Just (Conflict tgt ConflictDoNothing)) crets
+      ConflictUpdate' crit updFn ->
+        let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
+        in InsertQuery tabId cnames (NE.fromList [cexprs]) (Just (Conflict tgt (ConflictUpdate updq))) crets
+  driver <- ask
+  _ <- liftIO $ dbInsert driver insertQ
+  pure ()
 
 insertMany_ :: forall sc tab row defs reqCols driver cfg.
   ( Table sc tab
@@ -704,6 +811,53 @@ insertMany_ rows = do
     cexprss = fmap (toDBValues (Proxy @sc)) values    
     values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
     insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList cexprss) Nothing []
+  driver <- ask
+  _ <- liftIO $ dbInsert driver insertQ
+  pure ()
+
+insertManyWithConflict_ :: forall sc tab row keys keyFields defs scopes reqCols driver cfg.
+  ( Table sc tab
+  , MonadIO (DBM (SchemaDB sc))
+  , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
+  , keyFields ~ FieldsOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
+  , defs ~ HasDefault sc tab 
+  , reqCols ~ (FilterNonDefaults (OriginalTableFields tab) defs)
+  , TupleToHList row ~ reqCols
+  , ToHList row
+  , All (ConstExpr sc) reqCols
+  , driver ~ Driver (DBM (SchemaDB sc))
+  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , SingCtx sc tab
+  , SingCtxSc sc
+  , HasInsert driver
+  , SingI (FieldsOf reqCols)
+  , SingE (FieldsOf reqCols)
+  , SingI keyFields
+  , SingE keyFields
+  ) => ConflictTarget' sc tab        -> 
+      ConflictAction' sc tab scopes ->   
+      Rows sc tab row ->       
+      DBM (SchemaDB sc) ()
+insertManyWithConflict_ ctgt cact rows = do
+  let
+    tabId = getTableId (Proxy @sc) (Proxy @tab)
+    values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)    
+    reqFlds = fromSing (sing :: Sing (FieldsOf reqCols))
+    pkFlds = fromSing (sing :: Sing keyFields)
+    colIs = headColInfos (Proxy @sc) (Proxy @tab)
+    cnames = map (^. columnNameInfo . dbName) (filterColumns reqFlds colIs)
+    crets = map columnExpr (filterColumns pkFlds colIs)
+    prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
+    cexprss = fmap (toDBValues (Proxy @sc)) values    
+    tgt = case ctgt of
+      ConflictTargetConstraint' t -> ConflictConstraint t
+      ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
+      ConflictTargetAnon' -> ConflictAnon
+    insertQ = case cact of
+      ConflictDoNothing' -> InsertQuery tabId cnames (NE.fromList cexprss) (Just (Conflict tgt ConflictDoNothing)) crets
+      ConflictUpdate' crit updFn ->
+        let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
+        in InsertQuery tabId cnames (NE.fromList cexprss) (Just (Conflict tgt (ConflictUpdate updq))) crets
   driver <- ask
   _ <- liftIO $ dbInsert driver insertQ
   pure ()

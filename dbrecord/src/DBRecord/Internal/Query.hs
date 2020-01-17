@@ -17,10 +17,10 @@
 module DBRecord.Internal.Query
   ( column
   , getTableProjections
+  , getTableProjections_
   , getTableId
   , Tab (..)
-  , Tabular (..)
-  , Columns
+  , Columns (..)
   , Nest (..)
 
   , table
@@ -60,7 +60,7 @@ column :: forall col tgt sc tab a scope.
 column t = column' t (Proxy :: Proxy '(IsTable tab, tgt, col))
 
 type family IsTable (t :: *) :: Bool where
-  IsTable (Tabular _ _) = 'False
+  IsTable (HList _ _)   = 'False
   IsTable (a, b)        = 'False
   IsTable _             = 'True
 
@@ -85,7 +85,7 @@ type family UnifyType col (xs :: [Type]) where
 instance ( tgt ~ Alias alias
          , UnifyType col xs ~ a
          , KnownSymbol col
-         ) => Column' (Tabular alias xs) tgt sc a col 'False where
+         ) => Column' (HList Identity xs) tgt sc a col 'False where
   column' cols _ =
     let mexp = L.find (\(et, _) -> (et ^. hsName) == coln) (getColumns cols)
         coln = T.pack (symbolVal (Proxy @col))
@@ -98,13 +98,8 @@ newtype Tab sc tab = Tab { getQuery :: Query }
 newtype Columns t = Columns { getColumns :: [Projection] }
                   deriving (Show, Eq)
 
-newtype Tabular (alias :: Symbol) (xs :: [Type]) =
-  Tabular { getTabular :: HList Identity xs }
-
 data Nest a b = Nest { left :: a, right :: b }
               deriving Show
-
-deriving instance (Show (HList Identity xs)) => Show (Tabular alias xs)
 
 data Query = BaseTable PQ.TableId Clauses
            | JoinTable JoinType PQ.PrimExpr Query Query Clauses
@@ -167,7 +162,7 @@ project :: forall sc tab scopes xs.
             ) => Tab sc tab                                ->
                 (Columns tab -> HList (Expr sc scopes) xs) ->
                 Maybe (Columns tab -> Expr sc scopes Bool) ->
-                Tab sc (Tabular "" xs)                
+                Tab sc (HList Identity xs)                
 project tab fprjs fcrit =
   let cols  = Columns $ projections (getClause (getQuery tab))
       prjs  = fprjs cols
@@ -195,7 +190,7 @@ aggregate :: forall sc tab scopes xs ys.
             ) => Tab sc tab ->
                 (Columns tab -> HList (Expr sc scopes) xs) -> 
                 (Columns tab -> HList (AggExpr sc scopes) xs -> HList (AggExpr sc scopes) ys) ->
-                Tab sc (Tabular "" ys)
+                Tab sc (HList Identity ys)
 aggregate tab fgpbys fprjs =
   let cols  = Columns $ projections (getClause (getQuery tab))
       gpbys = fgpbys cols
@@ -336,7 +331,7 @@ getTableId psc ptab =
 type family QTableFields sc tab where
   QTableFields sc (a, b) =
     QTableFields sc a :++ QTableFields sc b
-  QTableFields _ (Tabular alias ys) =
+  QTableFields _ (HList Identity ys) =
     ys
   QTableFields sc a      =
     OriginalTableFields a

@@ -14,7 +14,7 @@ import GHC.Exts
 
 data DBTag (db :: *) (tab :: *) (v :: k)
 
-newtype (f :: Symbol) ::: t = Field t
+newtype (f :: Symbol) ::: t = Field { getField :: t }
   deriving (Show, Eq, Generic, Num)
 
 instance (fn ~ fn1, s ~ t) => IsLabel fn (s -> (fn1 ::: t)) where

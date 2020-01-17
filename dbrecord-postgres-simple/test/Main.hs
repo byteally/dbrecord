@@ -211,13 +211,13 @@ main = do
     -- liftIO $ print (us2 :: Maybe User)
    -- us2 <- getAll @TestSC @User (\tab -> column @"name" tab .== text "person15") AnyOrder Nothing
    let t1 = project (table @TestSC @User)
-                    (\t -> #name t       `as` #name {-tag @"name" (column @"name" t)-} :&
+                    (\t -> #name t         `as` #name {-tag @"name" (column @"name" t)-} :&
                           (#userId t + 1) `as` #userId :&
                      Nil)
                     Nothing
        t2 = aggregate t1
                     (\t -> Nil)
-                    (\t _ -> (count (#name t) `as` #name) :& Nil)
+                    (\t _ -> (count (#name t) `as` #name1) :& Nil)
        -- t2 = table @TestSC @User & tabular @"user_2"
        -- j = join t1 t2 (\l r -> column @"name" l .== column @"name" r) 
    us2 <- query t2
@@ -286,4 +286,5 @@ instance (PG.FromField a) => PG.FromField (Identity a) where
 
 instance (PG.FromRow a, PG.FromRow b) => PG.FromRow (Nest a b) where
   fromRow = Nest <$> PG.fromRow <*> PG.fromRow
+
 
