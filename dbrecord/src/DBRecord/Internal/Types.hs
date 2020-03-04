@@ -128,6 +128,11 @@ data UDTypeMappings = EnumType
 newtype Interval = Interval T.Text
                  deriving (Show, Generic, FromJSON, ToJSON) --, FromField)
 
+data TableTypes =
+    UpdatableView
+  | NonUpdatableView
+  | BaseTable
+  deriving (Show, Eq, Generic)
 
 -- newtype Only a = Only { fromOnly :: a }
 --                deriving (Eq, Ord, Read, Show, Typeable, Functor)
@@ -292,6 +297,17 @@ instance SingE (db :: DbK) where
   fromSing SCassandra = Cassandra
   fromSing SPresto    = Presto
   fromSing SMSSQL     = MSSQL
+
+instance SingE (ttyp :: TableTypes) where
+  type Demote ttyp = TableTypes
+  fromSing SUpdatableView = UpdatableView
+  fromSing SNonUpdatableView = NonUpdatableView
+  fromSing SBaseTable = BaseTable
+
+data instance Sing (t :: TableTypes) where
+  SUpdatableView :: Sing 'UpdatableView
+  SNonUpdatableView :: Sing 'NonUpdatableView
+  SBaseTable :: Sing 'BaseTable
 
 data instance Sing (t :: DBTypeK) where
   SDBInt4        :: Sing 'DBInt4

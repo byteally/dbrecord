@@ -423,6 +423,16 @@ runQuery primQ = do
   liftIO $ print primQ
   liftIO $ dbQuery driver primQ
 
+type family Updatable sc tab :: Constraint where
+  Updatable sc tab =
+    Updatable' sc tab (TableType sc tab)
+
+type family Updatable' sc tab (ttyp :: TableTypes) :: Constraint where
+  Updatable' _ _ 'BaseTable = ()
+  Updatable' _ _ 'UpdatableView = ()
+  Updatable' sc tab 'NonUpdatableView =
+    TypeError ('Text "The view " ':<>: 'ShowType tab ':<>: 'Text " in schema " ':<>: 'ShowType sc ':<>: 'Text " cannot be used in update")
+
 update :: forall sc tab keys driver cfg scopes rets.
   ( Table sc tab
   , MonadIO (DBM (SchemaDB sc))
@@ -433,6 +443,7 @@ update :: forall sc tab keys driver cfg scopes rets.
   , FromDBRow driver (HListToTuple keys)
   , SingCtx sc tab
   , SingCtxSc sc
+  , Updatable sc tab
   ) => (Q.Columns tab -> Expr sc scopes Bool)
   -> (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
   -> HList (Expr sc scopes) rets -> DBM (SchemaDB sc) [HListToTuple keys]  
@@ -450,6 +461,7 @@ update_ :: forall sc tab cfg driver scopes.
   , MonadIO (DBM (SchemaDB sc))
   , MonadReader (driver cfg) (DBM (SchemaDB sc))
   , HasUpdate driver
+  , Updatable sc tab
   ) => (Q.Columns tab -> Expr sc scopes Bool)
   -> (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
   -> DBM (SchemaDB sc) ()
@@ -533,6 +545,16 @@ toDBValues' :: forall sc xs.
 toDBValues' p exprs (Identity v :& vals) = toDBValues' p (getExpr (constExpr @sc v) : exprs) vals
 toDBValues' _ acc Nil = acc
 
+type family Insertable sc tab :: Constraint where
+  Insertable sc tab =
+    Insertable' sc tab (TableType sc tab)
+
+type family Insertable' sc tab (ttyp :: TableTypes) :: Constraint where
+  Insertable' _ _ 'BaseTable = ()
+  Insertable' _ _ 'UpdatableView = ()
+  Insertable' sc tab 'NonUpdatableView =
+    TypeError ('Text "The view " ':<>: 'ShowType tab ':<>: 'Text " in schema " ':<>: 'ShowType sc ':<>: 'Text " cannot be used in insert")
+
 insert :: forall sc tab row keys keyFields defs reqCols driver cfg.
   ( Table sc tab
   , MonadIO (DBM (SchemaDB sc))
@@ -553,6 +575,7 @@ insert :: forall sc tab row keys keyFields defs reqCols driver cfg.
   , SingE (FieldsOf reqCols)
   , SingI keyFields
   , SingE keyFields
+  , Insertable sc tab
   ) => Row sc tab row -> DBM (SchemaDB sc) (Maybe (HListToTuple keys))
 insert row = do
   let
@@ -589,7 +612,8 @@ insertRet :: forall sc tab row keys rets scopes defs reqCols driver cfg.
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
   , SingI (FieldsOf reqCols)
-  , SingE (FieldsOf reqCols)    
+  , SingE (FieldsOf reqCols)
+  , Insertable sc tab
   ) => Row sc tab row -> (Q.Columns tab -> HList (Expr sc scopes) rets) -> DBM (SchemaDB sc) (Maybe (HListToTuple keys))
 insertRet row rets = do
   let
@@ -673,6 +697,7 @@ insertMany :: forall sc tab row defs reqCols driver keys cfg.
   , SingE (FieldsOf reqCols)
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
+  , Insertable sc tab  
   ) => Rows sc tab row -> DBM (SchemaDB sc) [HListToTuple keys]
 insertMany rows = do
   let
@@ -705,6 +730,7 @@ insertManyRet :: forall sc tab row rets defs reqCols driver keys cfg scopes.
   , SingE (FieldsOf reqCols)
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
+  , Insertable sc tab  
   ) => Rows sc tab row -> (Q.Columns tab -> HList (Expr sc scopes) rets) -> DBM (SchemaDB sc) [HListToTuple keys]
 insertManyRet rows rets = do
   let
@@ -734,7 +760,8 @@ insert_ :: forall sc tab row defs reqCols driver cfg.
   , SingCtx sc tab
   , SingCtxSc sc
   , SingI (FieldsOf reqCols)
-  , SingE (FieldsOf reqCols)    
+  , SingE (FieldsOf reqCols)
+  , Insertable sc tab  
   ) => Row sc tab row -> DBM (SchemaDB sc) ()
 insert_ = insertMany_ . Rows @sc @tab . pure . getRow
 
@@ -757,6 +784,7 @@ insertWithConflict_ :: forall sc tab row keys keyFields defs scopes reqCols driv
   , SingE (FieldsOf reqCols)
   , SingI keyFields
   , SingE keyFields
+  , Insertable sc tab  
   ) => ConflictTarget' sc tab        -> 
       ConflictAction' sc tab scopes ->   
       Row sc tab row ->      
@@ -801,7 +829,8 @@ insertMany_ :: forall sc tab row defs reqCols driver cfg.
   , SingCtx sc tab
   , SingCtxSc sc
   , SingI (FieldsOf reqCols)
-  , SingE (FieldsOf reqCols)    
+  , SingE (FieldsOf reqCols)
+  , Insertable sc tab
   ) => Rows sc tab row -> DBM (SchemaDB sc) ()
 insertMany_ rows = do
   let
@@ -834,6 +863,7 @@ insertManyWithConflict_ :: forall sc tab row keys keyFields defs scopes reqCols 
   , SingE (FieldsOf reqCols)
   , SingI keyFields
   , SingE keyFields
+  , Insertable sc tab  
   ) => ConflictTarget' sc tab        -> 
       ConflictAction' sc tab scopes ->   
       Rows sc tab row ->       

@@ -2,12 +2,17 @@
 module Main where
 
 import DBRecord.Postgres.Internal.Reify
-import qualified Database.PostgreSQL.Simple as PGS
+import Database.PostgreSQL.Simple 
 import Data.Function 
 
 main = do
-  let hints = defHints                        
-  dbInfo <- getPostgresDbSchemaInfo "public" hints localConnectInfo
-  print dbInfo
+  -- let hints = defHints
+  getPostgresDbSchemaInfo localConnectInfo  
 
-  where localConnectInfo = PGS.ConnectInfo "127.0.0.1" 5432 "sreenidhi" "password" "chinook"
+  where localConnectInfo =
+          defaultConnectInfo { connectHost = "localhost"
+                             , connectPassword = "postgres"
+                             , connectDatabase = "dbrecord_test"
+                             , connectUser = "postgres"
+                             
+                             }

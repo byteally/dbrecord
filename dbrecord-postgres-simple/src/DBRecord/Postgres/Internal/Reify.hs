@@ -28,7 +28,7 @@ import DBRecord.Internal.Types
 
 data EnumInfo = EnumInfo { enumTypeName :: Text
                          , enumCons     :: Vector Text
-                         } deriving (Show, Eq)
+                         } deriving (Show, Eq, Generic)
 
 data TableColInfo = TableColInfo { dbTableName  :: Text
                                  , dbColumnName :: Text
@@ -36,27 +36,30 @@ data TableColInfo = TableColInfo { dbTableName  :: Text
                                  , dbColDefault :: Maybe Text
                                  , dbIsNullable :: Text
                                  , dbTypeName :: Text
+                                 , dbUdTypeName :: Text
                                  , dbCharacterLength :: Maybe Int
                                  , dbNumericPrecision :: Maybe Int
                                  , dbNumericScale :: Maybe Int
                                  , dbDateTimePrecision :: Maybe Int
                                  , dbIntervalPrecision :: Maybe Int
+                                 , dbTableType :: Text
+                                 , dbIsInsertableInto :: Text
                                  } deriving (Show, Eq)
 
 data CheckCtx = CheckCtx Text Text Text
-               deriving (Show, Eq)
+               deriving (Show, Eq, Generic)
 
 data PrimKey = PrimKey Text Text Text Int
-             deriving (Show, Eq, Ord)
+             deriving (Show, Eq, Ord, Generic)
 
 data UniqKey = UniqKey Text Text Text Int
-             deriving (Show, Eq, Ord)
+             deriving (Show, Eq, Ord, Generic)
 
 data FKey = FKey Text Text Text Int Text Text Text Int
-          deriving (Show, Eq, Ord)
+          deriving (Show, Eq, Ord, Generic)
 
 data Seq = Seq Text Text Text Text Text Text Text (Maybe Text) (Maybe Text)
-         deriving (Show, Eq, Ord)
+         deriving (Show, Eq, Ord, Generic)
 
 type TableContent a = HM.HashMap Text [a]
 
@@ -96,18 +99,18 @@ toUniqKeyInfo hints = HM.fromListWith (++) . concatMap (map toUQKInfo . groupByK
         colNameHints tna = columnNameHints tna hints
         uniqNameHints = uniqueNameHints hints
 
-
-toSchemaInfo :: Hints -> SchemaName -> [EnumInfo] -> TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> SchemaInfo
-toSchemaInfo hints scn eis cols chks defs pk uqs fks = undefined
-{-
+toSchemaInfo :: Hints -> DatabaseName -> SchemaName -> [EnumInfo] -> TableContent ColumnInfo -> HM.HashMap Text TableTypes -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> SchemaInfo
+toSchemaInfo hints dbn scn eis cols ttyps chks defs pk uqs fks = 
   let tabNs = HM.keys cols
       dbNameHints = databaseNameHints hints
       tabNameHints = tableNameHints hints      
       sct = EntityName { _hsName = mkHaskTypeName dbNameHints scn , _dbName = scn }
+      dbk = Postgres
+      dbt = EntityName { _hsName = mkHaskTypeName dbNameHints dbn , _dbName = dbn }
       types = map (\ei ->
                     let et = parsePGType False defSizeInfo (T.unpack etn)
                         etn = enumTypeName ei
-                    in  mkTypeNameInfo et (EnumTypeNM etn (V.toList (enumCons ei)))
+                    in  mkTypeNameInfo et (EnumTypeNM (Just etn) (map (\a -> (a, a)) $ V.toList (enumCons ei)))
                   ) eis
       tabInfos = L.map (\dbTN ->
                          let tUqs = HM.lookupDefault [] dbTN uqs
@@ -116,6 +119,7 @@ toSchemaInfo hints scn eis cols chks defs pk uqs fks = undefined
                              tDefs = HM.lookupDefault [] dbTN defs
                              tChks = HM.lookupDefault [] dbTN chks
                              tCols = HM.lookupDefault [] dbTN cols
+                             ttyp = HM.lookupDefault BaseTable dbTN ttyps
                          in TableInfo { _primaryKeyInfo = tPk
                                       , _foreignKeyInfo = tFks
                                       , _uniqueInfo     = tUqs
@@ -125,10 +129,10 @@ toSchemaInfo hints scn eis cols chks defs pk uqs fks = undefined
                                       , _tableName      = mkEntityName (mkHaskTypeName tabNameHints dbTN) dbTN
                                       , _columnInfo     = tCols
                                       , _ignoredCols    = ()
+                                      , _tableType      = ttyp
                                       }
                        ) tabNs
-  in mkSchemaInfo sct types 0 0 (coerce tabInfos) undefined undefined
--}
+  in mkSchemaInfo sct types 0 0 (coerce tabInfos) dbt dbk
 
 toCheckInfo :: Hints -> TableContent ColumnInfo -> [CheckCtx] -> TableContent CheckInfo
 toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo
@@ -184,6 +188,15 @@ toForeignKeyInfo hints = HM.fromListWith (++) . concatMap (map toFKInfo . groupB
         colNameHints tna = columnNameHints tna hints
         fkNameHints  = foreignKeyNameHints hints
 
+toTableType :: [TableColInfo] -> HM.HashMap Text TableTypes
+toTableType = HM.fromList . map go
+  where go tci = (dbTableName tci, ttype tci (dbTableType tci))
+        ttype tci "VIEW" = case dbIsInsertableInto tci of
+          "YES" -> UpdatableView
+          _     -> NonUpdatableView
+        ttype _ _ = BaseTable
+          
+
 toTabColInfo :: Hints -> [TableColInfo] -> TableContent ColumnInfo
 toTabColInfo hints = HM.fromListWith (++) . map colInfo
   where nullable a = case dbIsNullable a of
@@ -193,74 +206,57 @@ toTabColInfo hints = HM.fromListWith (++) . map colInfo
 
         colInfo tci =
           let ci = mkColumnInfo (mkEntityName (mkHaskColumnName (columnNameHints (dbTableName tci) hints) (dbColumnName tci)) (dbColumnName tci))
-                                (coerce (parsePGType (nullable tci) (sizeInfo tci) (T.unpack (dbTypeName tci))))
+                                (coerce (parsePGType (nullable tci) (sizeInfo tci) typN))
+              typN = T.unpack $ case dbTypeName tci of
+                dty | dty == "USER-DEFINED" -> dbUdTypeName tci
+                    | otherwise            -> dty
                    
           in ( dbTableName tci, [ci])
 
-instance FromRow EnumInfo where
-  fromRow = EnumInfo <$> field <*> field
-
+instance FromRow EnumInfo
 instance FromRow TableColInfo where
-  fromRow = TableColInfo <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
+  fromRow = TableColInfo <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
 
-instance FromRow CheckCtx where
-  fromRow = CheckCtx <$> field <*> field <*> field
-
-instance FromRow PrimKey where
-  fromRow = PrimKey <$> field <*> field <*> field <*> field
-
-instance FromRow UniqKey where
-  fromRow = UniqKey <$> field <*> field <*> field <*> field
-
-instance FromRow FKey where
-  fromRow = FKey <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
-
-instance FromRow Seq where
-  fromRow = Seq <$> field <*> field <*> field <*> field
-                     <*> field <*> field <*> field <*> field
-                     <*> field
+instance FromRow CheckCtx
+instance FromRow PrimKey
+instance FromRow UniqKey
+instance FromRow FKey
+instance FromRow Seq
 
 type SchemaName   = Text
+type DatabaseName = Text
 
-getPostgresDbSchemaInfo :: ConnectInfo -> IO ()
-getPostgresDbSchemaInfo = undefined
-
-{-
-getPostgresDbSchemaInfo :: ConnectInfo -> IO DatabaseInfo 
+getPostgresDbSchemaInfo :: ConnectInfo -> IO [SchemaInfo] 
 getPostgresDbSchemaInfo connInfo = do
-  let dbn = connectDatabase connInfo
+  let dbn = T.pack (connectDatabase connInfo)
   conn <- connect connInfo
-  (scs :: [Only SchemaName]) <- query_ conn schemasQ
-  schs <- mapM (mkSchema conn . fromOnly) scs
-  pure (mkDatabaseInfo (dbt (T.pack dbn)) schs Postgres)
+  (scs :: [Only SchemaName]) <- query_ conn schemasQ  
+  mapM (mkSchema conn dbn . fromOnly) scs
   
-  where mkSchema conn schn = do
+  where mkSchema conn dbn schn = do
           let hints = defHints
           enumTs <- query_ conn enumQ
-          tcols <- query_ conn tableColQ
-          tchks <- query_ conn checksQ
-          prims <- query_ conn primKeysQ
-          uniqs <- query_ conn uniqKeysQ
-          fks   <- query_ conn foreignKeysQ
-          (_seqs :: [Seq])  <- query_ conn seqsQ
+          print tableColQ
+          tcols <- query conn tableColQ (schn, schn)
+          tchks <- query conn checksQ (Only schn)
+          pkeys <- query conn primKeysQ (schn, schn)
+          uniqs <- query conn uniqKeysQ (schn, schn)
+          fks   <- query conn foreignKeysQ (schn, schn, schn)
+          -- seqs  <- query conn seqsQ (schn, schn)
           let tcis = (toTabColInfo hints tcols)
-          pure $ (toSchemaInfo hints schn enumTs tcis
+          
+          pure $ (toSchemaInfo hints dbn schn enumTs tcis
+                               (toTableType tcols)
                                (toCheckInfo hints tcis tchks)
                                (toDefaultInfo hints tcols)
-                               (toPrimKeyInfo hints prims)
+                               (toPrimKeyInfo hints pkeys)
                                (toUniqKeyInfo hints uniqs)
                                (toForeignKeyInfo hints fks)
                  )
 
-        dbt dbn =
-          EntityName { _hsName = mkHaskTypeName HM.empty dbn
-                     , _dbName = dbn
-                     }
--}
           
 unsafeParseExpr :: Text -> PQ.PrimExpr
-unsafeParseExpr t = primExprGen . either parsePanic id . parseOnly sqlExpr $ t
-  where parsePanic e = error $ "Panic while parsing: " ++ show e ++ " , " ++ "while parsing " ++ show t
+unsafeParseExpr t = PQ.RawExpr t
 
 -- conversion to migrations
 
@@ -349,7 +345,7 @@ sizeInfo tci =
 enumQ :: Query
 enumQ =
   "SELECT pg_type.typname AS enumtype, array_agg(pg_enum.enumlabel) AS enumlabel \
-   \FROM pg_type \
+   \FROM pg_catalog.pg_type \
    \JOIN pg_enum \ 
      \ON pg_enum.enumtypid = pg_type.oid \
  \GROUP BY enumtype"
@@ -361,32 +357,33 @@ tableColQ =
         \col.ordinal_position as pos, \
         \col.column_default, \ 
         \col.is_nullable, \ 
-        \col.data_type, \ 
+        \col.data_type, \
+        \col.udt_name, \        
         \col.character_maximum_length, \
         \col.numeric_precision, \
         \col.numeric_scale, \
         \col.datetime_precision, \
-        \col.interval_precision \
+        \col.interval_precision, \        
+        \tab.table_type, \
+        \tab.is_insertable_into \
  \FROM  (SELECT table_name, \ 
                \column_name,\ 
                \ordinal_position, \
                \column_default, \
                \is_nullable, \ 
-               \CASE WHEN data_type = 'USER-DEFINED' THEN udt_name \
-                    \WHEN data_type = 'ARRAY'        THEN '[]' || udt_name \
-                    \ELSE data_type \
-               \END, \
+               \data_type, \
+               \udt_name, \
                \character_maximum_length, \
                \numeric_precision, \
                \numeric_scale, \
                \datetime_precision, \
                \interval_precision \
         \FROM information_schema.columns \
-        \WHERE table_schema = 'public' \
+        \WHERE table_schema= ? \
          \) as col \
   \JOIN \
-        \(SELECT table_name \
-         \FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE') as tab \
+        \(SELECT table_name, table_type, is_insertable_into \
+         \FROM information_schema.tables WHERE table_schema= ? ) as tab \
   \ON col.table_name = tab.table_name \
   \ORDER BY table_name, pos"
   
@@ -397,7 +394,7 @@ checksQ =
   \JOIN information_schema.table_constraints AS tc \
   \ON   cc.constraint_name = tc.constraint_name AND \
        \cc.constraint_schema = tc.constraint_schema \
-  \WHERE cc.constraint_schema = 'public'"
+  \WHERE cc.constraint_schema = ?"
 
 primKeysQ :: Query
 primKeysQ =
@@ -407,12 +404,12 @@ primKeysQ =
               \, column_name \
               \, ordinal_position \
         \FROM information_schema.key_column_usage \
-        \WHERE constraint_schema = 'public' \
+        \WHERE constraint_schema = ? \
        \) as kcu \
   \JOIN  (SELECT constraint_name \
               \, table_name \
          \FROM information_schema.table_constraints \
-         \WHERE constraint_type = 'PRIMARY KEY' AND constraint_schema = 'public' \
+         \WHERE constraint_type = 'PRIMARY KEY' AND constraint_schema = ? \
         \) as tc \
   \ON    kcu.constraint_name = tc.constraint_name AND \
         \kcu.table_name = tc.table_name \
@@ -426,12 +423,12 @@ uniqKeysQ =
               \, column_name \
               \, ordinal_position \
         \FROM information_schema.key_column_usage \
-        \WHERE constraint_schema = 'public' \
+        \WHERE constraint_schema = ? \
        \) as kcu \
   \JOIN  (SELECT constraint_name \
               \, table_name \
          \FROM information_schema.table_constraints \
-         \WHERE constraint_type = 'UNIQUE' AND constraint_schema = 'public' \
+         \WHERE constraint_type = 'UNIQUE' AND constraint_schema = ? \
         \) as tc \
   \ON    kcu.constraint_name = tc.constraint_name AND \
         \kcu.table_name = tc.table_name \
@@ -449,16 +446,16 @@ foreignKeysQ =
     \,KCU2.COLUMN_NAME AS REFERENCED_COLUMN_NAME \
     \,KCU2.ORDINAL_POSITION AS REFERENCED_ORDINAL_POSITION \
  \FROM (SELECT * FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS \
-               \WHERE CONSTRAINT_SCHEMA = 'public') AS RC \
+               \WHERE CONSTRAINT_SCHEMA = ?) AS RC \
  \INNER JOIN (SELECT * FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
-                     \WHERE CONSTRAINT_SCHEMA = 'public' \
+                     \WHERE CONSTRAINT_SCHEMA = ? \
            \) AS KCU1 \
     \ON KCU1.CONSTRAINT_CATALOG = RC.CONSTRAINT_CATALOG \
     \AND KCU1.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA \
     \AND KCU1.CONSTRAINT_NAME = RC.CONSTRAINT_NAME \
 
  \INNER JOIN (SELECT * FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
-                     \WHERE CONSTRAINT_SCHEMA = 'public' \
+                     \WHERE CONSTRAINT_SCHEMA = ? \
            \) AS KCU2 \
     \ON KCU2.CONSTRAINT_CATALOG = RC.UNIQUE_CONSTRAINT_CATALOG \
     \AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA \
@@ -476,7 +473,7 @@ seqsQ =
         \, sequence_schema.data_type as data_type \
         \, pg_seq_info.tab as seq_on_tab \
         \, pg_seq_info.col as seq_on_col FROM \
-   \(SELECT * FROM information_schema.sequences where sequence_schema = 'public') as sequence_schema \
+   \(SELECT * FROM information_schema.sequences where sequence_schema = ?) as sequence_schema \
    \LEFT JOIN \
    \(select s.relname as seq, n.nspname as sch, t.relname as tab, a.attname as col \
    \from pg_class s \
@@ -484,12 +481,12 @@ seqsQ =
      \join pg_class t on t.oid=d.refobjid \
      \join pg_namespace n on n.oid=t.relnamespace \
      \join pg_attribute a on a.attrelid=t.oid and a.attnum=d.refobjsubid \
-   \where s.relkind='S' and d.deptype='a' and n.nspname = 'public') as pg_seq_info \
+   \where s.relkind='S' and d.deptype='a' and n.nspname = ?) as pg_seq_info \
    \ON pg_seq_info.seq = sequence_schema.sequence_name"
    
 schemasQ :: Query
 schemasQ =
-  "SELECT schema_name from information_schema.schemata \
+  "SELECT schema_name from information_schema.schemata where \
    \schema_name <> 'information_schema' AND \
    \schema_name NOT LIKE 'pg_%'"
  

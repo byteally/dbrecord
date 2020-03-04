@@ -33,11 +33,11 @@ module DBRecord.Internal.Query
   , convert  
   ) where
 
-import DBRecord.Internal.Schema
+import DBRecord.Internal.Schema 
 import DBRecord.Internal.Common
 import DBRecord.Internal.PrimQuery (Expr (..), AggExpr (..))
 import qualified DBRecord.Internal.PrimQuery as PQ
-import DBRecord.Internal.Types 
+import DBRecord.Internal.Types hiding (TableTypes (..))
 import GHC.TypeLits
 import Data.Proxy
 import Data.Kind

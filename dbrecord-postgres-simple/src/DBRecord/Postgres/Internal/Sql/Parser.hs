@@ -13,7 +13,7 @@ import qualified Data.Text as T
 import Data.Text (Text)
 import Control.Applicative
 import qualified Data.List.NonEmpty as NEL
-import DBRecord.Internal.DBTypes (DBType (..))
+import DBRecord.Internal.DBTypes (DBType (..), DBTypeName (..))
 import DBRecord.Internal.Types (Max (..))
 import Data.Functor (($>))
 
@@ -349,8 +349,7 @@ parsePGType nullInfo sz = wrapNullable nullInfo . go
         go "jsonb"                     = DBJsonB
         go "json"                      = DBJson
         go v | isArray v               = DBArray (parseArray v)
-             | otherwise               = error "TODO: incomplete pattern @parsePGType"
-             -- | otherwise               = DBCustomType (DBTypeName (T.pack v) []) False
+             | otherwise               = DBCustomType (DBTypeName (T.pack v) [])
 
 
         isArray v = case splitAt 2 v of

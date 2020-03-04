@@ -10,7 +10,7 @@ import Text.PrettyPrint.HughesPJ (Doc, (<+>), text,
                                   hsep, semi, render, char,
                                   (<>))
 import Prelude hiding ((<>))
-import DBRecord.Internal.DBTypes (DBType (DBTypeName))
+import DBRecord.Internal.DBTypes
 import qualified Data.Text as T
 import DBRecord.MSSQL.Internal.Sql.Pretty
 import DBRecord.Internal.Sql.SqlGen
@@ -18,8 +18,8 @@ import DBRecord.Internal.Sql.SqlGen
 typeName :: DBType -> TypeName
 typeName = TypeName . T.pack . ppMSSQLType
 
-customTypeName :: T.Text -> TypeName
-customTypeName = TypeName . T.pack . ppMSSQLType . flip DBTypeName []
+-- customTypeName :: T.Text -> TypeName
+-- customTypeName = TypeName . T.pack . ppMSSQLType . flip DBTypeName []
 
 escQuote :: Text -> Text
 escQuote = escapeBy (Just '\'')

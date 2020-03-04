@@ -426,8 +426,7 @@ ppMSSQLType = go
         -- go (DBArray t)        = go t ++ "[]"
         go (DBBit i)                = "bit (" ++ show i ++ ")"
         go (DBNullable t)           = go t
-        go (DBTypeName t args)      = T.unpack (doubleQuote t) ++ ppArgs args
-        go (DBCustomType t _)       = go t
+        go (DBCustomType (DBTypeName t args))       = T.unpack (doubleQuote t) ++ ppArgs args
         go t                        = error $ "Panic: not implemented : " ++ show t
 
         ppArgs []  = ""

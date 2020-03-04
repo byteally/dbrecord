@@ -42,6 +42,7 @@ import qualified Data.List as L
 import DBRecord.Internal.Lens ((^.), Lens', coerceL, Traversal', ixBy, view)
 import Data.Monoid ((<>))
 import qualified Data.HashMap.Strict as HM
+import Data.Char
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
@@ -87,7 +88,7 @@ class ( -- TypeCxts db (Types db)
 
 class ( Schema sc
       -- , AssertCxt (Elem (Tables sc) tab) ('Text "Schema " ':<>: 'ShowType sc ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
-      , ValidateTableProps sc tab    
+      -- , ValidateTableProps sc tab    
       , Generic tab
       ) => Table (sc :: *) (tab :: *) where
   type PrimaryKey sc tab :: [Symbol]
@@ -131,6 +132,9 @@ class ( Schema sc
   
   type ColumnNames sc tab :: [(Symbol, Symbol)]
   type ColumnNames sc tab = '[]
+
+  type TableType sc tab :: TableTypes
+  type TableType sc tab = 'BaseTable
 
   defaults :: DBDefaults sc tab
   defaults = DBDefaults Nil
@@ -864,8 +868,8 @@ dbKind k t = fmap (\a -> t { _dbKind = a }) (k (_dbKind t))
 tableInfoAt :: TypeName T.Text -> Traversal' SchemaInfo TableInfo
 tableInfoAt hsN = tableInfos . coerceL . ixBy hsN (_hsName . _tableName)
 
-mkTableInfo :: Maybe PrimaryKeyInfo -> [ForeignKeyInfo] -> [DefaultInfo] -> [CheckInfo] -> [UniqueInfo] -> [SequenceInfo] -> EntityNameWithType -> [ColumnInfo] -> TableInfo
-mkTableInfo pki fki di cki uqi sqi tn ci =
+mkTableInfo :: Maybe PrimaryKeyInfo -> [ForeignKeyInfo] -> [DefaultInfo] -> [CheckInfo] -> [UniqueInfo] -> [SequenceInfo] -> EntityNameWithType -> [ColumnInfo] -> TableTypes -> TableInfo
+mkTableInfo pki fki di cki uqi sqi tn ci ttyp =
   TableInfo { _primaryKeyInfo = pki
             , _foreignKeyInfo = fki
             , _defaultInfo    = di
@@ -875,6 +879,7 @@ mkTableInfo pki fki di cki uqi sqi tn ci =
             , _tableName      = tn
             , _columnInfo     = ci
             , _ignoredCols    = ()
+            , _tableType      = ttyp
             }
 
 data TableInfo = TableInfo { _primaryKeyInfo   :: Maybe PrimaryKeyInfo
@@ -886,6 +891,7 @@ data TableInfo = TableInfo { _primaryKeyInfo   :: Maybe PrimaryKeyInfo
                            , _tableName        :: EntityNameWithType
                            , _columnInfo       :: [ColumnInfo]
                            , _ignoredCols      :: ()
+                           , _tableType        :: TableTypes
                            } deriving (Show, Eq)
 
 primaryKeyInfo :: Lens' TableInfo (Maybe PrimaryKeyInfo)
@@ -929,6 +935,9 @@ tableName k t = fmap (\a -> t { _tableName = a }) (k (_tableName t))
 
 columnInfo :: Lens' TableInfo [ColumnInfo]
 columnInfo k t = fmap (\a -> t { _columnInfo = a }) (k (_columnInfo t))
+
+tableType :: Lens' TableInfo TableTypes
+tableType k t = fmap (\a -> t { _tableType = a }) (k (_tableType t))
 
 columnInfoAt :: HaskName -> Traversal' TableInfo ColumnInfo
 columnInfoAt hsN = columnInfo . ixBy hsN (_hsName . _columnNameInfo)
@@ -1141,6 +1150,7 @@ headTableInfo :: forall sc tab.
 headTableInfo db _stab =
   let hti = headTabNameInfo db tab 
       hci = headColInfos db tab
+      ttyp = fromSing (sing :: Sing (TableType sc tab))
       tab = Proxy :: Proxy tab
   in mkTableInfo (headPkInfo db tab hti)
                  (headFkInfo db tab hti)
@@ -1150,6 +1160,7 @@ headTableInfo db _stab =
                  (headSeqsInfo db tab hti)
                  hti
                  hci
+                 ttyp
 
 headPkInfo :: forall sc tab.
           ( Table sc tab
@@ -1391,7 +1402,10 @@ class ( Table sc tab
       , SingI (CheckNames sc tab)
 
       , SingI (GetPMT (Rep tab))
-      , SingE (GetPMT (Rep tab))        
+      , SingE (GetPMT (Rep tab))
+
+      , SingI (TableType sc tab)
+      , SingE (TableType sc tab)            
       ) => SingCtx sc tab where
 
 instance ( Table sc tab
@@ -1428,6 +1442,9 @@ instance ( Table sc tab
 
       , SingI (GetPMT (Rep tab))
       , SingE (GetPMT (Rep tab))
+
+      , SingI (TableType sc tab)
+      , SingE (TableType sc tab)      
       ) => SingCtx sc tab
 
 class ( Schema sc
@@ -1780,15 +1797,35 @@ mkHaskTypeName typeNameHints =
 
 -- 
 camelCase :: Text -> Text
-camelCase = mconcat . headLower . splitName
+camelCase = keywordMap . validId . repInvalid . mconcat . headLower . splitName
   where headLower (x : xs) = uncapitalizeHead x : map capitalizeHead xs
         headLower _        = []
 
+        validId xs | xs == "" = xs
+                   | isDigit (T.head xs) = "_" <> xs
+                   | otherwise = xs
+
+        repInvalid = T.map go
+          where go x
+                  | isAlphaNum x = x
+                  | x == '\''     = x
+                  | otherwise    = '_'
+
+
+        keywordMap x
+          | x == "type" = "type_"
+          | otherwise  = x
+                       
 pascalCase :: Text -> Text
-pascalCase = mconcat . map capitalizeHead . splitName
+pascalCase = digitAppend . mconcat . map capitalizeHead . splitName
+  where digitAppend xs | xs == "" = xs
+                       | isDigit (T.head xs) = "T" <> xs
+                       | otherwise = xs
+
+
 
 splitName :: Text -> [Text]
-splitName = filter (\a -> a /= "") . T.split (\x -> x == ' ' || x == '_')
+splitName = filter (\a -> a /= "") . T.split (\x -> x == ' ')
 
 capitalizeHead :: Text -> Text
 capitalizeHead txt = case T.uncons txt of

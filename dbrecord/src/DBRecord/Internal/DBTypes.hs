@@ -20,6 +20,7 @@ import DBRecord.Internal.Common
 import qualified Data.Text as T
 import GHC.Generics
 import Data.Kind
+import GHC.TypeLits
 
 data DBType = DBInt4
             | DBInt8
@@ -390,3 +391,6 @@ isNullable _              = False
 -- enumType v = DBCustomType (DBTypeName v []) False
 
 -- NOTE: newtype handling.
+
+type TPair (a :: Symbol) (b :: Symbol) = '(a, b)
+

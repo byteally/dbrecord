@@ -1,6 +1,8 @@
+{-# OPTIONS_GHC -Wwarn #-}
 {-# LANGUAGE OverloadedStrings, DuplicateRecordFields, ScopedTypeVariables, DeriveGeneric #-}
 module DBRecord.MSSQL.Internal.Reify
        ( getMsSQLDatabaseInfo
+       , badQuery
        ) where
 
 import GHC.Generics
@@ -15,7 +17,7 @@ import Data.Either (either)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.MSSQL.Internal.Sql.Parser
 import Data.Coerce
-import DBRecord.Internal.Schema hiding (Sequence, dbTypeName, DbKeyName (..), DatabaseName, SchemaName)
+import DBRecord.Internal.Schema hiding (Sequence, DbKeyName (..), DatabaseName, SchemaName)
 import qualified Data.HashMap.Strict as HM
 import Data.Int
 import Data.Word
@@ -25,10 +27,24 @@ import qualified Data.ByteString as BS
 import Data.Text.Encoding
 import Control.Exception (throwIO)
 import DBRecord.Internal.Types
+import Control.Monad.IO.Class
 
-getMsSQLDatabaseInfo :: ConnectionString -> T.Text -> IO DatabaseInfo -- (Text, [(Text, SchemaInfo)])
-getMsSQLDatabaseInfo connStr databaseName = do
-  eCon <- connect (connectInfo connStr)
+badQuery :: ConnectInfo -> IO ()
+badQuery connInfo = do
+  eCon <- connect connInfo
+  let con = 
+        case eCon of
+          Right c -> c
+          -- TODO: ThrowIO instead of error
+          Left sqlErr -> error $ "SQL Error while creating connection! " ++ (show sqlErr)
+  
+  print ("QUERY: " ++ show tableColQ1)
+  tcols <- query con tableColQ1
+  print (tcols :: Either SQLErrors (V.Vector TableColInfo1))
+
+getMsSQLDatabaseInfo :: Text -> ConnectInfo -> IO [SchemaInfo] 
+getMsSQLDatabaseInfo dbN connInfo = do
+  eCon <- connect connInfo
   let con = 
         case eCon of
           Right c -> c
@@ -36,34 +52,33 @@ getMsSQLDatabaseInfo connStr databaseName = do
           Left sqlErr -> error $ "SQL Error while creating connection! " ++ (show sqlErr)
 
   schemaList <- go con schemaListQ :: IO [SchemaName]
-  schs <- mapM (mkSchema con) schemaList
-  pure (mkDatabaseInfo dbt schs MSSQL)
+  print schemaList
+  mapM (mkSchema con) schemaList
   
  where
-  dbt = EntityName { _hsName = mkHaskTypeName HM.empty databaseName
-                   , _dbName = databaseName
-                   }
   go1 = either throwIO (pure . V.toList)
-  go con q = query con q >>= go1
+  go con q = do
+    liftIO $ print q
+    query con q >>= go1
 
   mkSchema con schemaData = do
-    let scn = T.toTitle $ sName schemaData
-    tcols <- go con (tableColQ scn)
-    tchks <- go con (checksQ scn)
-    prims <- go con (primKeysQ scn) 
-    uniqs <- go con (uniqKeysQ scn) 
-    fks <-   go con (foreignKeysQ scn) 
-
+    let scn = T.toTitle qschn
+        qschn = sName schemaData
+    tcols <- go con (tableColQ qschn)
+    tchks <- go con (checksQ qschn)
+    prims <- go con (primKeysQ qschn) 
+    uniqs <- go con (uniqKeysQ qschn) 
+    fks <-   go con (foreignKeysQ qschn)
     let hints = defHints
     let tcis = toTabColInfo hints tcols
-    pure (toSchemaInfo hints scn [] tcis
+    pure (toSchemaInfo hints dbN (coerce scn) [] tcis
+                       (toTableType tcols)
                        (toCheckInfo hints tchks)
                        (toDefaultInfo hints tcols)
                        (toPrimKeyInfo hints prims)
                        (toUniqKeyInfo hints uniqs)
                        (toForeignKeyInfo hints fks)
          )
-
 
 data EnumInfo = EnumInfo { enumTypeName :: Text
                          , enumCons     :: Vector Text
@@ -79,7 +94,7 @@ data TableColInfo = TableColInfo { dbTableName  :: Text
                                  , dbNumericPrecision :: Maybe Word8
                                  , dbNumericScale :: Maybe Int32
                                  , dbDateTimePrecision :: Maybe Int16
-                                --  , dbIntervalPrecision :: Maybe Int
+                                 , dbTableType :: ASCIIText
                                  } deriving (Show, Eq, Generic)
 
 -- instance FromRow TableColInfo                                 
@@ -139,17 +154,15 @@ toUniqKeyInfo hints = HM.fromListWith (++) . concatMap (map toUqKeyInfo . groupB
         uniqNameHints = uniqueNameHints hints
 
 
-toSchemaInfo :: Hints -> DatabaseName -> [EnumInfo] -> TableContent ColumnInfo -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> SchemaInfo
-toSchemaInfo hints scn eis cols chks defs pk uqs fks =
+toSchemaInfo :: Hints -> DatabaseName -> SchemaName -> [EnumInfo] -> TableContent ColumnInfo -> HM.HashMap Text TableTypes -> TableContent CheckInfo -> TableContent DefaultInfo -> HM.HashMap Text PrimaryKeyInfo -> TableContent UniqueInfo -> TableContent ForeignKeyInfo -> SchemaInfo
+toSchemaInfo hints dbn scn _eis cols ttyps chks defs pk uqs fks =
   let tabNs = HM.keys cols
       dbNameHints = databaseNameHints hints
       tabNameHints = tableNameHints hints
-      sct = EntityName { _hsName = mkHaskTypeName dbNameHints scn , _dbName = scn }
-      types = map (\ei ->
-                    let et = parseMSSQLType False defSizeInfo (T.unpack etn)
-                        etn = enumTypeName ei
-                    in  mkTypeNameInfo et (EnumTypeNM etn (V.toList (enumCons ei)))
-                  ) eis
+      sct = EntityName { _hsName = mkHaskTypeName dbNameHints (coerce scn) , _dbName = coerce scn }
+      types = []
+      dbk = MSSQL
+      dbt = EntityName { _hsName = mkHaskTypeName dbNameHints dbn , _dbName = dbn }      
       tabInfos = L.map (\dbTN ->
                          let tUqs = HM.lookupDefault [] dbTN uqs
                              tPk  = HM.lookup dbTN pk
@@ -157,6 +170,7 @@ toSchemaInfo hints scn eis cols chks defs pk uqs fks =
                              tDefs = HM.lookupDefault [] dbTN defs
                              tChks = HM.lookupDefault [] dbTN chks
                              tCols = HM.lookupDefault [] dbTN cols
+                             ttyp = HM.lookupDefault BaseTable dbTN ttyps                             
                          in TableInfo { _primaryKeyInfo = tPk
                                       , _foreignKeyInfo = tFks
                                       , _uniqueInfo     = tUqs
@@ -166,17 +180,15 @@ toSchemaInfo hints scn eis cols chks defs pk uqs fks =
                                       , _tableName      = mkEntityName (mkHaskTypeName tabNameHints dbTN) dbTN
                                       , _columnInfo     = tCols
                                       , _ignoredCols    = ()
+                                      , _tableType      = ttyp                                      
                                       }
                        ) tabNs
-  in mkSchemaInfo sct types 0 0 (coerce tabInfos)
+  in mkSchemaInfo sct types 0 0 (coerce tabInfos) dbt dbk
 
 toCheckInfo :: Hints -> [CheckCtx] -> TableContent CheckInfo
 toCheckInfo hints = HM.fromListWith (++) . map chkInfo
   where chkInfo (CheckCtx chkName chkOn chkVal) =
-          let ckExp = 
-                      case basicParseExpr chkVal of
-                        Left err -> error $ "Parse Error while parsing Check Expression: " ++ err 
-                        Right _ -> PQ.RawExpr chkVal
+          let ckExp = PQ.RawExpr chkVal
               chkNameHints = checkKeyNameHints hints
           in ( chkOn
              , [ mkCheckInfo (mkEntityName (mkHaskKeyName chkNameHints chkName) chkName) ckExp])
@@ -189,10 +201,7 @@ toDefaultInfo hints = HM.fromListWith (++) . map dInfo
           ( dbTableName tci
           , case dbColDefault tci of
               Just colDefault -> 
-                let defaultExpr = 
-                                  case basicParseExpr colDefault of
-                                    Right _ -> PQ.RawExpr colDefault
-                                    Left err -> error $ "Parse Error while parsing Check Expression: " ++ err 
+                let defaultExpr = PQ.RawExpr colDefault
                     defInfo = mkDefaultInfo (haskColName tci) defaultExpr
                 in [defInfo] -- [trace (show defInfo) defInfo]
               Nothing -> []
@@ -225,6 +234,12 @@ toForeignKeyInfo hints = HM.fromListWith (++) . concatMap (map toFK . groupByKey
         colNameHints tna = columnNameHints tna hints
         fkNameHints  = foreignKeyNameHints hints
 
+toTableType :: [TableColInfo] -> HM.HashMap Text TableTypes
+toTableType = HM.fromList . map go
+  where go tci = (dbTableName tci, ttype tci (getAsciiText (dbTableType tci)))
+        ttype _ "BASE TABLE" = BaseTable
+        ttype _tci _ = NonUpdatableView
+
 toTabColInfo :: Hints -> [TableColInfo] -> TableContent ColumnInfo
 toTabColInfo hints = HM.fromListWith (++) . map colInfo
   where nullable a = case decodeUtf8 $ dbIsNullable a of
@@ -244,7 +259,7 @@ instance FromRow PrimKey
 instance FromRow UniqKey 
 instance FromRow FKey 
 
-data SchemaName = SchemaName
+newtype SchemaName = SchemaName
   {sName :: Text} deriving (Eq, Show, Generic)
 
 instance FromRow SchemaName
@@ -261,35 +276,36 @@ schemaListQ =
 
 tableColQ :: Text -> Query
 tableColQ scn =
-  "SELECT col.table_name as table_name, \
-        \col.column_name,  \
-        \col.ordinal_position as pos,\ 
-        \col.column_default,\  
-        \col.is_nullable,\  
-        \col.data_type,\  
-        \col.character_maximum_length,\ 
-        \col.numeric_precision,\ 
-        \col.numeric_scale,\ 
-        \col.datetime_precision \
- \FROM  (SELECT table_name,\  
+ "SELECT col.table_name as table_name, \
+        \col.column_name, \ 
+        \col.ordinal_position as pos, \
+        \col.column_default, \ 
+        \col.is_nullable, \ 
+        \col.data_type, \
+        \col.character_maximum_length, \
+        \col.numeric_precision, \
+        \col.numeric_scale, \
+        \col.datetime_precision, \
+        \tab.table_type \
+ \FROM  (SELECT table_name, \ 
                \column_name,\ 
-               \ordinal_position,\ 
-               \column_default,\ 
-               \is_nullable,\  
-               \DATA_TYPE,\
-               \character_maximum_length,\ 
-               \numeric_precision,\ 
-               \numeric_scale,\ 
+               \ordinal_position, \
+               \column_default, \
+               \is_nullable, \ 
+               \data_type, \
+               \character_maximum_length, \
+               \numeric_precision, \
+               \numeric_scale, \
                \datetime_precision \
-        \FROM information_schema.columns WHERE TABLE_SCHEMA='" <> scn <> "' \
+        \FROM information_schema.columns \
+        \WHERE table_schema='"  <> scn <> "' \
          \) as col \
   \JOIN \
-        \(SELECT table_name \
-         \FROM information_schema.tables WHERE table_schema='" <> scn <> "' AND table_type='BASE TABLE') as tab \
+        \(SELECT table_name, table_type \
+         \FROM information_schema.tables WHERE table_schema= '"  <> scn <> "') as tab \
   \ON col.table_name = tab.table_name \
-  \ORDER BY table_name, pos;"
+  \ORDER BY table_name, pos"
 
-  
 checksQ :: Text -> Query
 checksQ scn =
   "SELECT cc.constraint_name, table_name, check_clause \
@@ -366,10 +382,6 @@ foreignKeysQ scn =
     \AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION"
 
 type DatabaseName = Text
-
-basicParseExpr :: Text -> Either String SqlExpr
-basicParseExpr = parseOnly sqlExpr
-
 
 -- conversion to migrations
 
@@ -458,3 +470,40 @@ sizeInfo tci =
 -- defSizeInfo :: SizeInfo
 -- defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
 
+data TableColInfo1 = TableColInfo1 { -- _dbTableName  :: Text
+                                   -- _dbColumnName :: Text
+                                   -- dbPosition :: Int32
+                                   -- _dbColDefault :: Maybe Text
+                                   -- _dbIsNullable :: BS.ByteString
+                                   -- , dbTypeName :: Text
+                                   -- , dbCharacterLength :: Maybe Int32
+                                   -- , dbNumericPrecision :: Maybe Word8
+                                   -- , dbNumericScale :: Maybe Int32
+                                   -- , dbDateTimePrecision :: Maybe Int16
+                                   -- dbTableType :: Text
+                                   -- dbIsInsertableInto :: Text
+                                   } deriving (Show, Eq, Generic)
+instance FromRow TableColInfo1
+
+
+tableColQ1 :: Query
+tableColQ1 =
+ "SELECT col.is_nullable \ 
+ \FROM  (SELECT table_name, \ 
+               \column_name,\ 
+               \ordinal_position, \
+               \column_default, \
+               \is_nullable, \ 
+               \data_type, \
+               \character_maximum_length, \
+               \numeric_precision, \
+               \numeric_scale, \
+               \datetime_precision \
+        \FROM information_schema.columns \
+        \WHERE table_schema='dbo' \
+         \) as col \
+  \JOIN \
+        \(SELECT table_name, table_type \
+         \FROM information_schema.tables WHERE table_schema='dbo') as tab \
+  \ON col.table_name = tab.table_name \
+  \ORDER BY tab.table_name"

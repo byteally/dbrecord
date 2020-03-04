@@ -498,3 +498,6 @@ class BackendExpr (b :: *) where
 
 -}
 
+unsafeFromRawExpr :: PrimExpr -> Text
+unsafeFromRawExpr (RawExpr e) = e
+unsafeFromRawExpr _ = error "Panic: unsafeFromRawExpr"

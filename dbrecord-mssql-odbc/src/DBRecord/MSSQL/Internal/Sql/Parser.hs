@@ -15,7 +15,7 @@ import Data.Text (Text)
 import Control.Applicative
 import qualified Debug.Trace as DT
 import qualified Data.List.NonEmpty as NEL
-import DBRecord.Internal.DBTypes (DBType (..))
+import DBRecord.Internal.DBTypes (DBType (..), DBTypeName (..))
 import Data.Functor (($>))
 import qualified DBRecord.Internal.Types as Type
 
@@ -460,9 +460,10 @@ parseMSSQLType nullInfo sz = wrapNullable nullInfo . go
         go "xml"                       = DBText
         go "uniqueidentifier"          = DBUuid
         go "char"                      = DBBinary 16
+        go "decimal"                   = DBNumeric 0 32
 
        -- Custom Type 
-        go t                           = DBCustomType (DBTypeName (T.pack t) []) False
+        go t                           = DBCustomType (DBTypeName (T.pack t) [])
 
         -- Add Nullable info
         wrapNullable True a  = DBNullable a

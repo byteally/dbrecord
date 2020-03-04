@@ -27,6 +27,7 @@ module DBRecord.Schema
        , TypeName (..)
        , UDTypeMappings (..)
        , Json (..)
+       , TableTypes (..)
        ) where
 
 import DBRecord.Internal.Types 
