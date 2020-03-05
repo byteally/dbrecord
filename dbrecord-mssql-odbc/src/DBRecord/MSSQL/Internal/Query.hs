@@ -57,6 +57,12 @@ instance HasUpdate MSSQL where
     res <- execute conn (fromString updateSQL)
     either throwIO pure res
 
+instance HasUpdateRet MSSQL where
+  dbUpdateRetWith parser (MSSQL conn) updateQ = do
+    let updateSQL = MSSQL.renderUpdate $ MSSQL.updateSql $ updateQ
+    res <- queryWith parser conn (fromString updateSQL)
+    either throwIO (pure . V.toList) res
+
 instance HasQuery MSSQL where
   dbQueryWith par (MSSQL conn) primQ = do
     let sqlQ = renderQuery primQ
