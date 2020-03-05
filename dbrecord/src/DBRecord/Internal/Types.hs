@@ -464,6 +464,15 @@ instance (SingI tsss, SingI tagn) => SingI ('Sum tagn tsss) where
 instance SingI 'Max where
   sing = SMax
 
+instance SingI 'UpdatableView where
+  sing = SUpdatableView
+
+instance SingI 'NonUpdatableView where
+  sing = SNonUpdatableView
+
+instance SingI 'BaseTable where
+  sing = SBaseTable
+
 instance SingE (t :: Max) where
   type Demote (t :: Max) = Max
   fromSing SMax = Max
