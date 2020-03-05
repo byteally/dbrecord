@@ -65,7 +65,7 @@ class ( -- TypeCxts db (Types db)
   type DatabaseName db :: Symbol
 
 class ( -- TypeCxts db (Types db)
-          Database (SchemaDB sc)
+        Database (SchemaDB sc)
       ) => Schema (sc :: *) where
   type SchemaName sc :: Symbol
   type SchemaName sc = "public"
@@ -87,8 +87,8 @@ class ( -- TypeCxts db (Types db)
   type SchemaDB sc :: Type
 
 class ( Schema sc
-      -- , AssertCxt (Elem (Tables sc) tab) ('Text "Schema " ':<>: 'ShowType sc ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
-      -- , ValidateTableProps sc tab    
+      , AssertCxt (Elem (Tables sc) tab) ('Text "Schema " ':<>: 'ShowType sc ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
+      , ValidateTableProps sc tab    
       , Generic tab
       ) => Table (sc :: *) (tab :: *) where
   type PrimaryKey sc tab :: [Symbol]
