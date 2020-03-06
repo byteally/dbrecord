@@ -1,8 +1,9 @@
-{-# LANGUAGE DataKinds, TypeApplications, DeriveGeneric, KindSignatures, TypeFamilies, MultiParamTypeClasses, GeneralizedNewtypeDeriving, OverloadedStrings, FlexibleContexts, DuplicateRecordFields #-}
+{-# LANGUAGE DataKinds, TypeApplications, DeriveGeneric, KindSignatures, TypeFamilies, MultiParamTypeClasses, GeneralizedNewtypeDeriving, OverloadedStrings, FlexibleContexts, DuplicateRecordFields, OverloadedLabels #-}
 import DBRecord.MSSQL.Internal.Query
 
 import qualified DBRecord.Internal.Types as Type
 import DBRecord.Internal.Schema
+import DBRecord.Query
 import Data.Text (Text)
 import DBRecord.Query (getAll, DBM, Driver, runSession, rawClauses, getBaseTable)
 import DBRecord.MSSQL.Internal.Query
@@ -17,9 +18,15 @@ import qualified DBRecord.Internal.PrimQuery as PQ
 import Data.Bifunctor 
 import Prelude hiding (sum)
 import DBRecord.Internal.Window
+import Data.Functor.Identity
+import DBRecord.Internal.Types
 
-newtype MyDBM (db :: *) a = MyDBM {runDB :: ReaderT (MSSQL ()) IO a}
-  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (MSSQL ()))
+import Database.MsSQL as MSSQL hiding (Session (..), runSession)
+import Data.Pool
+
+
+newtype MyDBM (db :: *) a = MyDBM {runDB :: ReaderT (MSSQL Connection) IO a}
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (MSSQL Connection))
 
 type instance DBM TestMSDB = MyDBM TestMSDB
 type instance Driver (MyDBM TestMSDB) = MSSQL
@@ -33,12 +40,19 @@ data Artist = Artist { artistId  :: Int
                      , name      :: Text
                      } deriving (Generic)
 
+instance FromRow Artist
+instance FromRow ()
+
 data TestMSDB deriving (Generic)
 data TestMSDB1 deriving (Generic)
 
 instance Database TestMSDB where
   type DB TestMSDB = 'Type.MSSQL
-  type Schema TestMSDB = "dbo"  
+  type DatabaseName TestMSDB = "Chinook"  
+  
+instance Schema TestMSDB where
+  type SchemaName TestMSDB = "dbo"
+  type SchemaDB TestMSDB   = TestMSDB
   type Tables TestMSDB = '[ Album
                           , Artist
                           ]
@@ -55,10 +69,11 @@ instance Table TestMSDB Artist where
   type ColumnNames TestMSDB Artist  = '[ '("name"  , "Name"  )
                                        , '("artistId" , "ArtistId" )
                                        ]
-
+    
 constInt    = PQ.ConstExpr . PQ.Integer
 constDouble = PQ.ConstExpr . PQ.Double
 
+{-
 otherBinOpProjections :: [PQ.Projection]
 otherBinOpProjections =
   map (first PQ.symFromText)
@@ -68,7 +83,7 @@ otherBinOpProjections =
                      , ("bitxor", PQ.BinExpr PQ.OpBitXor (constInt 170) (constInt 75))
                      ]
 
-type LocExpr = Expr '[]
+type LocExpr = Expr () '[]
 
 exprProjections :: [PQ.Projection]
 exprProjections =
@@ -76,15 +91,15 @@ exprProjections =
         tup "null"
              (nothing :: LocExpr (Maybe Int))
       , tup "char"
-             ((annotateMSSQL . coerceExpr . mssqltext) "sized"
+             ((annotateType . coerceExpr . mssqltext) "sized"
                 :: LocExpr (Type.CustomType (Sized 5 Text))
              )
       , tup "varchar"
-             ((annotateMSSQL . coerceExpr . mssqltext) "varsized"
+             ((annotateType . coerceExpr . mssqltext) "varsized"
                 :: LocExpr (Type.CustomType (Varsized 5 Text))
              )
       , tup "text"
-             (annotateMSSQL (mssqltext "text")
+             (annotateType (mssqltext "text")
                 :: LocExpr Text
              )
       -- , tup "word"    (5 :: LocExpr Word)
@@ -148,9 +163,33 @@ exprProjections =
       -- NOTE: in uses literal false
       -- , tup "in"          (in_ ([7.856, 9.23] :: [LocExpr Double]) 8.25)
       ]
-  where tup a b = (PQ.symFromText a , getExpr . annotateMSSQL $ b)
+  where tup a b = (PQ.symFromText a , getExpr . annotateType $ b)
+-}
 
-main = runSession (MSSQLConfig ()) $ runDB @TestMSDB $ do
+localConnectionStr :: ConnectionString 
+localConnectionStr =
+  ConnectionString { database          = "Chinook"
+                   , server            = "localhost"
+                   , port              = 1433
+                   , user              = "sa"
+                   , password          = "p@ssw0rd"
+                   , odbcDriver        = odbcSQLServer17
+                   , connectProperties = mempty
+                   }
+
+testConnectInfo :: ConnectInfo
+testConnectInfo = connectInfo localConnectionStr
+
+main = do
+  pool <- mssqlDefaultPool testConnectInfo
+  runSession (MSSQLConfig pool) $ runDB @TestMSDB $ do
+         let row = (#artistId 999, #name "Artist!")
+         res <- insertRet @TestMSDB
+                @Artist
+                (withRow row)
+                (\t -> #name t :& Nil)
+         liftIO $ print res
+         {-
          let title = col (Proxy :: Proxy
                          (Type.DBTag TestMSDB Album "title")) 
              artistId = col (Proxy :: Proxy
@@ -277,10 +316,8 @@ main = runSession (MSSQLConfig ()) $ runDB @TestMSDB $ do
          -- dumpQuery interallq         
          dumpQuery exceptq
          -- dumpQuery exceptallq
-         
-         
          pure ()
-
+         -}
 
 dumpQuery :: (MonadIO m) => PQ.PrimQuery -> m ()
 dumpQuery = liftIO . putStrLn . renderQuery
@@ -292,7 +329,8 @@ dumpQuery = liftIO . putStrLn . renderQuery
 
 -}
 
-rawJoin :: PQ.JoinType -> PQ.Lateral -> Maybe (Expr '[] Bool) -> PQ.PrimQuery -> PQ.PrimQuery -> PQ.PrimQuery
+{-
+rawJoin :: PQ.JoinType -> PQ.Lateral -> Maybe (Expr t sc Bool) -> PQ.PrimQuery -> PQ.PrimQuery -> PQ.PrimQuery
 rawJoin jt lt e pql pqr =
   let cls = PQ.clauses { PQ.projections = [] }
   in PQ.Join jt lt (fmap getExpr e) (PQ.modifyClause (\a -> a { PQ.alias = Just "P" }) pql)
@@ -304,6 +342,7 @@ rawCte pqs pq = PQ.CTE pqs pq
 
 rawBinary :: PQ.BinType -> PQ.PrimQuery -> PQ.PrimQuery -> PQ.PrimQuery
 rawBinary bt pq1 pq2 = PQ.Binary bt pq1 pq2 PQ.clauses
+-}
 
 {-
 - With guarentees :

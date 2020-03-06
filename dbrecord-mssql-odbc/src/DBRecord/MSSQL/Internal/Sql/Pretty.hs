@@ -304,18 +304,18 @@ ppPostfixExpr op e = go op
 
 ppInsert :: SqlInsert -> Doc
 ppInsert (SqlInsert table names values _cfts rets)
-    = text "INSERT INTO" <+> ppTableName table
+    = text "INSERT " <+> ppTableName table
       <+> parens (commaV ppColumn names)
+      $$ ppOutput rets      
       $$ text "VALUES" <+> commaV (\v -> parens (commaV ppExpr v))
                                   (toList values)
-      $$ ppReturning rets
 
 ppUpdate :: SqlUpdate -> Doc
 ppUpdate (SqlUpdate table assigns criteria rets)
         = text "UPDATE" <+> ppTableName table
         $$ text "SET" <+> commaV ppAssign assigns
+        $$ ppOutput rets        
         $$ ppWhere criteria
-        $$ ppReturning rets
     where
       ppAssign (c,e) = ppColumn c <+> equals <+> ppExpr e
 
@@ -323,11 +323,11 @@ ppDelete :: SqlDelete -> Doc
 ppDelete (SqlDelete table criteria) =
     text "DELETE FROM" <+> ppTableName table $$ ppWhere criteria
     
-ppReturning :: [SqlExpr] -> Doc
-ppReturning []   = empty
-ppReturning rets =
-  text "RETURNING"
-  <+> commaV ppExpr (toList rets)
+ppOutput :: [SqlExpr] -> Doc
+ppOutput []   = empty
+ppOutput rets =
+  text "OUTPUT"
+  <+> parens (commaV (\e -> text "INSERTED." <> ppExpr e) (toList rets))
 
 deliteral :: SqlExpr -> SqlExpr
 deliteral expr@(ConstSqlExpr _) = FunSqlExpr "COALESCE" [expr]

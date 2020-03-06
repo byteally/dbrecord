@@ -79,6 +79,7 @@ instance HasInsert MSSQL where
 instance HasInsertRet MSSQL where
   dbInsertRetWith parser (MSSQL conn) insQ = do
     let insSQL = MSSQL.renderInsert $ MSSQL.insertSql insQ
+    putStrLn $ "Query: " ++ insSQL
     res <- queryWith parser conn (fromString insSQL)
     either throwIO (pure . V.toList) res
     
