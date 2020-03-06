@@ -15,7 +15,7 @@ import qualified DBRecord.MSSQL.Internal.Sql.Pretty as MSSQL
 import qualified DBRecord.Internal.Sql.SqlGen as MSSQL
 import Control.Monad.Reader
 import qualified DBRecord.Internal.PrimQuery as PQ
-import Database.MsSQL as MSSQL hiding (Session)
+import Database.MSSQL as MSSQL hiding (Session)
 import Data.Pool
 import qualified Data.Vector as V
 import Control.Exception (throwIO)

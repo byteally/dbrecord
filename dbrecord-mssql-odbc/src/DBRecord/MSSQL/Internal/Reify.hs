@@ -12,7 +12,6 @@ import Data.Text  (Text)
 import qualified Data.Text as T
 import qualified Data.List as L
 import Data.Hashable
-import Data.Attoparsec.Text (parseOnly)
 import Data.Either (either)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.MSSQL.Internal.Sql.Parser
@@ -21,8 +20,7 @@ import DBRecord.Internal.Schema hiding (Sequence, DbKeyName (..), DatabaseName, 
 import qualified Data.HashMap.Strict as HM
 import Data.Int
 import Data.Word
-import DBRecord.Internal.Sql.DML (SqlExpr) 
-import Database.MsSQL
+import Database.MSSQL
 import qualified Data.ByteString as BS
 import Data.Text.Encoding
 import Control.Exception (throwIO)
@@ -236,7 +234,7 @@ toForeignKeyInfo hints = HM.fromListWith (++) . concatMap (map toFK . groupByKey
 
 toTableType :: [TableColInfo] -> HM.HashMap Text TableTypes
 toTableType = HM.fromList . map go
-  where go tci = (dbTableName tci, ttype tci (getAsciiText (dbTableType tci)))
+  where go tci = (dbTableName tci, ttype tci (getASCIIText (dbTableType tci)))
         ttype _ "BASE TABLE" = BaseTable
         ttype _tci _ = NonUpdatableView
 

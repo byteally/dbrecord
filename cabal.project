@@ -12,4 +12,4 @@ packages:
 source-repository-package
     type: git
     location: https://github.com/byteally/mssql-odbc.git
-    tag: 04ba3fc3e7fa50fd40df62bcd99aedc4df4f95ce 
+    tag: f94bb3057c75eec2a120614b59dfd9cac5af0aac 
