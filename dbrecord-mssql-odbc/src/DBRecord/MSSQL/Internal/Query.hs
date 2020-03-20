@@ -15,10 +15,9 @@ import qualified DBRecord.MSSQL.Internal.Sql.Pretty as MSSQL
 import qualified DBRecord.Internal.Sql.SqlGen as MSSQL
 import Control.Monad.Reader
 import qualified DBRecord.Internal.PrimQuery as PQ
-import Database.MSSQL as MSSQL hiding (Session)
+import Database.MSSQL as MSSQL
 import Data.Pool
 import qualified Data.Vector as V
-import Control.Exception (throwIO)
 import Data.String
 
 newtype MSSQLDBT m (db :: *) a = MSSQLDBT { runMSSQLDB :: ReaderT (MSSQL MSSQL.Connection) m a}
@@ -43,10 +42,8 @@ instance Session MSSQL where
   runSession_ (MSSQLConfig pool) dbact f =
     withResource pool (\conn -> f (MSSQL conn) (runReaderT dbact $ MSSQL conn))
 
-{-  
-instance HasTransaction PGS where
-  withTransaction (PGS conn) = PGS.withTransaction conn
--}
+instance HasTransaction MSSQL where
+  withTransaction (MSSQL conn) = MSSQL.withTransaction conn
 
 renderQuery :: PQ.PrimQuery -> String
 renderQuery = MSSQL.renderQuery . MSSQL.sql
@@ -54,46 +51,37 @@ renderQuery = MSSQL.renderQuery . MSSQL.sql
 instance HasUpdate MSSQL where
   dbUpdate (MSSQL conn) updateQ = do
     let updateSQL = MSSQL.renderUpdate $ MSSQL.updateSql $ updateQ    
-    res <- execute conn (fromString updateSQL)
-    either throwIO pure res
+    execute conn (fromString updateSQL)
 
 instance HasUpdateRet MSSQL where
   dbUpdateRetWith parser (MSSQL conn) updateQ = do
     let updateSQL = MSSQL.renderUpdate $ MSSQL.updateSql $ updateQ
-    res <- queryWith parser conn (fromString updateSQL)
-    either throwIO (pure . V.toList) res
+    fmap V.toList (queryWith parser conn (fromString updateSQL))
 
 instance HasQuery MSSQL where
   dbQueryWith par (MSSQL conn) primQ = do
     let sqlQ = renderQuery primQ
-    -- liftIO $ putStrLn sqlQ
-    res <- queryWith par conn (fromString sqlQ)
-    either throwIO (pure . V.toList) res
+    fmap V.toList (queryWith par conn (fromString sqlQ))
 
 instance HasInsert MSSQL where
   dbInsert (MSSQL conn) insQ = do
     let insSQL = MSSQL.renderInsert $ MSSQL.insertSql insQ
-    res <- execute conn (fromString insSQL)
-    either throwIO pure res
+    execute conn (fromString insSQL)
 
 instance HasInsertRet MSSQL where
   dbInsertRetWith parser (MSSQL conn) insQ = do
     let insSQL = MSSQL.renderInsert $ MSSQL.insertSql insQ
-    putStrLn $ "Query: " ++ insSQL
-    res <- queryWith parser conn (fromString insSQL)
-    either throwIO (pure . V.toList) res
+    fmap V.toList (queryWith parser conn (fromString insSQL))
     
 instance HasDelete MSSQL where
   dbDelete (MSSQL conn) deleteQ = do
     let delSQL = MSSQL.renderDelete $ MSSQL.deleteSql $ deleteQ
-    res <- execute conn (fromString delSQL)
-    either throwIO pure res
+    execute conn (fromString delSQL)
 
 mssqlDefaultPool :: ConnectInfo -> IO (Pool Connection)
 mssqlDefaultPool conn =
   createPool
-  (handleException =<< MSSQL.connect conn)
-  (handleException <=< MSSQL.disconnect) 10 5 10
+  (MSSQL.connect conn)
+  MSSQL.disconnect 10 5 10
 
-  where handleException = either throwIO pure
 

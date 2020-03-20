@@ -12,7 +12,6 @@ import Data.Text  (Text)
 import qualified Data.Text as T
 import qualified Data.List as L
 import Data.Hashable
-import Data.Either (either)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.MSSQL.Internal.Sql.Parser
 import Data.Coerce
@@ -23,38 +22,25 @@ import Data.Word
 import Database.MSSQL
 import qualified Data.ByteString as BS
 import Data.Text.Encoding
-import Control.Exception (throwIO)
 import DBRecord.Internal.Types
 import Control.Monad.IO.Class
 
 badQuery :: ConnectInfo -> IO ()
 badQuery connInfo = do
-  eCon <- connect connInfo
-  let con = 
-        case eCon of
-          Right c -> c
-          -- TODO: ThrowIO instead of error
-          Left sqlErr -> error $ "SQL Error while creating connection! " ++ (show sqlErr)
-  
+  con <- connect connInfo
   print ("QUERY: " ++ show tableColQ1)
   tcols <- query con tableColQ1
-  print (tcols :: Either SQLErrors (V.Vector TableColInfo1))
+  print (tcols :: (V.Vector TableColInfo1))
 
 getMsSQLDatabaseInfo :: Text -> ConnectInfo -> IO [SchemaInfo] 
 getMsSQLDatabaseInfo dbN connInfo = do
-  eCon <- connect connInfo
-  let con = 
-        case eCon of
-          Right c -> c
-          -- TODO: ThrowIO instead of error
-          Left sqlErr -> error $ "SQL Error while creating connection! " ++ (show sqlErr)
-
+  con <- connect connInfo
   schemaList <- go con schemaListQ :: IO [SchemaName]
   print schemaList
   mapM (mkSchema con) schemaList
   
  where
-  go1 = either throwIO (pure . V.toList)
+  go1 = pure . V.toList
   go con q = do
     liftIO $ print q
     query con q >>= go1
