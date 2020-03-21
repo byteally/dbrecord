@@ -55,7 +55,8 @@ data Column   = Column !ColName !ColType
 type family GetDBTypeRep sc t where
   GetDBTypeRep sc t = GetDBTypeRep' sc (DB (SchemaDB sc)) t
 
-class ( -- TypeCxts db (Types db)
+class ( Break (NoGeneric db) (Rep db)
+      -- TypeCxts db (Types db)
       ) => Database (db :: *) where
   type DB db :: DbK
   type DB db = TypeError ('Text "DB type is not configured in the Database instance for type " ':<>: 'ShowType db ':$$:
@@ -86,10 +87,14 @@ class ( -- TypeCxts db (Types db)
 
   type SchemaDB sc :: Type
 
+type family NoSchema t where
+  NoSchema x = TypeError ('Text "No instance for " ':<>: 'ShowType (Schema x))  
+
 class ( Schema sc
       , AssertCxt (Elem (Tables sc) tab) ('Text "Schema " ':<>: 'ShowType sc ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
       , ValidateTableProps sc tab    
       , Generic tab
+      , Break0 (NoSchema sc) (SchemaDB sc)
       ) => Table (sc :: *) (tab :: *) where
   type PrimaryKey sc tab :: [Symbol]
   type PrimaryKey sc tab = '[]

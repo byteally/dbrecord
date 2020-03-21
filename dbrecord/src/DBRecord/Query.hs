@@ -108,7 +108,7 @@ import Data.Kind
 import GHC.Generics
 
 type family DBM (db :: *) = (r :: * -> *) | r -> db
-type family Driver (dbm :: * -> *) = (r :: * -> *) | r -> dbm
+type family Driver (dbm :: * -> *) = (r :: * -> *) -- | r -> dbm
 
 {-
 type family MkPredFn (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: [Either ErrorMessage *] where
@@ -369,6 +369,8 @@ type QueryCtx sc tab driver cfg =
   , MonadIO (DBM (SchemaDB sc))
   , SingCtx sc tab
   , SingCtxSc sc
+  , Break (NoGeneric tab) (Rep tab)
+  , Break0 (NoSchema sc) (SchemaDB sc)
   )
 
 query ::
