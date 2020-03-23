@@ -221,6 +221,20 @@ type family If (c :: Bool) (t :: k) (f :: k) :: k where
   If 'True t f  = t
   If 'False t f = f
 
+
+data T1 (t :: *)
+type family Break (c :: Constraint) (rep :: Type -> Type) :: Constraint where
+  Break _ T1 = ((), ())
+  Break _ _  = ()
+
+data T0
+type family Break0 (c :: Constraint) (rep :: Type) :: Constraint where
+  Break0 _ T0 = ((), ())
+  Break0 _ _  = ()  
+
+type family NoGeneric t where
+  NoGeneric x = TypeError ('Text "No instance for " ':<>: 'ShowType (Generic x))  
+
 class (t ~ HListToTuple (TupleToHList t)) => ToHList t where
   toHList :: t -> (forall a. a -> f a) -> HList f (TupleToHList t)
 
