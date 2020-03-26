@@ -278,6 +278,26 @@ instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10) where
   toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10) lift =
     lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& Nil
 
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& Nil
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& Nil
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& lift x13 :& Nil
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& lift x13 :& lift x14 :& Nil
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& lift x13 :& lift x14 :& lift x15 :& Nil    
+
 type family HListToTuple (xs :: [*]) = (ret :: *) | ret -> xs where
   HListToTuple '[]  = ()
   HListToTuple '[x] = Identity x
@@ -292,6 +312,9 @@ type family HListToTuple (xs :: [*]) = (ret :: *) | ret -> xs where
   HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10)
   HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11)
   HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15)
 
 type family TupleToHList (t :: *) = (res :: [*]) | res -> t where
   TupleToHList ()           = '[]
@@ -305,6 +328,11 @@ type family TupleToHList (t :: *) = (res :: [*]) | res -> t where
   TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8) = '[x1, x2, x3, x4, x5, x6, x7, x8]
   TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9]
   TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15]
 
 type family FilterNonDefaults (xs :: [*]) (defs :: [Symbol]) :: [*] where
   FilterNonDefaults '[] _ = '[]
