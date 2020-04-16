@@ -422,7 +422,6 @@ runQuery :: ( MonadIO (DBM sc)
             ) => PrimQuery -> DBM sc [tab]
 runQuery primQ = do
   driver <- ask
-  liftIO $ print primQ
   liftIO $ dbQuery driver primQ
 
 type family Updatable sc tab :: Constraint where
