@@ -13,6 +13,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE OverloadedLabels      #-}
+{-# LANGUAGE DeriveGeneric         #-}
 
 module DBRecord.Internal.Query
   ( column
@@ -49,6 +50,7 @@ import qualified Data.List as L
 import Data.Functor.Identity
 import qualified Data.List.NonEmpty as NEL
 import GHC.OverloadedLabels
+import GHC.Generics
 
 instance ( Column' tab tgt sc a lab (IsTable tab)
          ) => IsLabel lab (Columns tab -> Expr sc scopes a) where
@@ -99,7 +101,7 @@ newtype Columns t = Columns { getColumns :: [Projection] }
                   deriving (Show, Eq)
 
 data Nest a b = Nest { left :: a, right :: b }
-              deriving Show
+              deriving (Show, Generic)
 
 data Query = BaseTable PQ.TableId Clauses
            | JoinTable JoinType PQ.PrimExpr Query Query Clauses
