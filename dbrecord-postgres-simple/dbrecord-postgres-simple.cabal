@@ -31,7 +31,7 @@ library
 
                   
   build-depends:       base              >= 4.7 && < 5
-                     , postgresql-simple == 0.5.*
+                     , postgresql-simple == 0.6.*
                      , postgresql-libpq  == 0.9.*
                      , aeson
                      , text
