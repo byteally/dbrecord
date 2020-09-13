@@ -23,13 +23,10 @@ import qualified Data.Text.Lazy.Encoding as LTE
 import qualified Data.ByteString.Lazy as LB
 import qualified Data.ByteString as SB
 import qualified Data.Text.Lazy as LT
-import Data.Monoid ((<>))
 import Data.Time
 import Data.Text (Text)
 import DBRecord.Internal.Types
-import Data.Coerce (coerce)
 import DBRecord.Internal.DBTypes hiding (toNullable)
-import Data.Time.Calendar (Day)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Data.CaseInsensitive (CI, foldedCase, mk)

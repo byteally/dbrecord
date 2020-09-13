@@ -21,7 +21,6 @@ import qualified Data.Text as T
 import qualified Data.List as L
 import DBRecord.Internal.Expr hiding ((.&&), (.||))
 import qualified DBRecord.Internal.PrimQuery as PQ
-import Data.Monoid ((<>))
 import Data.List
 
 newtype Lexeme = Lexeme T.Text

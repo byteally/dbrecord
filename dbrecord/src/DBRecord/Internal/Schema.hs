@@ -40,7 +40,6 @@ import DBRecord.Internal.DBTypes hiding (DBType (..), DBTypeName (..))
 import qualified DBRecord.Internal.DBTypes as Type
 import qualified Data.List as L
 import DBRecord.Internal.Lens ((^.), Lens', coerceL, Traversal', ixBy, view)
-import Data.Monoid ((<>))
 import qualified Data.HashMap.Strict as HM
 import Data.Char
 

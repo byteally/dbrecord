@@ -21,7 +21,6 @@ import qualified DBRecord.Internal.Sql.DML as DML
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 import Data.Foldable (toList)
-import Data.Monoid ((<>))
 import Data.List (intersperse)
 import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   parens, comma, punctuate,

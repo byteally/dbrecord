@@ -8,7 +8,6 @@ module DBRecord.Postgres.Internal.Interval where
 import Data.Int
 import Database.PostgreSQL.Simple.FromField
 import Database.PostgreSQL.Simple.ToField
-import Control.Applicative ((<$>), (<*), (*>))
 import qualified Prelude as P
 import Data.Attoparsec.ByteString.Char8 as A (Parser, space, option, char, many1, anyChar, string, decimal, parseOnly, signed, peekChar')
 import qualified Data.Attoparsec.ByteString.Char8 as A
@@ -21,7 +20,6 @@ import Data.Char (ord)
 import Prelude
 import qualified Database.PostgreSQL.Simple.TypeInfo.Static as TI
 import Database.PostgreSQL.Simple.TypeInfo.Macro (inlineTypoid)
-import Data.Monoid ((<>))
 import qualified Database.PostgreSQL.LibPQ as PQ
 import qualified Data.ByteString.Char8 as B8
 import Control.Exception
