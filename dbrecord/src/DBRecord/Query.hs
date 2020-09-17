@@ -131,7 +131,7 @@ data Page = Offset Int | Limit Int | OffsetLimit Int Int
 newtype ColVal tab a = ColVal a
                      deriving (Show, Eq, Num)
 
-newtype Updated sc tab (scopes :: [*]) = Updated {getUpdateMap :: HashMap Attribute PrimExpr}
+newtype Updated sc tab = Updated {getUpdateMap :: HashMap Attribute PrimExpr}
   deriving (Show)
 
 newtype WithKey sc t = WithKey { getWithKey :: t }
@@ -139,22 +139,22 @@ newtype WithKey sc t = WithKey { getWithKey :: t }
 withPrimaryKey :: forall sc t. t -> WithKey sc t
 withPrimaryKey = coerce
 
-pattern EmptyUpdate :: Updated sc tab scopes
+pattern EmptyUpdate :: Updated sc tab
 pattern EmptyUpdate <- (HM.null . getUpdateMap -> True) where
   EmptyUpdate = Updated HM.empty
 
-(.~) :: forall sc tab fn alfn val scopes.
+(.~) :: forall sc tab fn alfn val.
         ( UnifyField (OriginalTableFields tab) fn val ('Text "Unable to find column " ':<>: 'ShowType fn)
         , KnownSymbol fn
         , alfn ~ AliasedCol fn (ColumnNames sc tab)
         , KnownSymbol alfn
-        ) => Col fn -> Expr sc scopes val -> Updated sc tab scopes -> Updated sc tab scopes
+        ) => Col fn -> Expr sc val -> Updated sc tab -> Updated sc tab
 (.~) _ expr (Updated updates) = Updated $ HM.insert (T.pack alfn) (getExpr expr) updates
   where alfn = symbolVal (Proxy @alfn)
 
 infixr 4 .~
 
-(%~) :: forall sc tab fn alfn val scopes.
+(%~) :: forall sc tab fn alfn val.
         ( UnifyField (OriginalTableFields tab) fn val ('Text "Unable to find column " ':<>: 'ShowType fn)
         , KnownSymbol fn
         , Table sc tab
@@ -162,7 +162,7 @@ infixr 4 .~
         , SingCtxSc sc
         , alfn ~ AliasedCol fn (ColumnNames sc tab)
         , KnownSymbol alfn          
-        ) => Col fn -> (Expr sc scopes val -> Expr sc scopes val) -> Updated sc tab scopes -> Updated sc tab scopes
+        ) => Col fn -> (Expr sc val -> Expr sc val) -> Updated sc tab -> Updated sc tab
 (%~) col' exprFn updates = (.~) col' (exprFn $ col (Proxy :: Proxy (DBTag db tab fn))) updates
 
 infixr 4 %~
@@ -247,7 +247,7 @@ runTransaction cfg dbact = do
       ]
 
 class HasCol sc tab (t :: *) where
-  hasCol :: proxy (DBTag sc tab t) -> Expr sc scopes t
+  hasCol :: proxy (DBTag sc tab t) -> Expr sc t
 
 instance ( KnownSymbol fld
          , Table sc tab
@@ -257,16 +257,16 @@ instance ( KnownSymbol fld
          , SingI (GetFieldInfo sc (DB (SchemaDB sc)) (GenTabFields (Rep tab)))
          , SingI (ColumnNames sc tab)
          ) => HasCol sc tab (fld ::: t) where
-  hasCol _ = coerceExpr (col (Proxy @(DBTag sc tab fld)) :: Expr sc scopes t) 
+  hasCol _ = coerceExpr (col (Proxy @(DBTag sc tab fld)) :: Expr sc t) 
 
-applyEqs :: forall xs scopes tab sc.
+applyEqs :: forall xs tab sc.
              ( All (HasCol sc tab) xs
              , All (ConstExpr sc) xs
              , All (EqExpr sc) xs
              ) =>
              Proxy (DBTag sc tab ()) ->
              HList Identity xs ->
-             Expr sc scopes Bool
+             Expr sc Bool
 applyEqs p (Identity ce :& ces) =
     constExpr ce .== hasCol (proxy ce) .&&
     applyEqs p ces
@@ -296,7 +296,7 @@ applyEqs _ Nil = true
   -- , ApplyExpr db tab (PrimaryKey db tab) predicate (Expr (OriginalTableFields tab) Bool)
   -- , UnifyPkPredicate db tab predicate
 
-get :: forall sc tab driver cfg tpks pks (scopes :: [*]).
+get :: forall sc tab driver cfg tpks pks.
   ( QueryCtx sc tab driver cfg
   , ToHList tpks
   , TupleToHList tpks ~ pks
@@ -306,7 +306,7 @@ get :: forall sc tab driver cfg tpks pks (scopes :: [*]).
   , All (HasCol sc tab) pks
   ) => WithKey sc tpks -> DBM (SchemaDB sc) (Maybe tab)
 get tpks = do
-  let filtE = getExpr (applyEqs (Proxy @(DBTag sc tab ())) (toHList (getWithKey tpks) Identity) :: Expr sc scopes Bool)
+  let filtE = getExpr (applyEqs (Proxy @(DBTag sc tab ())) (toHList (getWithKey tpks) Identity) :: Expr sc Bool)
       cls = clauses { criteria = [filtE] }
   res <- getAll' (Proxy :: Proxy sc) cls
   pure $ case res of
@@ -314,7 +314,7 @@ get tpks = do
     [r] -> Just r
     _   -> error "get: query with primarykey return more than 1 rows"
 
-getBy :: forall sc tab (uniq :: Symbol) driver cfg uqKeysM uqKeys tuqs uqs (scopes :: [*]).
+getBy :: forall sc tab (uniq :: Symbol) driver cfg uqKeysM uqKeys tuqs uqs.
   ( QueryCtx sc tab driver cfg
   , uqKeysM ~ (GetUniqBy uniq (Unique sc tab))
   , 'Just uqKeys ~ uqKeysM
@@ -326,7 +326,7 @@ getBy :: forall sc tab (uniq :: Symbol) driver cfg uqKeysM uqKeys tuqs uqs (scop
   , TupleToHList tuqs ~ uqs
   ) => Uq sc uniq -> tuqs -> DBM (SchemaDB sc) (Maybe tab)
 getBy _ tuqs = do
-  let filtE = getExpr (applyEqs (Proxy @(DBTag sc tab ())) (toHList tuqs Identity) :: Expr sc scopes Bool)
+  let filtE = getExpr (applyEqs (Proxy @(DBTag sc tab ())) (toHList tuqs Identity) :: Expr sc Bool)
       cls = clauses { criteria = [filtE] }
   res <- getAll' (Proxy :: Proxy sc) cls
   pure $ case res of
@@ -334,10 +334,10 @@ getBy _ tuqs = do
     [r] -> Just r
     _  -> error "get: query with primarykey return more than 1 rows"
 
-getAll :: forall sc tab driver cfg scopes scopes2.
+getAll :: forall sc tab driver cfg.
   ( QueryCtx sc tab driver cfg
-  ) =>    (Q.Columns tab -> Expr sc scopes Bool)
-       -> Order sc scopes2
+  ) =>    (Q.Columns tab -> Expr sc Bool)
+       -> Order sc
        -> Maybe Page
        -> DBM (SchemaDB sc) [tab]
 getAll filt ord page = do
@@ -434,7 +434,7 @@ type family Updatable' sc tab (ttyp :: TableTypes) :: Constraint where
   Updatable' sc tab 'NonUpdatableView =
     TypeError ('Text "The view " ':<>: 'ShowType tab ':<>: 'Text " in schema " ':<>: 'ShowType sc ':<>: 'Text " cannot be used in update")
 
-update :: forall sc tab keys driver cfg scopes rets.
+update :: forall sc tab keys driver cfg rets.
   ( Table sc tab
   , MonadIO (DBM (SchemaDB sc))
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
@@ -445,15 +445,15 @@ update :: forall sc tab keys driver cfg scopes rets.
   , SingCtx sc tab
   , SingCtxSc sc
   , Updatable sc tab
-  ) => (Q.Columns tab -> Expr sc scopes Bool)
-  -> (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
-  -> HList (Expr sc scopes) rets -> DBM (SchemaDB sc) [HListToTuple keys]  
+  ) => (Q.Columns tab -> Expr sc Bool)
+  -> (Updated sc tab -> Updated sc tab)
+  -> HList (Expr sc) rets -> DBM (SchemaDB sc) [HListToTuple keys]  
 update filt updateFn rets =
   runUpdateRet (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) (toPrimExprs rets)
 
   where prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
   
-update_ :: forall sc tab cfg driver scopes.
+update_ :: forall sc tab cfg driver.
   ( Table sc tab
   , KnownSymbol (SchemaName sc)
   , Schema sc
@@ -463,8 +463,8 @@ update_ :: forall sc tab cfg driver scopes.
   , MonadReader (driver cfg) (DBM (SchemaDB sc))
   , HasUpdate driver
   , Updatable sc tab
-  ) => (Q.Columns tab -> Expr sc scopes Bool)
-  -> (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
+  ) => (Q.Columns tab -> Expr sc Bool)
+  -> (Updated sc tab -> Updated sc tab)
   -> DBM (SchemaDB sc) ()
 update_ filt updateFn =
   runUpdate (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate)
@@ -502,7 +502,7 @@ runUpdateRet psc ptab crit assoc rets = do
   driver <- ask
   liftIO $ dbUpdateRet driver updateQ
 
-delete :: forall sc tab driver cfg scopes.
+delete :: forall sc tab driver cfg.
   ( Table sc tab
   , MonadIO (DBM (SchemaDB sc))
   , KnownSymbol (SchemaName sc)
@@ -512,7 +512,7 @@ delete :: forall sc tab driver cfg scopes.
   , HasDelete driver
   , SingCtx sc tab
   , SingCtxSc sc
-  ) => (Q.Columns tab -> Expr sc scopes Bool) -> DBM (SchemaDB sc) (ColVal tab Int64)
+  ) => (Q.Columns tab -> Expr sc Bool) -> DBM (SchemaDB sc) (ColVal tab Int64)
 delete filt = do
   let deleteQ = DeleteQuery (getTableId (Proxy @sc) (Proxy @tab)) [getExpr $ filt (Q.Columns prjs)]
   driver <- ask
@@ -522,11 +522,11 @@ delete filt = do
 
 
 -- TODO: is list reversed?
-toPrimExprs :: HList (Expr sc scopes) xs ->
+toPrimExprs :: HList (Expr sc) xs ->
                [PrimExpr]
 toPrimExprs = toPrimExprs' []
 
-toPrimExprs' :: [PrimExpr] -> HList (Expr sc scopes) xs -> [PrimExpr]
+toPrimExprs' :: [PrimExpr] -> HList (Expr sc) xs -> [PrimExpr]
 toPrimExprs' exprs (e :& es) = toPrimExprs' (getExpr e : exprs) es
 toPrimExprs' exprs Nil       = exprs
 
@@ -597,7 +597,7 @@ insert row = do
     _ ->  error "insert: insert query with return more than 1 rows"
   
 
-insertRet :: forall sc tab row keys rets scopes defs reqCols driver cfg.
+insertRet :: forall sc tab row keys rets defs reqCols driver cfg.
   ( Table sc tab
   , MonadIO (DBM (SchemaDB sc))
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
@@ -615,7 +615,7 @@ insertRet :: forall sc tab row keys rets scopes defs reqCols driver cfg.
   , SingI (FieldsOf reqCols)
   , SingE (FieldsOf reqCols)
   , Insertable sc tab
-  ) => Row sc tab row -> (Q.Columns tab -> HList (Expr sc scopes) rets) -> DBM (SchemaDB sc) (Maybe (HListToTuple keys))
+  ) => Row sc tab row -> (Q.Columns tab -> HList (Expr sc) rets) -> DBM (SchemaDB sc) (Maybe (HListToTuple keys))
 insertRet row rets = do
   let
     tabId = getTableId (Proxy @sc) (Proxy @tab)
@@ -633,17 +633,17 @@ insertRet row rets = do
     [x] -> Just x
     _ ->  error "insertRet: insert query with return more than 1 rows"
 
-onConflictUpdate :: (Q.Columns tab -> Expr sc scopes Bool) ->
-                   (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab)) ->
-                   ConflictAction' sc tab scopes
+onConflictUpdate :: (Q.Columns tab -> Expr sc Bool) ->
+                   (Updated sc tab -> Updated sc tab) ->
+                   ConflictAction' sc tab
 onConflictUpdate = ConflictUpdate'
 
-onConflictDoNothing :: ConflictAction' sc tab scopes
+onConflictDoNothing :: ConflictAction' sc tab
 onConflictDoNothing = ConflictDoNothing'
                       
-data ConflictAction' sc tab scopes =
+data ConflictAction' sc tab =
     ConflictDoNothing'
-  | ConflictUpdate' (Q.Columns tab -> Expr sc scopes Bool) (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
+  | ConflictUpdate' (Q.Columns tab -> Expr sc Bool) (Updated sc tab -> Updated sc tab)
 
 data ConflictTarget' sc tab =
     ConflictTargetConstraint' T.Text
@@ -712,7 +712,7 @@ insertMany rows = do
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
 
-insertManyRet :: forall sc tab row rets defs reqCols driver keys cfg scopes.
+insertManyRet :: forall sc tab row rets defs reqCols driver keys cfg.
   ( Table sc tab
   , MonadIO (DBM (SchemaDB sc))
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))    
@@ -732,7 +732,7 @@ insertManyRet :: forall sc tab row rets defs reqCols driver keys cfg scopes.
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
   , Insertable sc tab  
-  ) => Rows sc tab row -> (Q.Columns tab -> HList (Expr sc scopes) rets) -> DBM (SchemaDB sc) [HListToTuple keys]
+  ) => Rows sc tab row -> (Q.Columns tab -> HList (Expr sc) rets) -> DBM (SchemaDB sc) [HListToTuple keys]
 insertManyRet rows rets = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
@@ -766,7 +766,7 @@ insert_ :: forall sc tab row defs reqCols driver cfg.
   ) => Row sc tab row -> DBM (SchemaDB sc) ()
 insert_ = insertMany_ . Rows @sc @tab . pure . getRow
 
-insertWithConflict_ :: forall sc tab row keys keyFields defs scopes reqCols driver cfg.
+insertWithConflict_ :: forall sc tab row keys keyFields defs reqCols driver cfg.
   ( Table sc tab
   , MonadIO (DBM (SchemaDB sc))
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
@@ -787,7 +787,7 @@ insertWithConflict_ :: forall sc tab row keys keyFields defs scopes reqCols driv
   , SingE keyFields
   , Insertable sc tab  
   ) => ConflictTarget' sc tab        -> 
-      ConflictAction' sc tab scopes ->   
+      ConflictAction' sc tab ->   
       Row sc tab row ->      
       DBM (SchemaDB sc) ()
 insertWithConflict_ ctgt cact row = do
@@ -845,7 +845,7 @@ insertMany_ rows = do
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
 
-insertManyWithConflict_ :: forall sc tab row keys keyFields defs scopes reqCols driver cfg.
+insertManyWithConflict_ :: forall sc tab row keys keyFields defs reqCols driver cfg.
   ( Table sc tab
   , MonadIO (DBM (SchemaDB sc))
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
@@ -866,7 +866,7 @@ insertManyWithConflict_ :: forall sc tab row keys keyFields defs scopes reqCols 
   , SingE keyFields
   , Insertable sc tab  
   ) => ConflictTarget' sc tab        -> 
-      ConflictAction' sc tab scopes ->   
+      ConflictAction' sc tab ->   
       Rows sc tab row ->       
       DBM (SchemaDB sc) ()
 insertManyWithConflict_ ctgt cact rows = do

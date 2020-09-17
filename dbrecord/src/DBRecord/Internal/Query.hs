@@ -53,12 +53,12 @@ import GHC.OverloadedLabels
 import GHC.Generics
 
 instance ( Column' tab tgt sc a lab (IsTable tab)
-         ) => IsLabel lab (Columns tab -> Expr sc scopes a) where
+         ) => IsLabel lab (Columns tab -> Expr sc a) where
   fromLabel = column @lab @tgt @sc @tab
 
-column :: forall col tgt sc tab a scope.
+column :: forall col tgt sc tab a.
          ( Column' tab tgt sc a col (IsTable tab)
-         ) => Columns tab -> Expr sc scope a
+         ) => Columns tab -> Expr sc a
 column t = column' t (Proxy :: Proxy '(IsTable tab, tgt, col))
 
 type family IsTable (t :: *) :: Bool where
@@ -67,7 +67,7 @@ type family IsTable (t :: *) :: Bool where
   IsTable _             = 'True
 
 class Column' tab tgt sc a (col :: Symbol) (isTab :: Bool) where
-  column' :: Columns tab -> Proxy '(isTab, tgt, col) -> Expr sc scope a
+  column' :: Columns tab -> Proxy '(isTab, tgt, col) -> Expr sc a
 
 instance ( -- Column_ a (GetDBTypeRep sc a)
            -- , ColumnCtx a (GetDBTypeRep sc a) sc tgt col
@@ -158,12 +158,12 @@ table =
       tabn = PQ.tableName tabId
   in  Tab (BaseTable tabId cls)
          
-project :: forall sc tab scopes xs.
+project :: forall sc tab xs.
             ( SingI (FieldsOf xs)
             , SingE (FieldsOf xs)
             ) => Tab sc tab                                ->
-                (Columns tab -> HList (Expr sc scopes) xs) ->
-                Maybe (Columns tab -> Expr sc scopes Bool) ->
+                (Columns tab -> HList (Expr sc) xs) ->
+                Maybe (Columns tab -> Expr sc Bool) ->
                 Tab sc (HList Identity xs)                
 project tab fprjs fcrit =
   let cols  = Columns $ projections (getClause (getQuery tab))
@@ -182,16 +182,16 @@ project tab fprjs fcrit =
                      }
           ))
 
-      where exps :: forall ys. HList (Expr sc scopes) ys -> [PQ.PrimExpr]
+      where exps :: forall ys. HList (Expr sc) ys -> [PQ.PrimExpr]
             exps (a :& as) = getExpr a : exps as
             exps Nil       = []
   
-aggregate :: forall sc tab scopes xs ys.
+aggregate :: forall sc tab xs ys.
             ( SingI (FieldsOf ys)
             , SingE (FieldsOf ys)
             ) => Tab sc tab ->
-                (Columns tab -> HList (Expr sc scopes) xs) -> 
-                (Columns tab -> HList (AggExpr sc scopes) xs -> HList (AggExpr sc scopes) ys) ->
+                (Columns tab -> HList (Expr sc) xs) -> 
+                (Columns tab -> HList (AggExpr sc) xs -> HList (AggExpr sc) ys) ->
                 Tab sc (HList Identity ys)
 aggregate tab fgpbys fprjs =
   let cols  = Columns $ projections (getClause (getQuery tab))
@@ -224,10 +224,10 @@ tabular (Tab t) = Tab (modifyClause (\(Clauses pjs exps ods _) -> Clauses pjs ex
 
   where als = T.pack (symbolVal (Proxy @alias))
 
-extend :: forall fld colalias x sc tabalias scopes xs.
+extend :: forall fld colalias x sc tabalias xs.
           ( KnownSymbol fld
           , KnownSymbol colalias
-          ) => (Columns (Tabular tabalias xs) -> Expr sc scopes x) -> Tab sc (Tabular tabalias xs) -> Tab sc (Tabular tabalias (fld ::: x ': xs))
+          ) => (Columns (Tabular tabalias xs) -> Expr sc x) -> Tab sc (Tabular tabalias xs) -> Tab sc (Tabular tabalias (fld ::: x ': xs))
 extend e =
   coerceTab . withTab (modifyClause (\cls@(Clauses pjs exps ods tals) -> Clauses (newpj cls : pjs) exps ods tals))
   
@@ -268,7 +268,7 @@ convertClause (Clauses pjs crit ord gps als) =
              , PQ.alias       = Just als
              }
   
-join :: Tab sc tabl -> Tab sc tabr -> (Columns tabl -> Columns tabr -> Expr sc scopes Bool) -> Tab sc (Nest tabl tabr)
+join :: Tab sc tabl -> Tab sc tabr -> (Columns tabl -> Columns tabr -> Expr sc Bool) -> Tab sc (Nest tabl tabr)
 join t1@(Tab q1) t2@(Tab q2) f =
   let e = getExpr (f c1 c2)
       c1 = Columns (map (qualify lals) $ projections (getClause (getQuery t1))) 
@@ -297,8 +297,8 @@ join t1@(Tab q1) t2@(Tab q2) f =
           (etn, (PQ.unsafeAttrExpr (als : xs ++ [e])))
         qualify _ (etn, e) = (etn, e)
 
--- column :: Proxy symbol            -> Proxy tab -> PQ.Expr sc scope a
--- column :: Proxy '(symbol, symbol) -> Proxy tab -> PQ.Expr sc scope a
+-- column :: Proxy symbol            -> Proxy tab -> PQ.Expr sc a
+-- column :: Proxy '(symbol, symbol) -> Proxy tab -> PQ.Expr sc a
 
 getTableProjections_ :: forall sc tab. (SingCtx sc tab) => Proxy sc -> Proxy tab -> [Projection]
 getTableProjections_ psc ptab = go (headColInfos psc ptab)

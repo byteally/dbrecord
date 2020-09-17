@@ -476,15 +476,15 @@ instance ToJSON ByteString where
 transformPE :: (PrimExpr -> PrimExpr) -> PrimExpr -> PrimExpr
 transformPE = transform
 
-newtype Expr (sc :: *) (scopes :: [*]) (t :: *) =
+newtype Expr (sc :: *) (t :: *) =
   Expr { getExpr :: PrimExpr }
   deriving Show
 
-newtype AggExpr (sc :: *) (scopes :: [*]) (t :: *) =
-  AggExpr { getAggExpr :: Expr sc scopes t }
+newtype AggExpr (sc :: *) (t :: *) =
+  AggExpr { getAggExpr :: Expr sc t }
   deriving Show
 
-unsafeCol :: [T.Text] -> Expr sc scopes a
+unsafeCol :: [T.Text] -> Expr sc a
 unsafeCol = Expr . unsafeAttrExpr
 
 unsafeAttrExpr :: [T.Text] -> PrimExpr

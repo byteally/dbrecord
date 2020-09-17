@@ -6,16 +6,16 @@ import DBRecord.Internal.Expr
 import DBRecord.Internal.Order
 import GHC.TypeLits
 
-newtype Window (w :: Symbol) (sc :: *) (scopes :: [*]) = Window { getPartitions :: PQ.WindowPart }
+newtype Window (w :: Symbol) (sc :: *) = Window { getPartitions :: PQ.WindowPart }
 
-newtype Partition sc (scopes :: [*]) = Partition { getPartExprs :: [PQ.PrimExpr] }
+newtype Partition sc = Partition { getPartExprs :: [PQ.PrimExpr] }
 
 #if MIN_VERSION_base(4,10,0)
-instance Semigroup (Partition sc scopes) where
+instance Semigroup (Partition sc) where
   (Partition p1) <> (Partition p2) = Partition (p1 <> p2)
 #endif
 
-instance Monoid (Partition sc scopes) where
+instance Monoid (Partition sc) where
   mempty = Partition []
 #if MIN_VERSION_base(4,10,0)
 #else
@@ -23,13 +23,13 @@ instance Monoid (Partition sc scopes) where
 #endif
 
   
-partition :: Expr sc scopes a -> Partition sc scopes
+partition :: Expr sc a -> Partition sc
 partition = Partition . (:[]) . getExpr
 
-window :: Partition sc scopes -> Order sc scopes -> Window w sc scopes
+window :: Partition sc -> Order sc -> Window w sc
 window pe oe = Window (PQ.WindowPart (getPartExprs pe) (getOrder oe))
 
-windowExpr :: Partition sc scopes -> Order sc scopes -> Expr sc scopes a -> Expr sc scopes a
+windowExpr :: Partition sc -> Order sc -> Expr sc a -> Expr sc a
 windowExpr ps os = Expr . PQ.AnonWindowExpr (getPartExprs ps) (getOrder os) . getExpr
 
 {-

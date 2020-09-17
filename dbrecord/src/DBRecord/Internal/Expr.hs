@@ -39,13 +39,13 @@ import GHC.TypeLits
 import GHC.OverloadedLabels
 
 class ConstExpr sc t where
-  constExpr :: t -> Expr sc scope t
+  constExpr :: t -> Expr sc t
 
-  default constExpr :: (Generic t, GConstExpr (TypeMappings sc t) (Rep t) sc t) => t -> Expr sc scope t
+  default constExpr :: (Generic t, GConstExpr (TypeMappings sc t) (Rep t) sc t) => t -> Expr sc t
   constExpr = gconstExpr (Proxy @(TypeMappings sc t)) . from
 
 class GConstExpr (udType :: UDTypeMappings) (rep :: * -> *) sc a where
-  gconstExpr :: Proxy udType -> rep x -> Expr sc scopes a
+  gconstExpr :: Proxy udType -> rep x -> Expr sc a
 
 instance (GConstExpr ('EnumType al als) g sc a) => GConstExpr ('EnumType al als) (D1 m g) sc a where
   gconstExpr p (M1 rep) =
@@ -111,7 +111,7 @@ instance ( GConstExprFlat als rep sc a
   gconstExpr _ = gconstExprFlat (Proxy @als) 
 
 class GConstExprFlat als rep sc a where
-  gconstExprFlat :: Proxy als -> rep x -> Expr sc scopes a
+  gconstExprFlat :: Proxy als -> rep x -> Expr sc a
 
 instance (GConstExprFlat als g sc a) => GConstExprFlat als (D1 m g) sc a where
   gconstExprFlat pals (M1 rep) =
@@ -127,7 +127,7 @@ instance ( GConstExprFlat als g1 sc a
   gconstExprFlat pals (g1 :*: g2) =
     unsafeCoerceExpr (gconstExprFlat pals g1 `appendFlatComposite` gconstExprFlat pals g2)
 
-    where appendFlatComposite :: Expr sc scopes a -> Expr sc scopes a -> Expr sc scopes a
+    where appendFlatComposite :: Expr sc a -> Expr sc a -> Expr sc a
           appendFlatComposite (Expr (PQ.FlatComposite xs)) (Expr (PQ.FlatComposite ys)) = Expr (PQ.FlatComposite (xs ++ ys))
           appendFlatComposite a b = error $ "Panic: expecting only flatcomposite @appendFlatComposite" ++ show (a, b)
 
@@ -140,7 +140,7 @@ instance ( al ~ FindAlias als n
   gconstExprFlat _ (M1 (K1 v)) =
     unsafeCoerceExpr (flatComposite (constExpr v))
 
-    where flatComposite :: forall scopes. Expr sc scopes t -> Expr sc scopes t
+    where flatComposite :: Expr sc t -> Expr sc t
           flatComposite (Expr v0) = Expr (PQ.FlatComposite (pure (al, v0)))
 
           al = maybe (T.pack (symbolVal (Proxy @n)))
@@ -187,7 +187,7 @@ instance ConstExpr sc SB.ByteString where
 
 instance ConstExpr sc t => ConstExpr sc (fn ::: t) where
   constExpr (Field v) = unwrap $ constExpr v
-    where unwrap :: Expr sc scopes t -> Expr sc scopes (fn ::: t)
+    where unwrap :: Expr sc t -> Expr sc (fn ::: t)
           unwrap = unsafeCoerceExpr
 
 instance ConstExpr sc Double where
@@ -281,29 +281,29 @@ instance ( KnownSymbol fn1
       ]
 -}
 
-binOp :: PQ.BinOp -> Expr sc scope a -> Expr sc scope b -> Expr sc scope c
+binOp :: PQ.BinOp -> Expr sc a -> Expr sc b -> Expr sc c
 binOp op (Expr lhs) (Expr rhs) = Expr (PQ.BinExpr op lhs rhs)
 
-prefixOp :: PQ.UnOp -> Expr sc scope a -> Expr sc scope b
+prefixOp :: PQ.UnOp -> Expr sc a -> Expr sc b
 prefixOp op (Expr expr) = Expr (PQ.PrefixExpr op expr)
 
-postfixOp :: PQ.UnOp -> Expr sc scope a -> Expr sc scope b
+postfixOp :: PQ.UnOp -> Expr sc a -> Expr sc b
 postfixOp op (Expr expr) = Expr (PQ.PostfixExpr op expr)
 
-funOp :: String -> Expr sc scope a -> Expr sc scope b
+funOp :: String -> Expr sc a -> Expr sc b
 funOp op (Expr expr) = Expr (PQ.PrefixExpr (PQ.OpOtherFun op) expr)
 
-unsafeCast :: DBType -> Expr sc scope a -> Expr sc scope b
+unsafeCast :: DBType -> Expr sc a -> Expr sc b
 unsafeCast castTo (Expr expr) = Expr $ PQ.CastExpr castTo expr
 
-annotateType :: forall sc scope a.
+annotateType :: forall sc a.
                  ( DBTypeCtx (GetDBTypeRep sc a)
                  , SingI (GetDBTypeRep sc a)
-                 ) => Expr sc scope a -> Expr sc scope a
+                 ) => Expr sc a -> Expr sc a
 annotateType = unsafeCast tyRep
   where tyRep = fromSing (sing :: Sing (GetDBTypeRep sc a))
 
-unsafeCoerceExpr :: Expr sc scope a -> Expr sc scope b
+unsafeCoerceExpr :: Expr sc a -> Expr sc b
 unsafeCoerceExpr (Expr e) = Expr e
 
 strictDecodeUtf8 :: SB.ByteString -> String
@@ -313,16 +313,16 @@ lazyDecodeUtf8 :: LB.ByteString -> String
 lazyDecodeUtf8 = LT.unpack . LTE.decodeUtf8
 
 class (Num a) => NumExpr a where
-  exprFromInteger :: Integer -> Expr sc scope a
+  exprFromInteger :: Integer -> Expr sc a
 
-literalExpr :: PQ.Lit -> Expr sc scope a
+literalExpr :: PQ.Lit -> Expr sc a
 literalExpr = Expr . PQ.ConstExpr
 
 deriving instance (NumExpr a) => NumExpr (Identity a)
 
 instance ( NumExpr a
          , OrdExpr sc a
-         ) => Num (Expr sc scope a) where
+         ) => Num (Expr sc a) where
   fromInteger = exprFromInteger
   (*)      = binOp PQ.OpMul
   (+)      = binOp PQ.OpPlus
@@ -335,8 +335,8 @@ instance ( NumExpr a
                    ] a
 
 class IntegralExpr a where
-  quot_ :: Expr sc scope a ->  Expr sc scope a -> Expr sc scope a
-  rem_  :: Expr sc scope a ->  Expr sc scope a -> Expr sc scope a
+  quot_ :: Expr sc a ->  Expr sc a -> Expr sc a
+  rem_  :: Expr sc a ->  Expr sc a -> Expr sc a
 
   quot_ = binOp PQ.OpDiv
   rem_  = binOp PQ.OpMod
@@ -346,9 +346,9 @@ instance IntegralExpr Word
 instance IntegralExpr Integer
 
 class NumExpr a => FractionalExpr a where
-  exprFromRational :: Rational -> Expr sc scope a
+  exprFromRational :: Rational -> Expr sc a
 
-instance (FractionalExpr a, OrdExpr sc a) => Fractional (Expr sc scope a) where
+instance (FractionalExpr a, OrdExpr sc a) => Fractional (Expr sc a) where
   fromRational = exprFromRational
   (/)    = binOp PQ.OpDiv
 
@@ -399,32 +399,32 @@ instance FractionalExpr Double where
 
 instance ( DBTypeCtx (GetDBTypeRep sc T.Text)
          , SingI (GetDBTypeRep sc T.Text)
-         ) => IsString (Expr sc scope T.Text) where
+         ) => IsString (Expr sc T.Text) where
   fromString = text . T.pack
 
 instance ( DBTypeCtx (GetDBTypeRep sc (CI T.Text))
          , SingI (GetDBTypeRep sc (CI T.Text))
-         ) => IsString (Expr sc scope (CI T.Text)) where
+         ) => IsString (Expr sc (CI T.Text)) where
   fromString = citext . mk . T.pack
 
-instance ( IsString (Expr sc scope a)
-         ) => IsString (Expr sc scope (Identity a)) where
-  fromString = (coerce :: Expr sc scope a -> Expr sc scope (Identity a)) . fromString
+instance ( IsString (Expr sc a)
+         ) => IsString (Expr sc (Identity a)) where
+  fromString = (coerce :: Expr sc a -> Expr sc (Identity a)) . fromString
 
 class EqExpr sc a where
-  (.==) :: Expr sc scope a -> Expr sc scope a -> Expr sc scope Bool
+  (.==) :: Expr sc a -> Expr sc a -> Expr sc Bool
 
-  (./=) :: Expr sc scope a -> Expr sc scope a -> Expr sc scope Bool
+  (./=) :: Expr sc a -> Expr sc a -> Expr sc Bool
   (./=) a b = not_ (a .== b)
 
-  default (.==) :: forall scope. (Generic a, GEqExpr sc (TypeMappings sc a) (Rep a) a) => Expr sc scope a -> Expr sc scope a -> Expr sc scope Bool
+  default (.==) :: (Generic a, GEqExpr sc (TypeMappings sc a) (Rep a) a) => Expr sc a -> Expr sc a -> Expr sc Bool
   (.==) = geqExpr (Proxy :: Proxy '(Rep a, TypeMappings sc a))
 
 infix 4 .==
 infix 4 ./=
 
 class GEqExpr sc (ud :: UDTypeMappings) rep a where
-  geqExpr :: Proxy '(rep, ud) -> Expr sc scope a -> Expr sc scope a -> Expr sc scope Bool
+  geqExpr :: Proxy '(rep, ud) -> Expr sc a -> Expr sc a -> Expr sc Bool
 
 instance ( EqExpr sc (FromJust (NewtypeRep a))
          , Coercible a (FromJust (NewtypeRep a))
@@ -445,7 +445,7 @@ instance ( GEqExprFlat sc a als (D1 ('MetaData n f s 'False) c)
   geqExpr _ = geqExprFlat (Proxy @'((D1 ('MetaData n f s 'False) c), als))
 
 class GEqExprFlat sc a (als :: [(Symbol, Symbol)]) rep where
-  geqExprFlat :: Proxy '(rep, als) -> Expr sc scope a -> Expr sc scope a -> Expr sc scope Bool
+  geqExprFlat :: Proxy '(rep, als) -> Expr sc a -> Expr sc a -> Expr sc Bool
 
 instance ( GEqExprFlat sc a als c
          ) => GEqExprFlat sc a als (D1 m c) where
@@ -476,7 +476,7 @@ instance ( EqExpr sc t
 instance (EqExpr sc t) => EqExpr sc (fld ::: t) where
   a .== b = coerceExprTo a .== coerceExprTo b
 
-    where coerceExprTo :: Expr sc scope (fld ::: a) -> Expr sc scope a
+    where coerceExprTo :: Expr sc (fld ::: a) -> Expr sc a
           coerceExprTo = coerceExpr
 
 instance EqExpr sc UTCTime where
@@ -503,26 +503,26 @@ instance EqExpr sc A.Value where
 instance OrdExpr sc Day where
   a .<= b = binOp PQ.OpLtEq a b
 
-snoc :: Expr sc scope [a] -> Expr sc scope a -> Expr sc scope [a]
+snoc :: Expr sc [a] -> Expr sc a -> Expr sc [a]
 snoc arr v =
   let fun = PQ.FunExpr "array_append" [getExpr arr, getExpr v]
   in  Expr fun
 
-append :: Expr sc scope [a] -> Expr sc scope [a] -> Expr sc scope [a]
+append :: Expr sc [a] -> Expr sc [a] -> Expr sc [a]
 append arrl arrr =
   let fun = PQ.FunExpr "array_cat" [getExpr arrl, getExpr arrr]
   in  Expr fun
 
 nil :: ( SingI (GetDBTypeRep sc [a])
       , DBTypeCtx (GetDBTypeRep sc [a])
-      ) => Expr sc scope [a]
+      ) => Expr sc [a]
 nil = array []
 
 class (EqExpr sc a) => OrdExpr sc a where
-  (.>) :: Expr sc scope a -> Expr sc scope a -> Expr sc scope Bool
-  (.<)  :: Expr sc scope a -> Expr sc scope a -> Expr sc scope Bool
-  (.>=) :: Expr sc scope a -> Expr sc scope a -> Expr sc scope Bool
-  (.<=) :: Expr sc scope a -> Expr sc scope a -> Expr sc scope Bool
+  (.>) :: Expr sc a -> Expr sc a -> Expr sc Bool
+  (.<)  :: Expr sc a -> Expr sc a -> Expr sc Bool
+  (.>=) :: Expr sc a -> Expr sc a -> Expr sc Bool
+  (.<=) :: Expr sc a -> Expr sc a -> Expr sc Bool
 
   (.>) a b  = not_ (a .<= b)
   (.<) a b  = (a .<= b) .&& not_ (a .== b)
@@ -566,136 +566,136 @@ instance OrdExpr sc Double where
   a .<= b = binOp PQ.OpLtEq a b
 
 infixr 3 .&&
-(.&&) :: Expr sc scope Bool -> Expr sc scope Bool -> Expr sc scope Bool
+(.&&) :: Expr sc Bool -> Expr sc Bool -> Expr sc Bool
 (.&&) a b = binOp PQ.OpAnd a b
 
 infixr 3 .||
-(.||) :: Expr sc scope Bool -> Expr sc scope Bool -> Expr sc scope Bool
+(.||) :: Expr sc Bool -> Expr sc Bool -> Expr sc Bool
 (.||) a b = binOp PQ.OpOr a b
 
-not_ :: Expr sc scope Bool -> Expr sc scope Bool
+not_ :: Expr sc Bool -> Expr sc Bool
 not_ = prefixOp PQ.OpNot
 
-isNull :: Expr sc scope (Maybe a) -> Expr sc scope Bool
+isNull :: Expr sc (Maybe a) -> Expr sc Bool
 isNull = postfixOp PQ.OpIsNull
 
-isNotNull :: Expr sc scope (Maybe a) -> Expr sc scope Bool
+isNotNull :: Expr sc (Maybe a) -> Expr sc Bool
 isNotNull = postfixOp PQ.OpIsNotNull
 
-nothing :: Expr sc scope (Maybe a)
+nothing :: Expr sc (Maybe a)
 nothing = Expr $ PQ.ConstExpr PQ.Null
 
-toEnum :: forall a sc scope. (Enum a, Show a) => a -> Expr sc scope a
+toEnum :: forall a sc. (Enum a, Show a) => a -> Expr sc a
 toEnum = Expr . PQ.ConstExpr . PQ.Other . quoteEnum
   where quoteEnum :: a -> T.Text
         quoteEnum s = let str = T.pack . show $ s
                       in "\'" <> str <> "\'"
 
-toNullable :: Expr sc scope a -> Expr sc scope (Maybe a)
+toNullable :: Expr sc a -> Expr sc (Maybe a)
 toNullable = unsafeCoerceExpr
 
-matchNullable :: Expr sc scope b -> (Expr sc scope a -> Expr sc scope b) -> Expr sc scope (Maybe a) -> Expr sc scope b
+matchNullable :: Expr sc b -> (Expr sc a -> Expr sc b) -> Expr sc (Maybe a) -> Expr sc b
 matchNullable def f val = ifThenElse (isNull val) def (f $ unsafeCoerceExpr val)
 
-fromNullable :: Expr sc scope a -> Expr sc scope (Maybe a) -> Expr sc scope a
+fromNullable :: Expr sc a -> Expr sc (Maybe a) -> Expr sc a
 fromNullable = flip matchNullable id
 
-maybeToNullable :: Maybe (Expr sc scope a) -> Expr sc scope (Maybe a)
+maybeToNullable :: Maybe (Expr sc a) -> Expr sc (Maybe a)
 maybeToNullable = maybe nothing toNullable
 
-case_ :: [(Expr sc scope Bool, Expr sc scope r)] -> Expr sc scope r -> Expr sc scope r
+case_ :: [(Expr sc Bool, Expr sc r)] -> Expr sc r -> Expr sc r
 case_ alts (Expr def) = Expr $ PQ.CaseExpr (fmap (\(Expr f,Expr s) -> (f,s)) alts) def
 
-ifThenElse :: Expr sc scope Bool -> Expr sc scope a -> Expr sc scope a -> Expr sc scope a
+ifThenElse :: Expr sc Bool -> Expr sc a -> Expr sc a -> Expr sc a
 ifThenElse cond t f = case_ [(cond, t)] f
 
-(.++) :: Expr sc scope T.Text -> Expr sc scope T.Text -> Expr sc scope T.Text
+(.++) :: Expr sc T.Text -> Expr sc T.Text -> Expr sc T.Text
 (.++) a b = binOp PQ.OpCat a b
 
-like :: Expr sc scope T.Text -> Expr sc scope T.Text -> Expr sc scope Bool
+like :: Expr sc T.Text -> Expr sc T.Text -> Expr sc Bool
 like = binOp PQ.OpLike
 
-lower :: Expr sc scope T.Text -> Expr sc scope T.Text
+lower :: Expr sc T.Text -> Expr sc T.Text
 lower = prefixOp PQ.OpLower
 
-upper :: Expr sc scope T.Text -> Expr sc scope T.Text
+upper :: Expr sc T.Text -> Expr sc T.Text
 upper = prefixOp PQ.OpUpper
 
-ors :: Foldable f => f (Expr sc scope Bool) -> Expr sc scope Bool
+ors :: Foldable f => f (Expr sc Bool) -> Expr sc Bool
 ors = F.foldl' (.||) false
 
-in_ :: (Functor f, Foldable f, EqExpr sc a) => f (Expr sc scope a) -> Expr sc scope a -> Expr sc scope Bool
+in_ :: (Functor f, Foldable f, EqExpr sc a) => f (Expr sc a) -> Expr sc a -> Expr sc Bool
 in_ exprs e = ors . fmap (e .==) $ exprs
 
-true :: Expr sc scope Bool
+true :: Expr sc Bool
 true = Expr $ PQ.ConstExpr $ PQ.Bool True
 
-false :: Expr sc scope Bool
+false :: Expr sc Bool
 false = Expr $ PQ.ConstExpr $ PQ.Bool False
 
 array :: ( DBTypeCtx (GetDBTypeRep sc [a])
         , SingI (GetDBTypeRep sc [a])
-        ) => [Expr sc scope a] -> Expr sc scope [a]
+        ) => [Expr sc a] -> Expr sc [a]
 array = annotateType . Expr . PQ.ArrayExpr . coerce
 
-iscontainedBy :: Expr sc scope [a] -> Expr sc scope [a] -> Expr sc scope Bool
+iscontainedBy :: Expr sc [a] -> Expr sc [a] -> Expr sc Bool
 iscontainedBy a b = binOp (PQ.OpOther "<@") a b
 
--- any :: Expr sc scope [a] -> Expr sc scope a
+-- any :: Expr sc [a] -> Expr sc a
 -- any (Expr e) = Expr (PQ.UnExpr (PQ.UnOpOtherFun "ANY") e)
 
-pattern TRUE :: Expr sc scope Bool
+pattern TRUE :: Expr sc Bool
 pattern TRUE = Expr (PQ.ConstExpr (PQ.Bool True))
 
-pattern FALSE :: Expr sc scope Bool
+pattern FALSE :: Expr sc Bool
 pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
 
-text :: T.Text -> Expr sc scope T.Text
+text :: T.Text -> Expr sc T.Text
 text = Expr . PQ.ConstExpr . PQ.String
 
 citext :: ( DBTypeCtx (GetDBTypeRep sc (CI T.Text))
          , SingI (GetDBTypeRep sc (CI T.Text))
-         ) => CI T.Text -> Expr sc scope (CI T.Text)
+         ) => CI T.Text -> Expr sc (CI T.Text)
 citext = annotateType . Expr . PQ.ConstExpr . PQ.String . foldedCase
 
 date :: ( DBTypeCtx (GetDBTypeRep sc Day)
        , SingI (GetDBTypeRep sc Day)
-       ) => Day -> Expr sc scope Day
+       ) => Day -> Expr sc Day
 date = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%F'"
 
 utcTime :: ( DBTypeCtx (GetDBTypeRep sc UTCTime)
           , SingI (GetDBTypeRep sc UTCTime)
-          ) => UTCTime -> Expr sc scope UTCTime
+          ) => UTCTime -> Expr sc UTCTime
 utcTime = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%FT%TZ'"
 
 localTime :: ( DBTypeCtx (GetDBTypeRep sc LocalTime)
             , SingI (GetDBTypeRep sc LocalTime)
-            ) => LocalTime -> Expr sc scope LocalTime
+            ) => LocalTime -> Expr sc LocalTime
 localTime = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%FT%T%Q'"
 
 timeOfDay :: ( DBTypeCtx (GetDBTypeRep sc TimeOfDay)
             , SingI (GetDBTypeRep sc TimeOfDay)
-            ) => TimeOfDay -> Expr sc scope TimeOfDay
+            ) => TimeOfDay -> Expr sc TimeOfDay
 timeOfDay = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%T%Q'"
 
-utcTimeNow :: Expr sc scope UTCTime
+utcTimeNow :: Expr sc UTCTime
 utcTimeNow =
   let now = PQ.FunExpr "now" []
       utcT = PQ.BinExpr PQ.OpAtTimeZone now utcText
       utcText = PQ.ConstExpr (PQ.String "utc")
   in  Expr utcT
 
-ist :: Expr sc scope TimeZone
+ist :: Expr sc TimeZone
 ist = Expr (PQ.ConstExpr (PQ.String "ist"))
 
-atTimeZone :: Expr sc scope TimeZone -> Expr sc scope UTCTime -> Expr sc scope LocalTime
+atTimeZone :: Expr sc TimeZone -> Expr sc UTCTime -> Expr sc LocalTime
 atTimeZone (Expr tz) (Expr utct) = Expr (PQ.FunExpr "timezone" [tz, utct])
 
-dayTruncTZ :: Expr sc scope LocalTime -> Expr sc scope LocalTime
+dayTruncTZ :: Expr sc LocalTime -> Expr sc LocalTime
 dayTruncTZ (Expr utct) = Expr (PQ.FunExpr "date_trunc" [PQ.ConstExpr (PQ.String "day"), utct])
 
 {-
@@ -733,104 +733,104 @@ parseInterval = do
 
 interval :: ( DBTypeCtx (GetDBTypeRep sc Interval)
            , SingI (GetDBTypeRep sc Interval)
-           ) => Interval -> Expr sc scope Interval
+           ) => Interval -> Expr sc Interval
 interval (Interval e) = annotateType (literalExpr (PQ.Other e))
 
 hours :: ( DBTypeCtx (GetDBTypeRep sc Interval)
            , SingI (GetDBTypeRep sc Interval)
-           ) => Int -> Expr sc scope Interval
+           ) => Int -> Expr sc Interval
 hours i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " hours\'"
 
 months :: ( DBTypeCtx (GetDBTypeRep sc Interval)
            , SingI (GetDBTypeRep sc Interval)
-           ) => Int -> Expr sc scope Interval
+           ) => Int -> Expr sc Interval
 months i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " months\'"
 
 days :: ( DBTypeCtx (GetDBTypeRep sc Interval)
            , SingI (GetDBTypeRep sc Interval)
-           ) => Int -> Expr sc scope Interval
+           ) => Int -> Expr sc Interval
 days i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " days\'"
 
 minutes :: ( DBTypeCtx (GetDBTypeRep sc Interval)
            , SingI (GetDBTypeRep sc Interval)
-           ) => Int -> Expr sc scope Interval
+           ) => Int -> Expr sc Interval
 minutes i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " minutes\'"
 
 seconds :: ( DBTypeCtx (GetDBTypeRep sc Interval)
            , SingI (GetDBTypeRep sc Interval)
-           ) => Int -> Expr sc scope Interval
+           ) => Int -> Expr sc Interval
 seconds i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " seconds\'"
 
 {-
 -- TODO: decide on json
-strToJson :: (Typeable a) => String -> Expr sc scope (Json a)
+strToJson :: (Typeable a) => String -> Expr sc (Json a)
 strToJson = annotateType . Expr . PQ.ConstExpr . PQ.String . T.pack
 
-strToJsonStr :: (Typeable a) => String -> Expr sc scope (JsonStr a)
+strToJsonStr :: (Typeable a) => String -> Expr sc (JsonStr a)
 strToJsonStr = annotateType . Expr . PQ.ConstExpr . PQ.String . T.pack
 
-lazyJson :: (Typeable a) => LB.ByteString -> Expr sc scope (Json a)
+lazyJson :: (Typeable a) => LB.ByteString -> Expr sc (Json a)
 lazyJson = strToJson . lazyDecodeUtf8
 
-toJson :: (ToJSON a, Typeable a) => a -> Expr sc scope (Json a)
+toJson :: (ToJSON a, Typeable a) => a -> Expr sc (Json a)
 toJson = lazyJson . A.encode
 
-toJsonStr :: (ToJSON a, Typeable a) => a -> Expr sc scope (JsonStr a)
+toJsonStr :: (ToJSON a, Typeable a) => a -> Expr sc (JsonStr a)
 toJsonStr = strToJsonStr . lazyDecodeUtf8 . A.encode
 -}
 
-bytes :: SB.ByteString -> Expr sc scope SB.ByteString
+bytes :: SB.ByteString -> Expr sc SB.ByteString
 bytes = Expr . PQ.ConstExpr . PQ.Byte
 
-addInterval :: Expr sc scope Interval -> Expr sc scope Interval -> Expr sc scope Interval
+addInterval :: Expr sc Interval -> Expr sc Interval -> Expr sc Interval
 addInterval e1 e2 = binOp PQ.OpPlus e1 e2
 
 uuid :: ( DBTypeCtx (GetDBTypeRep sc UUID)
        , SingI (GetDBTypeRep sc UUID)
-       ) => UUID -> Expr sc scope UUID
+       ) => UUID -> Expr sc UUID
 uuid = annotateType . Expr . PQ.ConstExpr . PQ.Other . quoteVal . T.pack . UUID.toString
   where
     quoteVal str = "\'" <> str <> "\'"
 
-addToDate :: Expr sc scope UTCTime -> Expr sc scope Interval -> Expr sc scope UTCTime
+addToDate :: Expr sc UTCTime -> Expr sc Interval -> Expr sc UTCTime
 addToDate e1 e2 = binOp PQ.OpPlus e1 e2
 
-dbDefault :: Expr sc scope a
+dbDefault :: Expr sc a
 dbDefault = Expr $ PQ.DefaultInsertExpr
 
 dbDefault' :: PQ.PrimExpr
 dbDefault' = PQ.DefaultInsertExpr
 
-utcToLocalTime :: Expr sc scope T.Text
-               -> Expr sc scope UTCTime
-               -> Expr sc scope LocalTime
+utcToLocalTime :: Expr sc T.Text
+               -> Expr sc UTCTime
+               -> Expr sc LocalTime
 utcToLocalTime tz ut = binOp PQ.OpAtTimeZone ut tz
 
-localTimeToUTC :: Expr sc scope T.Text
-               -> Expr sc scope LocalTime
-               -> Expr sc scope UTCTime
+localTimeToUTC :: Expr sc T.Text
+               -> Expr sc LocalTime
+               -> Expr sc UTCTime
 localTimeToUTC tz lt = binOp PQ.OpAtTimeZone lt tz
 
-(%) :: Expr sc scope T.Text -> Expr sc scope T.Text -> Expr sc scope Bool
+(%) :: Expr sc T.Text -> Expr sc T.Text -> Expr sc Bool
 l % r = binOp (PQ.OpOther "%") l r
 
-(%?) :: Expr sc scope (Maybe T.Text) -> Expr sc scope (Maybe T.Text) -> Expr sc scope Bool
+(%?) :: Expr sc (Maybe T.Text) -> Expr sc (Maybe T.Text) -> Expr sc Bool
 l %? r = binOp (PQ.OpOther "%") l r
 
-coalesce :: Expr sc scope a -> Expr sc scope (Maybe a) -> Expr sc scope a
+coalesce :: Expr sc a -> Expr sc (Maybe a) -> Expr sc a
 coalesce (Expr d) (Expr opt) =
   Expr (PQ.FunExpr "COALESCE" [opt, d])
 
-sum :: (NumExpr a) => Expr sc scope a -> Expr sc scope a
+sum :: (NumExpr a) => Expr sc a -> Expr sc a
 sum = Expr . PQ.FunExpr "sum" . singleton . getExpr
   where singleton x = [x]
 
-avg :: (FractionalExpr a) => Expr sc scope a -> Expr sc scope a
+avg :: (FractionalExpr a) => Expr sc a -> Expr sc a
 avg = Expr . PQ.FunExpr "avg" . singleton . getExpr
   where singleton x = [x]
 
@@ -928,203 +928,35 @@ formatCol col'
           False -> T.head t == '"' && T.last t == '"'
         splitCol = T.split (== '.') . T.dropEnd 1 . T.drop 1
 
-{-
-parseExpr :: (Typeable t, ToScopeRep sc (Proxy ('[] :: [* -> *]))) => T.Text -> Validation (Expr sc t)
-parseExpr t =
-  parseColumnName  t `choice`
-  parseLiteral     t `choice`
-  exprParseErr
 
-parseColumnName :: forall sc t. (Typeable t, ToScopeRep sc (Proxy ('[] :: [* -> *]))) => T.Text -> Validation (Expr sc t)
-parseColumnName t = case formatCol t of
-  Just colPieces -> case checkFieldType colPieces (Proxy @t) (getScopeRep (Proxy @sc)) of
-    True  -> pure (Expr (PQ.AttrExpr (PQ.unsafeToSym colPieces)))
-    False -> exprParseErr
-  Nothing -> exprParseErr
-
-parseLiteral :: forall sc t. (Typeable t) => T.Text -> Validation (Expr sc t)
-parseLiteral = (Expr . PQ.ConstExpr <$>) . go
-  where go lit = parseLitNull tRep lit    *> pure PQ.Null     `choice`
-                 -- parseDefault tRep lit *> pure PQ.Default `choice`
-                 PQ.Bool     <$> parseLitBool tRep lit        `choice`
-                 PQ.String   <$> parseLitString tRep lit      `choice`
-                 PQ.Integer  <$> parseLitInteger tRep lit     `choice`
-                 PQ.Double   <$> parseLitDouble tRep lit      `choice`
-                 -- PQ.Other    <$> parseLitOther tRep lit       `choice`
-                 exprParseErr
-        tRep = typeRep (Proxy @t)
-
-parseLitNull :: TypeRep -> T.Text -> Validation ()
-parseLitNull txtRep t
-  | t == "null" = hasMaybeWrapper txtRep
-  | otherwise   = exprParseErr
-  where hasMaybeWrapper tRep = case splitTyConApp tRep of
-          (tc, tReps) -> case (typeRepTyCon maybeTRep == tc) of
-                              True -> pure ()
-                              False -> foldr choice exprParseErr (map hasMaybeWrapper tReps)
-        maybeTRep = typeRep (Proxy :: Proxy Maybe)
-
-parseLitBool :: TypeRep -> T.Text -> Validation Bool
-parseLitBool tRep t
-  | tRep == typeOf True = case t of
-    "true"  -> pure True
-    "false" -> pure False
-    _       -> exprParseErr
-  | otherwise = exprParseErr
-
-parseLitString :: TypeRep -> T.Text -> Validation T.Text
-parseLitString tRep txt
-  | tRep == typeRep (Proxy :: Proxy T.Text) && isLitStr txt = pure (dropQuotes txt)
-  | otherwise                                               = exprParseErr
-
-  where isLitStr t = case T.null t of
-          True  -> False
-          False -> T.head t == '\'' && T.last t == '\''
-        dropQuotes = T.dropEnd 1 . T.drop 1
-
-
-parseLitInteger :: TypeRep -> T.Text -> Validation Integer
-parseLitInteger tRep t = case t of
-  _ | typeRep (Proxy :: Proxy Int)     == tRep -> parseIntLike (Proxy @Int) t
-    | typeRep (Proxy :: Proxy Int8)    == tRep -> parseIntLike (Proxy @Int8) t
-    | typeRep (Proxy :: Proxy Int16)   == tRep -> parseIntLike (Proxy @Int16) t
-    | typeRep (Proxy :: Proxy Int32)   == tRep -> parseIntLike (Proxy @Int32) t
-    | typeRep (Proxy :: Proxy Int64)   == tRep -> parseIntLike (Proxy @Int64) t
-    | typeRep (Proxy :: Proxy Integer) == tRep -> parseIntLike (Proxy @Integer) t
-    | typeRep (Proxy :: Proxy Word)    == tRep -> parseWordLike (Proxy @Word) t
-    | typeRep (Proxy :: Proxy Word8)   == tRep -> parseWordLike (Proxy @Word8) t
-    | typeRep (Proxy :: Proxy Word16)  == tRep -> parseWordLike (Proxy @Word16) t
-    | typeRep (Proxy :: Proxy Word32)  == tRep -> parseWordLike (Proxy @Word32) t
-    | typeRep (Proxy :: Proxy Word64)  == tRep -> parseWordLike (Proxy @Word64) t
-    | otherwise                                -> exprParseErr
-
-  where parseIntLike :: (Integral i) => Proxy i -> T.Text -> Validation Integer
-        parseIntLike p = (toInteger <$>) . getParsedVal p . R.signed R.decimal
-
-        parseWordLike :: (Integral i) => Proxy i -> T.Text -> Validation Integer
-        parseWordLike p = (toInteger <$>) . getParsedVal p . R.decimal
-
-parseLitDouble :: TypeRep -> T.Text -> Validation Double
-parseLitDouble tRep t = case t of
-  _ | typeRep (Proxy :: Proxy Float)   == tRep -> parseFloat  t
-    | typeRep (Proxy :: Proxy Double)  == tRep -> parseDouble t
-    | otherwise                                -> exprParseErr
-
-  where parseDouble = getParsedVal (Proxy @Double) . R.double
-        -- TODO: Fix float
-        parseFloat  = getParsedVal (Proxy @Double) . R.double
-
-parseLitOther :: TypeRep -> T.Text -> Validation T.Text
-parseLitOther _ _ = exprParseErr
-
-getParsedVal :: Proxy i -> Either String (i, T.Text) -> Validation i
-getParsedVal _ (Right (v, "")) = Right v
-getParsedVal _ _               = exprParseErr
-
-instance ToJSON (Expr sc a) where
-  toEncoding e = A.pairs ("trusted" A..= getExpr e)
-  toJSON     e = A.object ["trusted" A..= getExpr e]
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Int) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Int8) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Int16) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Int32) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Int64) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Bool) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Char) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Float) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Double) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word8) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word16) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word32) where
-  parseJSON = parseJSONExpr
-
-instance (ToScopeRep sc (Proxy ('[] :: [* -> *]))) => FromJSON (Expr sc Word64) where
-  parseJSON = parseJSONExpr
-
-parseJSONExpr :: (Typeable a, ToScopeRep sc (Proxy ('[] :: [* -> *]))) => A.Value -> Parser (Expr sc a)
-parseJSONExpr (A.Object eobj) = do
-  tst  <- eobj A..:? "trusted"
-  case tst of
-    Just e -> pure (Expr e)
-    Nothing -> case A.withText "Expr" go <$> (HM.lookup "untrusted" eobj) of
-      Just p  -> p
-      Nothing -> fail "key not found"
-  where go texpr = case parseExpr texpr of
-          Left  errs -> fail (T.unpack (renderErrs errs))
-          Right v    -> pure v
-parseJSONExpr e = typeMismatch "Expr" e
-
-renderErrs :: [ExprError] -> T.Text
-renderErrs errs =
-  "Following errors occured while parsing the Expr\n" <>
-  T.concat (map renderErr errs)
-
-  where renderErr (TypeMismatch expr got) =
-          "Couldn't match expected type '" <> (T.pack (show expr)) <> "' with actual type '" <> (T.pack (show got)) <> "\n"
-        renderErr (ParseErr)             =
-          "Parse error"
--}
-{-
--- We trust the binary input
-instance Binary (Expr sc a) where
-  put = put . getExpr
-  get = Expr <$> get
--}
-
-runIdentity :: Expr sc scope (Identity a) -> Expr sc scope a
+runIdentity :: Expr sc (Identity a) -> Expr sc a
 runIdentity = unsafeCoerceExpr
 
-toIdentity :: Expr sc scope a -> Expr sc scope (Identity a)
+toIdentity :: Expr sc a -> Expr sc (Identity a)
 toIdentity = unsafeCoerceExpr
 
-coerceExpr :: forall b a sc scope. (Coercible a b) => Expr sc scope a -> Expr sc scope b
+coerceExpr :: forall b a sc. (Coercible a b) => Expr sc a -> Expr sc b
 coerceExpr = unsafeCoerceExpr
 
-unsafeCoerceAggExpr :: AggExpr sc scope a -> AggExpr sc scope b
+unsafeCoerceAggExpr :: AggExpr sc a -> AggExpr sc b
 unsafeCoerceAggExpr = coerce
 
-coerceAggExpr :: forall b a sc scope. (Coercible a b) => AggExpr sc scope a -> AggExpr sc scope b
+coerceAggExpr :: forall b a sc. (Coercible a b) => AggExpr sc a -> AggExpr sc b
 coerceAggExpr = unsafeCoerceAggExpr
 
-rawExpr :: T.Text -> Expr sc scope a
+rawExpr :: T.Text -> Expr sc a
 rawExpr = (Expr . PQ.RawExpr)
 
-count :: Expr sc scopes a -> AggExpr sc scopes Int64
+count :: Expr scs a -> AggExpr scs Int64
 count = coerce . funOp "count"
 
 class Alias f where
   as :: f a -> Proxy fld -> f (fld ::: a)
 
-instance Alias (Expr sc scope) where
+instance Alias (Expr sc) where
   as e _ = coerceExpr e
 
-instance Alias (AggExpr sc scope) where
+instance Alias (AggExpr sc) where
   as e _ = coerceAggExpr e
 
 instance ( lab ~ sym

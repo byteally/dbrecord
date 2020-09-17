@@ -26,7 +26,7 @@ library
                      , time
                      , dbrecord
                      , mtl
-                     , hedgehog       <  1
+                     , hedgehog
                      , tasty-hedgehog >= 0.2.0.0                     
                      , uuid-types
                      , tasty

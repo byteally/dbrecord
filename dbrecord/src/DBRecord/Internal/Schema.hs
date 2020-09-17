@@ -512,14 +512,14 @@ data IgnoredCol
   | IgnoreExcept [Symbol]
   | IgnoreNone
 
-data Def (sc :: *) (tab :: k) (fn :: Symbol) = forall v.Def (PQ.Expr sc '[] v)
+data Def (sc :: *) (tab :: k) (fn :: Symbol) = forall v.Def (PQ.Expr sc v)
 
-def :: forall (fn :: Symbol) (tab :: *) (sc :: *) v.(ValidateDBFld tab fn v) => PQ.Expr sc '[] v -> Def sc tab fn
+def :: forall (fn :: Symbol) (tab :: *) (sc :: *) v.(ValidateDBFld tab fn v) => PQ.Expr sc v -> Def sc tab fn
 def = Def
 
 instance ( ValidateDBFld tab un a
          , un ~ fn
-         , v ~ PQ.Expr sc '[] a
+         , v ~ PQ.Expr sc a
          ) => IsLabel un (v -> Def sc (tab :: *) fn) where
 #if __GLASGOW_HASKELL__ > 800
   fromLabel v = def @un @tab @sc v
@@ -560,24 +560,12 @@ type family LookupCheck (chks :: [CheckCT]) (cn :: Symbol) :: Maybe [Symbol] whe
 type family UnifyCheck (sc :: *) (tab :: *) (cn :: Symbol) (flds :: [*]) (args :: Maybe [Symbol]) (val :: *) :: Constraint where
   UnifyCheck _ tab cn flds 'Nothing val = TypeError ('Text "check constraint " ':<>: 'ShowType cn ':<>: 'Text " does not exist on table " ':<>: 'ShowType tab)
   UnifyCheck sc tab cn flds ('Just args) val = UnifyOrErr (SeqEither (MkCheckFn sc tab args val flds)) val
-  
-type family MkCheckFn (sc :: *) (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: [Either ErrorMessage *] where
-  MkCheckFn sc tab (fn ': fs) chkFun flds = Note (ColNotFoundMsg fn tab) (FMapMaybe (PQ.Expr sc flds) (FindField flds fn)) ': MkCheckFn sc tab fs chkFun flds
-  MkCheckFn sc tab '[] r flds = '[ 'Right (PQ.Expr sc flds Bool)]
 
-{-
-instance ( un ~ cn
-         , args ~ LookupCheck (Check db tab) cn
-         , UnifyCheck sc tab cn (OriginalTableFields tab) args val
-         , ApCheckExpr (PartialJust args) cn val
-         , res ~ ('CheckOn (PartialJust args) cn)
-         ) => IsLabel un (val -> Chk db tab res) where
-#if __GLASGOW_HASKELL__ > 800
-  fromLabel = check
-#else
-  fromLabel _ = check
-#endif
--}
+-- TODO: flds are dummied out  
+type family MkCheckFn (sc :: *) (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: [Either ErrorMessage *] where
+  MkCheckFn sc tab (fn ': fs) chkFun flds = Note (ColNotFoundMsg fn tab) (FMapMaybe (PQ.Expr sc) (FindField flds fn)) ': MkCheckFn sc tab fs chkFun flds
+  MkCheckFn sc tab '[] r flds = '[ 'Right (PQ.Expr sc Bool)]
+
 
 check :: forall (cn :: Symbol) (sc :: *) (tab :: *) val args.
         ( args ~ LookupCheck (Check sc tab) cn
@@ -686,14 +674,14 @@ class ApCheckExpr (chkOns :: [Symbol]) (chkName :: Symbol) val where
 
 instance ( ApCheckExpr chkOns chkName b
          , KnownSymbol chkOn
-         ) => ApCheckExpr (chkOn ': chkOns) chkName (PQ.Expr sc scope a -> b) where
+         ) => ApCheckExpr (chkOn ': chkOns) chkName (PQ.Expr sc a -> b) where
   apCheckExpr _ pChkN cis chkMaps v =
     let colE = PQ.unsafeCol [dbColN]
         colN = T.pack (symbolVal (Proxy @chkOn))
         dbColN = getDbColumnName cis colN
     in  apCheckExpr (Proxy @chkOns) pChkN cis chkMaps (v colE)
 
-instance (KnownSymbol chkName) => ApCheckExpr '[] chkName (PQ.Expr sc scope a) where
+instance (KnownSymbol chkName) => ApCheckExpr '[] chkName (PQ.Expr sc a) where
   apCheckExpr _ _ _ chkMaps e = (dbChkName, PQ.getExpr e)
     where dbChkName = getDbCheckName chkMaps (T.pack (symbolVal (Proxy @chkName)))
 
@@ -1506,9 +1494,9 @@ type family IsNullable (dbt :: DBTypeK) where
 reproxy :: proxy a -> Proxy a
 reproxy _ = Proxy
 
-col :: forall (sc :: *) (tab :: *) (col :: Symbol) (a :: *) scope.
+col :: forall (sc :: *) (tab :: *) (col :: Symbol) (a :: *).
   ( PlainColumnCtx sc tab col a
-  ) => Proxy (DBTag sc tab col) -> PQ.Expr sc scope a
+  ) => Proxy (DBTag sc tab col) -> PQ.Expr sc a
 col _ = PQ.Expr (PQ.AttrExpr sym)
   where sym = maybe (error "Panic: Empty col @col_") id (PQ.toSym [dbColN])
         dbColN = _dbName (_columnNameInfo (getColumnInfo (headColInfos (Proxy @sc) (Proxy @tab)) fld))
@@ -1530,7 +1518,7 @@ instance (PlainColumnCtx sc tab col a) => PlainColumnCtx_ a rep sc tab col where
   
 class Column_ a (rep :: DBTypeK) where
   type ColumnCtx a rep :: * -> * -> Symbol -> Constraint
-  column_ :: (ColumnCtx a rep sc tab col) => Proxy (DBTag sc tab col) -> Proxy rep -> PQ.Expr sc scope a
+  column_ :: (ColumnCtx a rep sc tab col) => Proxy (DBTag sc tab col) -> Proxy rep -> PQ.Expr sc a
 
 instance Column_ a 'DBInt2 where
   type ColumnCtx a 'DBInt2 =
@@ -1699,11 +1687,11 @@ instance (SingI ess, SingE ess) => Column_ a ('DBCustomType typ ('DBTypeName nam
 
 -- class Project sc a field where
 
-instance (UDType sc a, UDTargetType (TypeMappings sc a) x r a) => HasField x (PQ.Expr sc scopes a) (PQ.Expr sc scopes r) where
+instance (UDType sc a, UDTargetType (TypeMappings sc a) x r a) => HasField x (PQ.Expr sc a) (PQ.Expr sc r) where
   hasField = udTargetType (Proxy @'(x, (TypeMappings sc a)))
 
 class UDTargetType (ud :: UDTypeMappings) fld r a | ud fld a -> r  where
-  udTargetType :: Proxy '(fld, ud) -> PQ.Expr sc scopes a -> (PQ.Expr sc scopes r -> PQ.Expr sc scopes a, PQ.Expr sc scopes r)
+  udTargetType :: Proxy '(fld, ud) -> PQ.Expr sc a -> (PQ.Expr sc r -> PQ.Expr sc a, PQ.Expr sc r)
 
 -- NOTE: if unresolved, then does not meet specifications
 type family GTarget (fld :: Symbol) (rep :: Type -> Type) :: Type where
