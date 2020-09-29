@@ -16,15 +16,15 @@ import Prelude hiding ((<>), const, exp)
 data Document
 data Vector
 
-const :: T.Text -> Expr sc scopes Document
+const :: T.Text -> Expr sc Document
 const = unsafeCoerceExpr . text
 
-exp :: Expr sc scopes T.Text -> Expr sc scopes Document
+exp :: Expr sc T.Text -> Expr sc Document
 exp = unsafeCoerceExpr
 
-mappendDoc :: Expr sc scopes Document -> Expr sc scopes Document -> Expr sc scopes Document
+mappendDoc :: Expr sc Document -> Expr sc Document -> Expr sc Document
 mappendDoc (Expr e1) (Expr e2) = Expr (PQ.BinExpr combineOp e1 e2)
   where combineOp = PQ.OpOther "||"
 
-vector :: Expr sc scopes Document -> Expr sc scopes Vector
+vector :: Expr sc Document -> Expr sc Vector
 vector (Expr doc) = Expr (PQ.FunExpr "to_tsvector" [doc])

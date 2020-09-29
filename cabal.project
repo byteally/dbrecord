@@ -7,7 +7,9 @@ packages:
   ./dbrecord-sqlite-simple
   ./dbrecord-mssql-odbc
   ./dbrecord-mysql-haskell
-  ./dbrecord-test  
+  ./dbrecord-test
+  ../labs/record-hasfield
+  ../rec
 
 source-repository-package
     type: git
