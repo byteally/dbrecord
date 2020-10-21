@@ -10,6 +10,7 @@ import qualified Data.Text as T
 import Data.Kind
 import Data.Typeable
 import GHC.Exts
+import Data.Text (Text)
 
 
 data DBTag (db :: *) (tab :: *) (v :: k)
@@ -496,3 +497,26 @@ instance (AllF (All f) xss) => All2 f xss
 class HasField x r a | x r -> a where
   -- | Function to get and set a field in a record.
   hasField :: r -> (a -> r, a)
+
+
+type family UDTCtx (udt :: UDTypeMappings) where
+  UDTCtx ('EnumType tn dcons) = (SingE tn, SingE dcons)
+  UDTCtx ('Composite tn ss)   = (SingE tn, SingE ss)
+  UDTCtx ('Flat ss)           = (SingE ss)
+  UDTCtx ('Sum tagn tss)      = (SingE tss, SingE tagn)
+  UDTCtx ('EnumText es)       = (SingE es)
+
+instance (UDTCtx udt) => SingE (udt :: UDTypeMappings) where
+  type Demote udt = TypeNameMap
+  fromSing (SEnumType s ss)   = EnumTypeNM (fromSing s) (fromSing ss)
+  fromSing (SComposite s tss) = CompositeNM (fromSing s) (fromSing tss)
+  fromSing (SFlat tss)        = FlatNM (fromSing tss)
+  fromSing (SEnumText t)      = EnumTextNM (fromSing t)
+  fromSing (SSum t tss)       = SumNM (fromSing t) (fromSing tss)
+
+data TypeNameMap = EnumTypeNM (Maybe Text) [(Text, Text)]
+                 | CompositeNM (Maybe Text) [(Text, Text)]
+                 | EnumTextNM [(Text, Text)]
+                 | FlatNM [(Text, Text)]
+                 | SumNM (Maybe Text) [(Text, [(Text, Text)])]
+                 deriving (Show, Eq)

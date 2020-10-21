@@ -52,6 +52,7 @@ module DBRecord.Query
        , DBDecoder (..)
        , DBTag
        , TransactionConfig (..)
+       , RowCount
        , rawClauses
        , runQuery
        , getBaseTable
@@ -104,7 +105,6 @@ import Control.Monad.Reader
 import DBRecord.Internal.Lens ((^.))
 import Control.Exception hiding (TypeError)
 import Data.Kind 
-
 import GHC.Generics
 
 type family DBM (db :: *) = (r :: * -> *) | r -> db
@@ -127,9 +127,8 @@ type family UnifyUqPredicate (db :: *) (tab :: *) (pred :: *) (uniqs :: Either E
 data Page = Offset Int | Limit Int | OffsetLimit Int Int
           deriving (Show, Eq)
 
--- Newtype used to tag a Table with a value
-newtype ColVal tab a = ColVal a
-                     deriving (Show, Eq, Num)
+newtype RowCount tab = RowCount { getRowCount :: Int64 }
+                     deriving (Show, Eq, Ord, Num)
 
 newtype Updated sc tab (scopes :: [*]) = Updated {getUpdateMap :: HashMap Attribute PrimExpr}
   deriving (Show)
@@ -402,7 +401,7 @@ count :: forall tab db driver cfg.
   , FromDBRow driver (Only Int)
   , SingCtx db tab
   , SingCtxSc db
-  ) => Expr (OriginalTableFields tab) Bool -> DBM db (ColVal tab Int)
+  ) => Expr (OriginalTableFields tab) Bool -> DBM db (RowCount tab)
 count filt = do
   let tabId = getTableId (Proxy @db) (Proxy @tab)
       filtE = case filt of
@@ -411,7 +410,7 @@ count filt = do
       cls = clauses { criteria = filtE }
   res <- runQuery tabId cls    
   case res of
-    [Only ct] -> pure $ ColVal ct
+    [Only ct] -> pure $ RowCount ct
     _         -> error "Panic: Expecting only a singleton @count"
 -}
 
@@ -512,11 +511,11 @@ delete :: forall sc tab driver cfg scopes.
   , HasDelete driver
   , SingCtx sc tab
   , SingCtxSc sc
-  ) => (Q.Columns tab -> Expr sc scopes Bool) -> DBM (SchemaDB sc) (ColVal tab Int64)
+  ) => (Q.Columns tab -> Expr sc scopes Bool) -> DBM (SchemaDB sc) (RowCount tab)
 delete filt = do
   let deleteQ = DeleteQuery (getTableId (Proxy @sc) (Proxy @tab)) [getExpr $ filt (Q.Columns prjs)]
   driver <- ask
-  ColVal <$> (liftIO $ dbDelete driver deleteQ)
+  RowCount <$> (liftIO $ dbDelete driver deleteQ)
 
     where prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
 
