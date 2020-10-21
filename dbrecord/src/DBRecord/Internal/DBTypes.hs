@@ -109,11 +109,15 @@ instance (DBTypeCtx t) => SingE (t :: Type.DBTypeK) where
   fromSing (SDBCustomType _ t )    = DBCustomType (fromSing t)
 
 type family DBTypeNameKCtx (typn :: Type.DBTypeNameK) where
-  DBTypeNameKCtx ('Type.DBTypeName s args _) = (SingE s, SingE args)
+  DBTypeNameKCtx ('Type.DBTypeName s args udm) = (SingE s, SingE args, Type.UDTCtx udm)
 
 instance (DBTypeNameKCtx typn) => SingE (typn :: Type.DBTypeNameK) where
   type Demote typn = DBTypeName
-  fromSing (SDBTypeName s args _udm) = DBTypeName (fromSing s) (fromSing args)
+  fromSing (SDBTypeName s args udm) = DBTypeName alias (fromSing args)
+    where alias = case fromSing udm of
+            Type.EnumTypeNM (Just a) _ -> a
+            Type.CompositeNM (Just a) _ -> a
+            _ -> fromSing s
 
 type family TypeArgCtx (t :: Type.TypeArgK) where
   TypeArgCtx ('Type.SymArg sym) = SingE sym

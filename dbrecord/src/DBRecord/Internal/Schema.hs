@@ -252,21 +252,6 @@ instance (TagDBTypeCtx taggedDbt) => SingE (taggedDbt :: TagHK DbK DBTypeK) wher
   type Demote taggedDbt     = Type.DBType
   fromSing (STag _ stype) = fromSing stype
 
-type family UDTCtx (udt :: UDTypeMappings) where
-  UDTCtx ('EnumType tn dcons) = (SingE tn, SingE dcons)
-  UDTCtx ('Composite tn ss)   = (SingE tn, SingE ss)  
-  UDTCtx ('Flat ss)           = (SingE ss)
-  UDTCtx ('Sum tagn tss)      = (SingE tss, SingE tagn)    
-  UDTCtx ('EnumText es)       = (SingE es)
-
-instance (UDTCtx udt) => SingE (udt :: UDTypeMappings) where
-  type Demote udt = TypeNameMap
-  fromSing (SEnumType s ss)   = EnumTypeNM (fromSing s) (fromSing ss)
-  fromSing (SComposite s tss) = CompositeNM (fromSing s) (fromSing tss)
-  fromSing (SFlat tss)        = FlatNM (fromSing tss)
-  fromSing (SEnumText t)      = EnumTextNM (fromSing t)
-  fromSing (SSum t tss)       = SumNM (fromSing t) (fromSing tss)
-
 showDBTypeSing :: forall db dbTy.
                    ( DBTypeCtx dbTy
                    ) => Sing (db :: DbK) -> Sing (dbTy :: DBTypeK) -> Type.DBType
@@ -767,13 +752,6 @@ mkTypeNameInfo pgt tnm =
 data TypeNameInfo = TypeNameInfo { _typeNameVal   :: Type.DBType 
                                  , _typeNameMap   :: TypeNameMap
                                  } deriving (Show, Eq)
-
-data TypeNameMap = EnumTypeNM (Maybe Text) [(Text, Text)]
-                 | CompositeNM (Maybe Text) [(Text, Text)]
-                 | EnumTextNM [(Text, Text)]                 
-                 | FlatNM [(Text, Text)]
-                 | SumNM (Maybe Text) [(Text, [(Text, Text)])]
-                 deriving (Show, Eq)
 
 {-
 addEnumValAfter :: Text -> Text -> TypeNameMap -> TypeNameMap
