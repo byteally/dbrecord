@@ -21,7 +21,11 @@
 {-# LANGUAGE OverloadedStrings       #-}
 {-# LANGUAGE FunctionalDependencies  #-}
 
-module DBRecord.Internal.Schema where
+module DBRecord.Internal.Schema
+  ( module DBRecord.Internal.Schema
+  , Database (..)
+  , Schema (..)
+  ) where
 
 import Data.Maybe
 import Data.Proxy
@@ -53,38 +57,6 @@ data Column   = Column !ColName !ColType
 
 type family GetDBTypeRep sc t where
   GetDBTypeRep sc t = GetDBTypeRep' sc (DB (SchemaDB sc)) t
-
-class ( Break (NoGeneric db) (Rep db)
-      -- TypeCxts db (Types db)
-      ) => Database (db :: *) where
-  type DB db :: DbK
-  type DB db = TypeError ('Text "DB type is not configured in the Database instance for type " ':<>: 'ShowType db ':$$:
-                          'Text "Hint: add following to the Database instance for type "       ':<>: 'ShowType db ':$$:
-                          'Text "type DB " ':<>: 'ShowType db ':<>: 'Text " = " ':<>: 'ShowType 'Postgres
-                         )
-  type DatabaseName db :: Symbol
-
-class ( -- TypeCxts db (Types db)
-        Database (SchemaDB sc)
-      ) => Schema (sc :: *) where
-  type SchemaName sc :: Symbol
-  type SchemaName sc = "public"
-  
-  type Tables sc :: [Type]
-  
-  type Types sc :: [Type]
-  type Types sc = '[]
-
-  type TabIgnore sc :: [Type]
-  type TabIgnore sc = '[]
-  
-  type Baseline sc :: Nat
-  type Baseline sc = 0
-  
-  type Version sc :: Nat
-  type Version sc = 0
-
-  type SchemaDB sc :: Type
 
 type family NoSchema t where
   NoSchema x = TypeError ('Text "No instance for " ':<>: 'ShowType (Schema x))  
@@ -1640,14 +1612,14 @@ instance Column_ a ('DBArray t) where
     PlainColumnCtx_ a ('DBArray t)
   column_ tag _ = col tag
 
-instance Column_ a ('DBCustomType (typ :: Type) ('DBTypeName name args ('EnumType en es))) where
-  type ColumnCtx a ('DBCustomType typ ('DBTypeName name args ('EnumType en es))) =
-    PlainColumnCtx_ a ('DBCustomType typ ('DBTypeName name args ('EnumType en es)))
+instance Column_ a ('DBCustomType scn (typ :: Type) ('DBTypeName name args ('EnumType en es))) where
+  type ColumnCtx a ('DBCustomType scn typ ('DBTypeName name args ('EnumType en es))) =
+    PlainColumnCtx_ a ('DBCustomType scn typ ('DBTypeName name args ('EnumType en es)))
   column_ tag _ = col tag 
 
-instance Column_ a ('DBCustomType (typ :: Type) ('DBTypeName name args ('Composite en es))) where
-  type ColumnCtx a ('DBCustomType typ ('DBTypeName name args ('Composite en es))) =
-    PlainColumnCtx_ a ('DBCustomType typ ('DBTypeName name args ('Composite en es)))
+instance Column_ a ('DBCustomType scn (typ :: Type) ('DBTypeName name args ('Composite en es))) where
+  type ColumnCtx a ('DBCustomType scn typ ('DBTypeName name args ('Composite en es))) =
+    PlainColumnCtx_ a ('DBCustomType scn typ ('DBTypeName name args ('Composite en es)))
   column_ tag _ = col tag
 
 class CustomColumnCtx_ sc tab col where

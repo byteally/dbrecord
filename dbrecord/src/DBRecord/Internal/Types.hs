@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, TypeFamilies, UndecidableInstances, UndecidableSuperClasses, ScopedTypeVariables, FunctionalDependencies, AllowAmbiguousTypes, RankNTypes #-}
+{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, TypeFamilies, UndecidableInstances, UndecidableSuperClasses, ScopedTypeVariables, FunctionalDependencies, AllowAmbiguousTypes, RankNTypes, FlexibleContexts #-}
 module DBRecord.Internal.Types where
 
 import GHC.Generics
@@ -99,7 +99,7 @@ data DBTypeK
   | DBVarbit Nat
   | DBJsonB
   | DBArray DBTypeK
-  | DBCustomType Type DBTypeNameK
+  | DBCustomType Symbol Type DBTypeNameK
 
 data DBTypeNameK = DBTypeName Symbol [TypeArgK] UDTypeMappings
 
@@ -337,7 +337,7 @@ data instance Sing (t :: DBTypeK) where
   SDBVarbit      :: Sing n -> Sing ('DBVarbit n)
   SDBJsonB       :: Sing 'DBJsonB  
   SDBArray       :: Sing a -> Sing ('DBArray a)
-  SDBCustomType  :: Sing t -> Sing dbt -> Sing ('DBCustomType t dbt)
+  SDBCustomType  :: Sing sc -> Sing t -> Sing dbt -> Sing ('DBCustomType sc t dbt)
 
 data instance Sing (t :: DBTypeNameK) where
   SDBTypeName :: Sing s -> Sing args -> Sing udm -> Sing ('DBTypeName s args udm)
@@ -440,9 +440,9 @@ instance SingI ('DBJsonB) where
 instance (SingI n) => SingI ('DBArray n) where
   sing = SDBArray sing
 
-instance ( SingI t, SingI dbt
-         ) => SingI ('DBCustomType t dbt) where
-  sing = SDBCustomType sing sing
+instance ( SingI t, SingI dbt, SingI sc
+         ) => SingI ('DBCustomType sc t dbt) where
+  sing = SDBCustomType sing sing sing
 
 instance (SingI s, SingI args, SingI udm) => SingI ('DBTypeName s args udm) where
   sing = SDBTypeName sing sing sing
