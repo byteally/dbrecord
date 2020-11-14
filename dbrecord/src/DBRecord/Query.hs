@@ -52,6 +52,7 @@ module DBRecord.Query
        , DBDecoder (..)
        , DBTag
        , TransactionConfig (..)
+       , Updatable
        , RowCount
        , rawClauses
        , runQuery
