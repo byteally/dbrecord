@@ -30,7 +30,7 @@ module DBRecord.Query
        , insert, insert_, insertMany, insertMany_, insertRet, insertManyRet
        , insertWithConflict_
        , insertManyWithConflict_
-       , update, update_
+       , update, update_, updateRet
        -- , count
        , (.~) , (%~)
        , DBM
@@ -56,6 +56,7 @@ module DBRecord.Query
        , Updated
        , RowCount
        , rawClauses
+       , rawTable
        , runQuery
        , getBaseTable
        , getBaseTableExpr
@@ -390,11 +391,17 @@ getAll' p cl = rawClauses p (cl { projections = getTableProjections (Proxy @sc) 
 rawClauses :: forall sc tab driver cfg proxy.
              ( QueryCtx sc tab driver cfg          
              ) => proxy sc -> PQ.Clauses -> DBM (SchemaDB sc) [tab]
-rawClauses _ cls = do
-  let tabId = getTableId (Proxy @sc) (Proxy @tab)
-  runQuery (Table (Just (TableName tabId)) cls)
+rawClauses pt = runQuery . rawTable (Proxy @'(sc, tab))
 
-{-
+rawTable :: forall sc tab proxy.
+  ( SingCtxSc sc 
+  , SingCtx sc tab 
+  , Table sc tab
+  ) => proxy '(sc, tab) -> PQ.Clauses -> PQ.PrimQuery
+rawTable _ cls =
+  let tabId = getTableId (Proxy @sc) (Proxy @tab)
+  in  Table (Just (TableName tabId)) cls
+  {-
 count :: forall tab db driver cfg.
   ( Table db tab
   , MonadIO (DBM db)
@@ -435,10 +442,11 @@ type family Updatable' sc tab (ttyp :: TableTypes) :: Constraint where
   Updatable' sc tab 'NonUpdatableView =
     TypeError ('Text "The view " ':<>: 'ShowType tab ':<>: 'Text " in schema " ':<>: 'ShowType sc ':<>: 'Text " cannot be used in update")
 
-update :: forall sc tab keys driver cfg scopes rets.
+update :: forall sc tab keys driver keyFields cfg scopes rets.
   ( Table sc tab
   , MonadIO (DBM (SchemaDB sc))
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
+  , keyFields ~ FieldsOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))  
   , driver ~ Driver (DBM (SchemaDB sc))
   , MonadReader (driver cfg) (DBM (SchemaDB sc))
   , HasUpdateRet driver
@@ -446,10 +454,34 @@ update :: forall sc tab keys driver cfg scopes rets.
   , SingCtx sc tab
   , SingCtxSc sc
   , Updatable sc tab
+  , SingI keyFields
+  , SingE keyFields
   ) => (Q.Columns tab -> Expr sc scopes Bool)
   -> (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
-  -> HList (Expr sc scopes) rets -> DBM (SchemaDB sc) [HListToTuple keys]  
-update filt updateFn rets =
+  -> DBM (SchemaDB sc) [HListToTuple keys]  
+update filt updateFn =
+  runUpdateRet (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) keyExprs
+
+  where
+    prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
+    keyExprs = map columnExpr (filterColumns pkFlds colIs)
+    pkFlds = fromSing (sing :: Sing keyFields)
+    colIs = headColInfos (Proxy @sc) (Proxy @tab)
+    
+updateRet :: forall sc tab {-keys-} driver cfg scopes rets.
+  ( Table sc tab
+  , MonadIO (DBM (SchemaDB sc))
+  , driver ~ Driver (DBM (SchemaDB sc))
+  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , HasUpdateRet driver
+  , FromDBRow driver (HListToTuple rets)
+  , SingCtx sc tab
+  , SingCtxSc sc
+  , Updatable sc tab
+  ) => (Q.Columns tab -> Expr sc scopes Bool)
+  -> (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
+  -> HList (Expr sc scopes) rets -> DBM (SchemaDB sc) [HListToTuple rets]  
+updateRet filt updateFn rets =
   runUpdateRet (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) (toPrimExprs rets)
 
   where prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
