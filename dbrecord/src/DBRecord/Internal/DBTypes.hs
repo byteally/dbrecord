@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
-{-# LANGUAGE TypeApplications, DataKinds, KindSignatures, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, TypeFamilyDependencies, UndecidableInstances, FlexibleInstances, OverloadedStrings, GADTs, TypeOperators #-}
+{-# LANGUAGE TypeApplications, DataKinds, KindSignatures, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, TypeFamilyDependencies, UndecidableInstances, FlexibleInstances, OverloadedStrings, GADTs, TypeOperators, FlexibleContexts #-}
 module DBRecord.Internal.DBTypes where
 
 import Data.Aeson
@@ -48,7 +48,9 @@ data DBType = DBInt4
             | DBVarbit Integer
             | DBJsonB
             | DBArray DBType
-            | DBCustomType DBTypeName
+            | DBCustomType
+                T.Text -- Schema name
+                DBTypeName
             deriving (Show, Eq, Ord, Read)
 
 data DBTypeName = DBTypeName T.Text [TypeArg]
@@ -74,7 +76,7 @@ type family DBTypeCtx (t :: Type.DBTypeK) :: Constraint where
   DBTypeCtx ('Type.DBBit v)               = SingE v
   DBTypeCtx ('Type.DBVarbit v)            = SingE v
   DBTypeCtx ('Type.DBArray v)             = SingE v
-  DBTypeCtx ('Type.DBCustomType _ dbt )   = SingE dbt
+  DBTypeCtx ('Type.DBCustomType _ _ dbt ) = SingE dbt
   DBTypeCtx _                             = ()
   
 instance (DBTypeCtx t) => SingE (t :: Type.DBTypeK) where
@@ -106,14 +108,18 @@ instance (DBTypeCtx t) => SingE (t :: Type.DBTypeK) where
   fromSing SDBJson                 = DBJson  
   fromSing SDBJsonB                = DBJsonB
   fromSing (SDBArray a)            = DBArray (fromSing a)
-  fromSing (SDBCustomType _ t )    = DBCustomType (fromSing t)
+  fromSing (SDBCustomType sc _ t ) = DBCustomType (fromSing sc) (fromSing t)
 
 type family DBTypeNameKCtx (typn :: Type.DBTypeNameK) where
-  DBTypeNameKCtx ('Type.DBTypeName s args _) = (SingE s, SingE args)
+  DBTypeNameKCtx ('Type.DBTypeName s args udm) = (SingE s, SingE args, Type.UDTCtx udm)
 
 instance (DBTypeNameKCtx typn) => SingE (typn :: Type.DBTypeNameK) where
   type Demote typn = DBTypeName
-  fromSing (SDBTypeName s args _udm) = DBTypeName (fromSing s) (fromSing args)
+  fromSing (SDBTypeName s args udm) = DBTypeName alias (fromSing args)
+    where alias = case fromSing udm of
+            Type.EnumTypeNM (Just a) _ -> a
+            Type.CompositeNM (Just a) _ -> a
+            _ -> fromSing s
 
 type family TypeArgCtx (t :: Type.TypeArgK) where
   TypeArgCtx ('Type.SymArg sym) = SingE sym
@@ -303,9 +309,9 @@ type family GetMSSQLTypeRep (sc :: *) (t :: *) = (r :: Type.DBTypeK) {-| r -> t-
   GetMSSQLTypeRep sc a                 =
     GetMSSQLTypeRepCustom sc a (NewtypeRep a)
 
-type family GetMSSQLTypeRepCustom sc (ot :: Type) (t :: Maybe Type) where
+type family GetMSSQLTypeRepCustom (sc :: Type) (ot :: Type) (t :: Maybe Type) where
   GetMSSQLTypeRepCustom sc a 'Nothing =
-    'Type.DBCustomType a ('Type.DBTypeName (GetTypeName a) '[] (TypeMappings sc a))
+    'Type.DBCustomType (SchemaName sc) a ('Type.DBTypeName (GetTypeName a) '[] (TypeMappings sc a))
   GetMSSQLTypeRepCustom sc _ ('Just a) =
     GetMSSQLTypeRep sc a
 
@@ -336,9 +342,9 @@ type family GetPGTypeRep (sc :: *) (t :: *) = (r :: Type.DBTypeK) {-| r -> t-} w
   GetPGTypeRep sc a                 =
     GetPGTypeRepCustom sc a (NewtypeRep a)
 
-type family GetPGTypeRepCustom sc (ot :: Type) (t :: Maybe Type) where
+type family GetPGTypeRepCustom (sc :: Type) (ot :: Type) (t :: Maybe Type) :: Type.DBTypeK where
   GetPGTypeRepCustom sc a 'Nothing =
-    'Type.DBCustomType a ('Type.DBTypeName (GetTypeName a) '[] (TypeMappings sc a)) 
+    'Type.DBCustomType (SchemaName sc) a ('Type.DBTypeName (GetTypeName a) '[] (TypeMappings sc a)) 
   GetPGTypeRepCustom sc _ ('Just a) =
     GetPGTypeRep sc a
 
@@ -375,6 +381,39 @@ type family GTypeMappingsSum' rep where
   GTypeMappingsSum' (g1 :+: g2)  = GTypeMappingsSum' g1 && GTypeMappingsSum' g2
   GTypeMappingsSum' (C1 _ U1)    = 'True
   GTypeMappingsSum' (C1 _ _)     = 'False
+
+
+class ( -- Break (NoGeneric db) (Rep db)
+      -- TypeCxts db (Types db)
+      ) => Database (db :: *) where
+  type DB db :: DbK
+  type DB db = TypeError ('Text "DB type is not configured in the Database instance for type " ':<>: 'ShowType db ':$$:
+                          'Text "Hint: add following to the Database instance for type "       ':<>: 'ShowType db ':$$:
+                          'Text "type DB " ':<>: 'ShowType db ':<>: 'Text " = " ':<>: 'ShowType 'Postgres
+                         )
+  type DatabaseName db :: Symbol
+
+class ( -- TypeCxts db (Types db)
+        Database (SchemaDB sc)
+      ) => Schema (sc :: *) where
+  type SchemaName sc :: Symbol
+  type SchemaName sc = "public"
+  
+  type Tables sc :: [Type]
+  
+  type Types sc :: [Type]
+  type Types sc = '[]
+
+  type TabIgnore sc :: [Type]
+  type TabIgnore sc = '[]
+  
+  type Baseline sc :: Nat
+  type Baseline sc = 0
+  
+  type Version sc :: Nat
+  type Version sc = 0
+
+  type SchemaDB sc :: Type
 
 toNullable :: DBType -> DBType
 toNullable = DBNullable

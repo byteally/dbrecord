@@ -56,12 +56,12 @@ instance HasUpdate MSSQL where
 instance HasUpdateRet MSSQL where
   dbUpdateRetWith parser (MSSQL conn) updateQ = do
     let updateSQL = MSSQL.renderUpdate $ MSSQL.updateSql $ updateQ
-    fmap V.toList (queryWith parser conn (fromString updateSQL))
+    fmap V.toList (queryWith defQueryConfig parser conn (fromString updateSQL))
 
 instance HasQuery MSSQL where
   dbQueryWith par (MSSQL conn) primQ = do
     let sqlQ = renderQuery primQ
-    fmap V.toList (queryWith par conn (fromString sqlQ))
+    fmap V.toList (queryWith defQueryConfig par conn (fromString sqlQ))
 
 instance HasInsert MSSQL where
   dbInsert (MSSQL conn) insQ = do
@@ -71,7 +71,7 @@ instance HasInsert MSSQL where
 instance HasInsertRet MSSQL where
   dbInsertRetWith parser (MSSQL conn) insQ = do
     let insSQL = MSSQL.renderInsert $ MSSQL.insertSql insQ
-    fmap V.toList (queryWith parser conn (fromString insSQL))
+    fmap V.toList (queryWith defQueryConfig parser conn (fromString insSQL))
     
 instance HasDelete MSSQL where
   dbDelete (MSSQL conn) deleteQ = do

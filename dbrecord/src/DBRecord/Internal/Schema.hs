@@ -21,7 +21,11 @@
 {-# LANGUAGE OverloadedStrings       #-}
 {-# LANGUAGE FunctionalDependencies  #-}
 
-module DBRecord.Internal.Schema where
+module DBRecord.Internal.Schema
+  ( module DBRecord.Internal.Schema
+  , Database (..)
+  , Schema (..)
+  ) where
 
 import Data.Maybe
 import Data.Proxy
@@ -53,38 +57,6 @@ data Column   = Column !ColName !ColType
 
 type family GetDBTypeRep sc t where
   GetDBTypeRep sc t = GetDBTypeRep' sc (DB (SchemaDB sc)) t
-
-class ( Break (NoGeneric db) (Rep db)
-      -- TypeCxts db (Types db)
-      ) => Database (db :: *) where
-  type DB db :: DbK
-  type DB db = TypeError ('Text "DB type is not configured in the Database instance for type " ':<>: 'ShowType db ':$$:
-                          'Text "Hint: add following to the Database instance for type "       ':<>: 'ShowType db ':$$:
-                          'Text "type DB " ':<>: 'ShowType db ':<>: 'Text " = " ':<>: 'ShowType 'Postgres
-                         )
-  type DatabaseName db :: Symbol
-
-class ( -- TypeCxts db (Types db)
-        Database (SchemaDB sc)
-      ) => Schema (sc :: *) where
-  type SchemaName sc :: Symbol
-  type SchemaName sc = "public"
-  
-  type Tables sc :: [Type]
-  
-  type Types sc :: [Type]
-  type Types sc = '[]
-
-  type TabIgnore sc :: [Type]
-  type TabIgnore sc = '[]
-  
-  type Baseline sc :: Nat
-  type Baseline sc = 0
-  
-  type Version sc :: Nat
-  type Version sc = 0
-
-  type SchemaDB sc :: Type
 
 type family NoSchema t where
   NoSchema x = TypeError ('Text "No instance for " ':<>: 'ShowType (Schema x))  
@@ -251,21 +223,6 @@ type family TagDBTypeCtx (taggedDbt :: TagHK DbK DBTypeK) where
 instance (TagDBTypeCtx taggedDbt) => SingE (taggedDbt :: TagHK DbK DBTypeK) where
   type Demote taggedDbt     = Type.DBType
   fromSing (STag _ stype) = fromSing stype
-
-type family UDTCtx (udt :: UDTypeMappings) where
-  UDTCtx ('EnumType tn dcons) = (SingE tn, SingE dcons)
-  UDTCtx ('Composite tn ss)   = (SingE tn, SingE ss)  
-  UDTCtx ('Flat ss)           = (SingE ss)
-  UDTCtx ('Sum tagn tss)      = (SingE tss, SingE tagn)    
-  UDTCtx ('EnumText es)       = (SingE es)
-
-instance (UDTCtx udt) => SingE (udt :: UDTypeMappings) where
-  type Demote udt = TypeNameMap
-  fromSing (SEnumType s ss)   = EnumTypeNM (fromSing s) (fromSing ss)
-  fromSing (SComposite s tss) = CompositeNM (fromSing s) (fromSing tss)
-  fromSing (SFlat tss)        = FlatNM (fromSing tss)
-  fromSing (SEnumText t)      = EnumTextNM (fromSing t)
-  fromSing (SSum t tss)       = SumNM (fromSing t) (fromSing tss)
 
 showDBTypeSing :: forall db dbTy.
                    ( DBTypeCtx dbTy
@@ -755,13 +712,6 @@ mkTypeNameInfo pgt tnm =
 data TypeNameInfo = TypeNameInfo { _typeNameVal   :: Type.DBType 
                                  , _typeNameMap   :: TypeNameMap
                                  } deriving (Show, Eq)
-
-data TypeNameMap = EnumTypeNM (Maybe Text) [(Text, Text)]
-                 | CompositeNM (Maybe Text) [(Text, Text)]
-                 | EnumTextNM [(Text, Text)]                 
-                 | FlatNM [(Text, Text)]
-                 | SumNM (Maybe Text) [(Text, [(Text, Text)])]
-                 deriving (Show, Eq)
 
 {-
 addEnumValAfter :: Text -> Text -> TypeNameMap -> TypeNameMap
@@ -1650,14 +1600,14 @@ instance Column_ a ('DBArray t) where
     PlainColumnCtx_ a ('DBArray t)
   column_ tag _ = col tag
 
-instance Column_ a ('DBCustomType (typ :: Type) ('DBTypeName name args ('EnumType en es))) where
-  type ColumnCtx a ('DBCustomType typ ('DBTypeName name args ('EnumType en es))) =
-    PlainColumnCtx_ a ('DBCustomType typ ('DBTypeName name args ('EnumType en es)))
+instance Column_ a ('DBCustomType scn (typ :: Type) ('DBTypeName name args ('EnumType en es))) where
+  type ColumnCtx a ('DBCustomType scn typ ('DBTypeName name args ('EnumType en es))) =
+    PlainColumnCtx_ a ('DBCustomType scn typ ('DBTypeName name args ('EnumType en es)))
   column_ tag _ = col tag 
 
-instance Column_ a ('DBCustomType (typ :: Type) ('DBTypeName name args ('Composite en es))) where
-  type ColumnCtx a ('DBCustomType typ ('DBTypeName name args ('Composite en es))) =
-    PlainColumnCtx_ a ('DBCustomType typ ('DBTypeName name args ('Composite en es)))
+instance Column_ a ('DBCustomType scn (typ :: Type) ('DBTypeName name args ('Composite en es))) where
+  type ColumnCtx a ('DBCustomType scn typ ('DBTypeName name args ('Composite en es))) =
+    PlainColumnCtx_ a ('DBCustomType scn typ ('DBTypeName name args ('Composite en es)))
   column_ tag _ = col tag
 
 class CustomColumnCtx_ sc tab col where

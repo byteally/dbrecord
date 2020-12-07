@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, TypeFamilies, UndecidableInstances, UndecidableSuperClasses, ScopedTypeVariables, FunctionalDependencies, AllowAmbiguousTypes, RankNTypes #-}
+{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, TypeFamilies, UndecidableInstances, UndecidableSuperClasses, ScopedTypeVariables, FunctionalDependencies, AllowAmbiguousTypes, RankNTypes, FlexibleContexts #-}
 module DBRecord.Internal.Types where
 
 import GHC.Generics
@@ -10,6 +10,7 @@ import qualified Data.Text as T
 import Data.Kind
 import Data.Typeable
 import GHC.Exts
+import Data.Text (Text)
 
 
 data DBTag (db :: *) (tab :: *) (v :: k)
@@ -98,7 +99,7 @@ data DBTypeK
   | DBVarbit Nat
   | DBJsonB
   | DBArray DBTypeK
-  | DBCustomType Type DBTypeNameK
+  | DBCustomType Symbol Type DBTypeNameK
 
 data DBTypeNameK = DBTypeName Symbol [TypeArgK] UDTypeMappings
 
@@ -336,7 +337,7 @@ data instance Sing (t :: DBTypeK) where
   SDBVarbit      :: Sing n -> Sing ('DBVarbit n)
   SDBJsonB       :: Sing 'DBJsonB  
   SDBArray       :: Sing a -> Sing ('DBArray a)
-  SDBCustomType  :: Sing t -> Sing dbt -> Sing ('DBCustomType t dbt)
+  SDBCustomType  :: Sing sc -> Sing t -> Sing dbt -> Sing ('DBCustomType sc t dbt)
 
 data instance Sing (t :: DBTypeNameK) where
   SDBTypeName :: Sing s -> Sing args -> Sing udm -> Sing ('DBTypeName s args udm)
@@ -439,9 +440,9 @@ instance SingI ('DBJsonB) where
 instance (SingI n) => SingI ('DBArray n) where
   sing = SDBArray sing
 
-instance ( SingI t, SingI dbt
-         ) => SingI ('DBCustomType t dbt) where
-  sing = SDBCustomType sing sing
+instance ( SingI t, SingI dbt, SingI sc
+         ) => SingI ('DBCustomType sc t dbt) where
+  sing = SDBCustomType sing sing sing
 
 instance (SingI s, SingI args, SingI udm) => SingI ('DBTypeName s args udm) where
   sing = SDBTypeName sing sing sing
@@ -496,3 +497,26 @@ instance (AllF (All f) xss) => All2 f xss
 class HasField x r a | x r -> a where
   -- | Function to get and set a field in a record.
   hasField :: r -> (a -> r, a)
+
+
+type family UDTCtx (udt :: UDTypeMappings) where
+  UDTCtx ('EnumType tn dcons) = (SingE tn, SingE dcons)
+  UDTCtx ('Composite tn ss)   = (SingE tn, SingE ss)
+  UDTCtx ('Flat ss)           = (SingE ss)
+  UDTCtx ('Sum tagn tss)      = (SingE tss, SingE tagn)
+  UDTCtx ('EnumText es)       = (SingE es)
+
+instance (UDTCtx udt) => SingE (udt :: UDTypeMappings) where
+  type Demote udt = TypeNameMap
+  fromSing (SEnumType s ss)   = EnumTypeNM (fromSing s) (fromSing ss)
+  fromSing (SComposite s tss) = CompositeNM (fromSing s) (fromSing tss)
+  fromSing (SFlat tss)        = FlatNM (fromSing tss)
+  fromSing (SEnumText t)      = EnumTextNM (fromSing t)
+  fromSing (SSum t tss)       = SumNM (fromSing t) (fromSing tss)
+
+data TypeNameMap = EnumTypeNM (Maybe Text) [(Text, Text)]
+                 | CompositeNM (Maybe Text) [(Text, Text)]
+                 | EnumTextNM [(Text, Text)]
+                 | FlatNM [(Text, Text)]
+                 | SumNM (Maybe Text) [(Text, [(Text, Text)])]
+                 deriving (Show, Eq)

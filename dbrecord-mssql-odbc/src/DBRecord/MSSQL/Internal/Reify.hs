@@ -54,7 +54,7 @@ getMsSQLDatabaseInfo dbN connInfo = do
     uniqs <- go con (uniqKeysQ qschn) 
     fks <-   go con (foreignKeysQ qschn)
     let hints = defHints
-    let tcis = toTabColInfo hints tcols
+    let tcis = toTabColInfo scn hints tcols
     pure (toSchemaInfo hints dbN (coerce scn) [] tcis
                        (toTableType tcols)
                        (toCheckInfo hints tchks)
@@ -224,8 +224,8 @@ toTableType = HM.fromList . map go
         ttype _ "BASE TABLE" = BaseTable
         ttype _tci _ = NonUpdatableView
 
-toTabColInfo :: Hints -> [TableColInfo] -> TableContent ColumnInfo
-toTabColInfo hints = HM.fromListWith (++) . map colInfo
+toTabColInfo :: Text -> Hints -> [TableColInfo] -> TableContent ColumnInfo
+toTabColInfo scn hints = HM.fromListWith (++) . map colInfo
   where nullable a = case decodeUtf8 $ dbIsNullable a of
           "YES" -> True
           "NO"  -> False
@@ -233,7 +233,7 @@ toTabColInfo hints = HM.fromListWith (++) . map colInfo
 
         colInfo tci =
           let ci = mkColumnInfo (mkEntityName (mkHaskColumnName (columnNameHints (dbTableName tci) hints) (dbColumnName tci)) (dbColumnName tci))
-                                (coerce (parseMSSQLType (nullable tci) (sizeInfo tci) (T.unpack (dbTypeName tci))))
+                                (coerce (parseMSSQLType (T.unpack scn) (nullable tci) (sizeInfo tci) (T.unpack (dbTypeName tci))))
                    
           in ( dbTableName tci, [ci])
 

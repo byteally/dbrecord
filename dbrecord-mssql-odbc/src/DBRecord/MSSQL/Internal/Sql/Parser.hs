@@ -407,8 +407,8 @@ data SizeInfo = SizeInfo { szCharacterLength :: Maybe Integer
 defSizeInfo :: SizeInfo
 defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
 
-parseMSSQLType :: Bool -> SizeInfo -> String -> DBType
-parseMSSQLType nullInfo sz = wrapNullable nullInfo . go
+parseMSSQLType :: String -> Bool -> SizeInfo -> String -> DBType
+parseMSSQLType scn nullInfo sz = wrapNullable nullInfo . go
  where  go "smallint"                  = DBInt2
         go "int"                       = DBInt4
         go "bigint"                    = DBInt8
@@ -463,7 +463,7 @@ parseMSSQLType nullInfo sz = wrapNullable nullInfo . go
         go "decimal"                   = DBNumeric 0 32
 
        -- Custom Type 
-        go t                           = DBCustomType (DBTypeName (T.pack t) [])
+        go t                           = DBCustomType (T.pack scn) (DBTypeName (T.pack t) [])
 
         -- Add Nullable info
         wrapNullable True a  = DBNullable a

@@ -288,8 +288,8 @@ data SizeInfo = SizeInfo { szCharacterLength :: Maybe Integer
 defSizeInfo :: SizeInfo
 defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
                                     
-parsePGType :: Bool -> SizeInfo -> String -> DBType
-parsePGType nullInfo sz = wrapNullable nullInfo . go
+parsePGType :: String -> Bool -> SizeInfo -> String -> DBType
+parsePGType scn nullInfo sz = wrapNullable nullInfo . go
   where go "smallint"                  = DBInt2
         go "integer"                   = DBInt4
         go "bigint"                    = DBInt8
@@ -349,7 +349,7 @@ parsePGType nullInfo sz = wrapNullable nullInfo . go
         go "jsonb"                     = DBJsonB
         go "json"                      = DBJson
         go v | isArray v               = DBArray (parseArray v)
-             | otherwise               = DBCustomType (DBTypeName (T.pack v) [])
+             | otherwise               = DBCustomType (T.pack scn) (DBTypeName (T.pack v) [])
 
 
         isArray v = case splitAt 2 v of
