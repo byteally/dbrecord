@@ -457,7 +457,7 @@ update :: forall sc tab keys driver keyFields cfg rets.
   , SingI keyFields
   , SingE keyFields
   ) => (Q.Columns tab -> Expr sc Bool)
-  -> (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
+  -> (Updated sc tab -> Updated sc tab)
   -> DBM (SchemaDB sc) [HListToTuple keys]  
 update filt updateFn =
   runUpdateRet (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) keyExprs
@@ -479,7 +479,7 @@ updateRet :: forall sc tab {-keys-} driver cfg rets.
   , SingCtxSc sc
   , Updatable sc tab
   ) => (Q.Columns tab -> Expr sc Bool)
-  -> (Updated sc tab (OriginalTableFields tab) -> Updated sc tab (OriginalTableFields tab))
+  -> (Updated sc tab -> Updated sc tab)
   -> HList (Expr sc) rets -> DBM (SchemaDB sc) [HListToTuple rets]  
 updateRet filt updateFn rets =
   runUpdateRet (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) (toPrimExprs rets)
