@@ -21,6 +21,7 @@ import Data.Pool
 import Data.String
 import Control.Monad.Reader
 import Data.Functor.Identity
+import qualified UnliftIO as U
 
 newtype PostgresDBT (db :: *) m a = PostgresDBT { runPostgresDB :: ReaderT (PGS PGS.Connection) m a}
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader (PGS PGS.Connection))
@@ -40,11 +41,12 @@ data PGS cfg where
 instance Session PGS where
   data SessionConfig PGS cfg where
     PGSConfig :: Pool PGS.Connection -> SessionConfig PGS PGS.Connection  
-  runSession_ (PGSConfig pool) dbact f =
-    withResource pool (\conn -> f (PGS conn) (runReaderT dbact $ PGS conn))
-  
+  runSession_ (PGSConfig pool) dbact f = do
+    withResource pool (\conn -> f (PGS conn) (runReaderT dbact (PGS conn)))
+
 instance HasTransaction PGS where
-  withTransaction (PGS conn) = PGS.withTransaction conn
+  withTransaction (PGS conn) dbact =
+    U.withRunInIO (\f -> PGS.withTransaction conn (f dbact))
 
 instance HasUpdateRet PGS where
   dbUpdateRetWith parser (PGS conn) updateQ = do
