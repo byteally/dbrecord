@@ -30,7 +30,7 @@ module DBRecord.Query
        , insert, insert_, insertMany, insertMany_, insertRet, insertManyRet
        , insertWithConflict_
        , insertManyWithConflict_
-       , update, update_
+       , update, update_, updateRet
        -- , count
        , (.~) , (%~)
        , DBM
@@ -53,7 +53,11 @@ module DBRecord.Query
        , DBDecoder (..)
        , DBTag
        , TransactionConfig (..)
+       , Updatable
+       , Updated
+       , RowCount
        , rawClauses
+       , rawTable
        , runQuery
        , getBaseTable
        , getBaseTableExpr
@@ -107,7 +111,6 @@ import Control.Exception hiding (TypeError)
 import qualified UnliftIO as U
 import qualified Control.Monad.Trans.Control as U
 import Data.Kind 
-
 import GHC.Generics
 
 type family DBM (db :: *) = (r :: * -> *) | r -> db
@@ -130,9 +133,8 @@ type family UnifyUqPredicate (db :: *) (tab :: *) (pred :: *) (uniqs :: Either E
 data Page = Offset Int | Limit Int | OffsetLimit Int Int
           deriving (Show, Eq)
 
--- Newtype used to tag a Table with a value
-newtype ColVal tab a = ColVal a
-                     deriving (Show, Eq, Num)
+newtype RowCount tab = RowCount { getRowCount :: Int64 }
+                     deriving (Show, Eq, Ord, Num)
 
 newtype Updated sc tab = Updated {getUpdateMap :: HashMap Attribute PrimExpr}
   deriving (Show)
@@ -413,11 +415,17 @@ getAll' p cl = rawClauses p (cl { projections = getTableProjections (Proxy @sc) 
 rawClauses :: forall sc tab driver cfg proxy.
              ( QueryCtx sc tab driver cfg          
              ) => proxy sc -> PQ.Clauses -> DBM (SchemaDB sc) [tab]
-rawClauses _ cls = do
-  let tabId = getTableId (Proxy @sc) (Proxy @tab)
-  runQuery (Table (Just (TableName tabId)) cls)
+rawClauses pt = runQuery . rawTable (Proxy @'(sc, tab))
 
-{-
+rawTable :: forall sc tab proxy.
+  ( SingCtxSc sc 
+  , SingCtx sc tab 
+  , Table sc tab
+  ) => proxy '(sc, tab) -> PQ.Clauses -> PQ.PrimQuery
+rawTable _ cls =
+  let tabId = getTableId (Proxy @sc) (Proxy @tab)
+  in  Table (Just (TableName tabId)) cls
+  {-
 count :: forall tab db driver cfg.
   ( Table db tab
   , MonadIO (DBM db)
@@ -426,7 +434,7 @@ count :: forall tab db driver cfg.
   , FromDBRow driver (Only Int)
   , SingCtx db tab
   , SingCtxSc db
-  ) => Expr (OriginalTableFields tab) Bool -> DBM db (ColVal tab Int)
+  ) => Expr (OriginalTableFields tab) Bool -> DBM db (RowCount tab)
 count filt = do
   let tabId = getTableId (Proxy @db) (Proxy @tab)
       filtE = case filt of
@@ -435,7 +443,7 @@ count filt = do
       cls = clauses { criteria = filtE }
   res <- runQuery tabId cls    
   case res of
-    [Only ct] -> pure $ ColVal ct
+    [Only ct] -> pure $ RowCount ct
     _         -> error "Panic: Expecting only a singleton @count"
 -}
 
@@ -458,10 +466,11 @@ type family Updatable' sc tab (ttyp :: TableTypes) :: Constraint where
   Updatable' sc tab 'NonUpdatableView =
     TypeError ('Text "The view " ':<>: 'ShowType tab ':<>: 'Text " in schema " ':<>: 'ShowType sc ':<>: 'Text " cannot be used in update")
 
-update :: forall sc tab keys driver cfg rets.
+update :: forall sc tab keys driver keyFields cfg rets.
   ( Table sc tab
   , MonadIO (DBM (SchemaDB sc))
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
+  , keyFields ~ FieldsOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))  
   , driver ~ Driver (DBM (SchemaDB sc))
   , MonadReader (driver cfg) (DBM (SchemaDB sc))
   , HasUpdateRet driver
@@ -469,10 +478,34 @@ update :: forall sc tab keys driver cfg rets.
   , SingCtx sc tab
   , SingCtxSc sc
   , Updatable sc tab
+  , SingI keyFields
+  , SingE keyFields
   ) => (Q.Columns tab -> Expr sc Bool)
   -> (Updated sc tab -> Updated sc tab)
-  -> HList (Expr sc) rets -> DBM (SchemaDB sc) [HListToTuple keys]  
-update filt updateFn rets =
+  -> DBM (SchemaDB sc) [HListToTuple keys]  
+update filt updateFn =
+  runUpdateRet (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) keyExprs
+
+  where
+    prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
+    keyExprs = map columnExpr (filterColumns pkFlds colIs)
+    pkFlds = fromSing (sing :: Sing keyFields)
+    colIs = headColInfos (Proxy @sc) (Proxy @tab)
+    
+updateRet :: forall sc tab {-keys-} driver cfg rets.
+  ( Table sc tab
+  , MonadIO (DBM (SchemaDB sc))
+  , driver ~ Driver (DBM (SchemaDB sc))
+  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , HasUpdateRet driver
+  , FromDBRow driver (HListToTuple rets)
+  , SingCtx sc tab
+  , SingCtxSc sc
+  , Updatable sc tab
+  ) => (Q.Columns tab -> Expr sc Bool)
+  -> (Updated sc tab -> Updated sc tab)
+  -> HList (Expr sc) rets -> DBM (SchemaDB sc) [HListToTuple rets]  
+updateRet filt updateFn rets =
   runUpdateRet (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) (toPrimExprs rets)
 
   where prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
@@ -536,11 +569,11 @@ delete :: forall sc tab driver cfg.
   , HasDelete driver
   , SingCtx sc tab
   , SingCtxSc sc
-  ) => (Q.Columns tab -> Expr sc Bool) -> DBM (SchemaDB sc) (ColVal tab Int64)
+  ) => (Q.Columns tab -> Expr sc Bool) -> DBM (SchemaDB sc) (RowCount tab)
 delete filt = do
   let deleteQ = DeleteQuery (getTableId (Proxy @sc) (Proxy @tab)) [getExpr $ filt (Q.Columns prjs)]
   driver <- ask
-  ColVal <$> (liftIO $ dbDelete driver deleteQ)
+  RowCount <$> (liftIO $ dbDelete driver deleteQ)
 
     where prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
 

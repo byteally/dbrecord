@@ -31,7 +31,11 @@ module DBRecord.Internal.Query
 
   , join
 
-  , convert  
+  , convert
+
+  , IsTable
+  , Column'
+  , UnifyType
   ) where
 
 import DBRecord.Internal.Schema 
@@ -78,7 +82,7 @@ instance ( -- Column_ a (GetDBTypeRep sc a)
   column' cols _ =
     let mexp = L.find (\(et, _) -> (et ^. hsName) == coln) (getColumns cols)
         coln = T.pack (symbolVal (Proxy @col))
-    in  maybe (error "Panic: impossible @column'") (PQ.Expr . snd) mexp
+    in  maybe (error $ "Panic: impossible @column': " ++ show coln ++ " : " ++ show (getColumns cols)) (PQ.Expr . snd) mexp
     
 type family UnifyType col (xs :: [Type]) where
   UnifyType col (col ::: t ': ts) = t
@@ -91,7 +95,7 @@ instance ( tgt ~ Alias alias
   column' cols _ =
     let mexp = L.find (\(et, _) -> (et ^. hsName) == coln) (getColumns cols)
         coln = T.pack (symbolVal (Proxy @col))
-    in  maybe (error "Panic: impossible @column'") (PQ.Expr . snd) mexp
+    in  maybe (error $ "Panic: impossible @column': " ++ show coln ++ " : " ++ show (getColumns cols)) (PQ.Expr . snd) mexp
     
 data Alias (als :: Symbol)
 

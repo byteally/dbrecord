@@ -108,7 +108,7 @@ toSchemaInfo hints dbn scn eis cols ttyps chks defs pk uqs fks =
       dbk = Postgres
       dbt = EntityName { _hsName = mkHaskTypeName dbNameHints dbn , _dbName = dbn }
       types = map (\ei ->
-                    let et = parsePGType False defSizeInfo (T.unpack etn)
+                    let et = parsePGType (T.unpack scn) False defSizeInfo (T.unpack etn)
                         etn = enumTypeName ei
                     in  mkTypeNameInfo et (EnumTypeNM (Just etn) (map (\a -> (a, a)) $ V.toList (enumCons ei)))
                   ) eis
@@ -197,8 +197,8 @@ toTableType = HM.fromList . map go
         ttype _ _ = BaseTable
           
 
-toTabColInfo :: Hints -> [TableColInfo] -> TableContent ColumnInfo
-toTabColInfo hints = HM.fromListWith (++) . map colInfo
+toTabColInfo :: SchemaName -> Hints -> [TableColInfo] -> TableContent ColumnInfo
+toTabColInfo scn hints = HM.fromListWith (++) . map colInfo
   where nullable a = case dbIsNullable a of
           "YES" -> True
           "NO"  -> False
@@ -206,7 +206,7 @@ toTabColInfo hints = HM.fromListWith (++) . map colInfo
 
         colInfo tci =
           let ci = mkColumnInfo (mkEntityName (mkHaskColumnName (columnNameHints (dbTableName tci) hints) (dbColumnName tci)) (dbColumnName tci))
-                                (coerce (parsePGType (nullable tci) (sizeInfo tci) typN))
+                                (coerce (parsePGType (T.unpack scn) (nullable tci) (sizeInfo tci) typN))
               typN = T.unpack $ case dbTypeName tci of
                 dty | dty == "USER-DEFINED" -> dbUdTypeName tci
                     | otherwise            -> dty
@@ -243,7 +243,7 @@ getPostgresDbSchemaInfo connInfo = do
           uniqs <- query conn uniqKeysQ (schn, schn)
           fks   <- query conn foreignKeysQ (schn, schn, schn)
           -- seqs  <- query conn seqsQ (schn, schn)
-          let tcis = (toTabColInfo hints tcols)
+          let tcis = (toTabColInfo schn hints tcols)
           
           pure $ (toSchemaInfo hints dbn schn enumTs tcis
                                (toTableType tcols)

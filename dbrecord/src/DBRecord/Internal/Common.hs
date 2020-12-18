@@ -221,7 +221,6 @@ type family If (c :: Bool) (t :: k) (f :: k) :: k where
   If 'True t f  = t
   If 'False t f = f
 
-
 data T1 (t :: *)
 type family Break (c :: Constraint) (rep :: Type -> Type) :: Constraint where
   Break _ T1 = ((), ())

@@ -51,7 +51,7 @@ instance HasTransaction PGS where
 instance HasUpdateRet PGS where
   dbUpdateRetWith parser (PGS conn) updateQ = do
     let updateSQL = PG.renderUpdate $ PG.updateSql $ updateQ
-    returningWith parser conn (fromString updateSQL) ([]::[()])
+    queryWith_ parser conn (fromString updateSQL)
 
 instance HasUpdate PGS where
   dbUpdate (PGS conn) updateQ = do
@@ -72,7 +72,7 @@ instance HasInsert PGS where
 instance HasInsertRet PGS where
   dbInsertRetWith parser (PGS conn) insQ = do
     let insSQL = PG.renderInsert $ PG.insertSql insQ
-    returningWith parser conn (fromString insSQL) ([]::[()])
+    queryWith_ parser conn (fromString insSQL)
 
 instance HasDelete PGS where
   dbDelete (PGS conn) deleteQ = do
