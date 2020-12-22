@@ -23,8 +23,8 @@ import Control.Monad.Reader
 import Data.Functor.Identity
 import qualified UnliftIO as U
 
-newtype PostgresDBT (db :: *) m a = PostgresDBT { runPostgresDB :: ReaderT (PGS PGS.Connection) m a}
-  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (PGS PGS.Connection))
+newtype PostgresDBT (db :: *) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
+  deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS)
 
 type PostgresDB db = PostgresDBT db IO
 
@@ -33,14 +33,14 @@ instance DBDecoder PGS where
   type FromDBRow PGS       = FromRow
   dbDecoder _ _ = fromRow
   
-type instance ToDBRow   PGS a = ToRow a
+type instance ToDBRow PGS a = ToRow a
 
-data PGS cfg where
-  PGS :: PGS.Connection -> PGS PGS.Connection
+data PGS where
+  PGS :: PGS.Connection -> PGS
 
 instance Session PGS where
-  data SessionConfig PGS cfg where
-    PGSConfig :: Pool PGS.Connection -> SessionConfig PGS PGS.Connection  
+  data SessionConfig PGS where
+    PGSConfig :: Pool PGS.Connection -> SessionConfig PGS
   runSession_ (PGSConfig pool) dbact f = do
     withResource pool (\conn -> f (PGS conn) (runReaderT dbact (PGS conn)))
 

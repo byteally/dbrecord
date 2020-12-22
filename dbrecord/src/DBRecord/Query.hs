@@ -114,7 +114,9 @@ import Data.Kind
 import GHC.Generics
 
 type family DBM (db :: *) = (r :: * -> *) | r -> db
-type family Driver (dbm :: * -> *) = (r :: * -> *) -- | r -> dbm
+-- type family Driver (dbm :: * -> *) = (r :: * -> *) -- | r -> dbm
+
+type family Driver (db :: *) = (r :: *)
 
 {-
 type family MkPredFn (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: [Either ErrorMessage *] where
@@ -172,56 +174,56 @@ infixr 4 .~
 
 infixr 4 %~
 
-class DBDecoder (driver :: * -> *) where
-  type FromDBRowParser (driver :: * -> *) :: * -> *
-  type FromDBRow (driver :: * -> *)  :: * -> Constraint  
+class DBDecoder (driver :: *) where
+  type FromDBRowParser driver :: * -> *
+  type FromDBRow driver  :: * -> Constraint  
   dbDecoder :: ( FromDBRow driver a
               ) => Proxy driver -> Proxy a -> FromDBRowParser driver a
 
-type family ToDBRow (driver :: * -> *) (a :: *) :: Constraint
+type family ToDBRow (driver :: *) (a :: *) :: Constraint
   
-class HasUpdate (driver :: * -> *) where
-  dbUpdate :: driver cfg -> UpdateQuery -> IO Int64
+class HasUpdate driver where
+  dbUpdate :: driver -> UpdateQuery -> IO Int64
 
-class (DBDecoder driver) => HasUpdateRet (driver :: * -> *) where
-  dbUpdateRetWith :: FromDBRowParser driver a -> driver cfg -> UpdateQuery -> IO [a]
-  dbUpdateRet     :: (FromDBRow driver a) => driver cfg -> UpdateQuery -> IO [a]
+class (DBDecoder driver) => HasUpdateRet driver where
+  dbUpdateRetWith :: FromDBRowParser driver a -> driver -> UpdateQuery -> IO [a]
+  dbUpdateRet     :: (FromDBRow driver a) => driver -> UpdateQuery -> IO [a]
 
   dbUpdateRet = dbUpdateRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
   
 
-class HasDelete (driver :: * -> *) where
-  dbDelete :: driver cfg -> DeleteQuery -> IO Int64
+class HasDelete driver where
+  dbDelete :: driver -> DeleteQuery -> IO Int64
 
-class (DBDecoder driver) => HasQuery (driver :: * -> *) where
-  dbQueryWith :: FromDBRowParser driver a -> driver cfg -> PrimQuery -> IO [a]
+class (DBDecoder driver) => HasQuery driver where
+  dbQueryWith :: FromDBRowParser driver a -> driver -> PrimQuery -> IO [a]
 
-  dbQuery :: (DBDecoder driver, FromDBRow driver a) => driver cfg -> PrimQuery -> IO [a]
+  dbQuery :: (DBDecoder driver, FromDBRow driver a) => driver -> PrimQuery -> IO [a]
   dbQuery = dbQueryWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
 
-class HasInsert (driver :: * -> *) where
-  dbInsert :: driver cfg -> InsertQuery -> IO Int64
+class HasInsert driver where
+  dbInsert :: driver -> InsertQuery -> IO Int64
 
-class (DBDecoder driver) => HasInsertRet (driver :: * -> *) where
-  dbInsertRetWith :: FromDBRowParser driver a -> driver cfg -> InsertQuery -> IO [a]  
+class (DBDecoder driver) => HasInsertRet driver where
+  dbInsertRetWith :: FromDBRowParser driver a -> driver -> InsertQuery -> IO [a]  
   
-  dbInsertRet :: (FromDBRow driver a) => driver cfg -> InsertQuery -> IO [a]
+  dbInsertRet :: (FromDBRow driver a) => driver -> InsertQuery -> IO [a]
   dbInsertRet = dbInsertRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
 
-class HasDriverConfig e driver cfg | e -> driver, e -> cfg where
-  getDriverConfig :: e -> driver cfg
+class HasDriverConfig e driver | e -> driver where
+  getDriverConfig :: e -> driver
 
-class HasSessionConfig e driver cfg | e -> driver, e -> cfg where
-  getSessionConfig :: e -> SessionConfig driver cfg
+class HasSessionConfig e driver | e -> driver where
+  getSessionConfig :: e -> SessionConfig driver
 
-class Session (driver :: * -> *) where
-  data SessionConfig (driver :: * -> *) cfg :: *  
-  runSession_ :: (U.MonadBaseControl IO m, U.MonadUnliftIO m) => SessionConfig driver cfg -> ReaderT (driver cfg) m a -> (driver cfg -> m a -> m a) -> m a
+class Session driver where
+  data SessionConfig driver :: *  
+  runSession_ :: (U.MonadBaseControl IO m, U.MonadUnliftIO m) => SessionConfig driver -> ReaderT driver m a -> (driver -> m a -> m a) -> m a
 
-class HasTransaction (driver :: * -> *) where
-  withTransaction :: (U.MonadUnliftIO m) => driver cfg -> m a -> m a
+class HasTransaction driver where
+  withTransaction :: (U.MonadUnliftIO m) => driver -> m a -> m a
 
-data TransactionConfig (driver :: * -> *) cfg m a = TransactionConfig
+data TransactionConfig driver m a = TransactionConfig
   { maxTries          :: Int
   , beforeTransaction :: m a
   , onRetry           :: forall e . Exception e => e -> a -> m ()
@@ -233,8 +235,8 @@ runSession ::
   , U.MonadUnliftIO m
   , U.MonadBaseControl IO m
   , MonadReader e m
-  , HasSessionConfig e driver cfg
-  ) => ReaderT (driver cfg) m a -> m a
+  , HasSessionConfig e driver
+  ) => ReaderT driver m a -> m a
 runSession dbact = do
   scfg <- getSessionConfig <$> ask
   runSession_ scfg dbact (\_ io -> io)
@@ -243,10 +245,10 @@ runTransaction :: forall driver cfg m a e.
   ( Session driver
   , HasTransaction driver
   , MonadReader e m
-  , HasSessionConfig e driver cfg
+  , HasSessionConfig e driver
   , U.MonadUnliftIO m
   , U.MonadBaseControl IO m  
-  ) => TransactionConfig driver cfg m a -> ReaderT (driver cfg) m a -> m a
+  ) => TransactionConfig driver m a -> ReaderT driver m a -> m a
 runTransaction cfg dbact = do 
   scfg <- getSessionConfig <$> ask
   c <- beforeTransaction cfg
@@ -322,15 +324,15 @@ applyEqs _ Nil = true
   -- , ApplyExpr db tab (PrimaryKey db tab) predicate (Expr (OriginalTableFields tab) Bool)
   -- , UnifyPkPredicate db tab predicate
 
-get :: forall sc tab driver cfg tpks pks.
-  ( QueryCtx sc tab driver cfg
+get :: forall sc tab m driver tpks pks.
+  ( QueryCtx sc tab m driver
   , ToHList tpks
   , TupleToHList tpks ~ pks
   , pks ~ FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab))
   , All (EqExpr sc) pks
   , All (ConstExpr sc) pks
   , All (HasCol sc tab) pks
-  ) => WithKey sc tpks -> DBM (SchemaDB sc) (Maybe tab)
+  ) => WithKey sc tpks -> m (Maybe tab)
 get tpks = do
   let filtE = getExpr (applyEqs (Proxy @(DBTag sc tab ())) (toHList (getWithKey tpks) Identity) :: Expr sc Bool)
       cls = clauses { criteria = [filtE] }
@@ -340,8 +342,8 @@ get tpks = do
     [r] -> Just r
     _   -> error "get: query with primarykey return more than 1 rows"
 
-getBy :: forall sc tab (uniq :: Symbol) driver cfg uqKeysM uqKeys tuqs uqs.
-  ( QueryCtx sc tab driver cfg
+getBy :: forall sc tab m (uniq :: Symbol) driver uqKeysM uqKeys tuqs uqs.
+  ( QueryCtx sc tab m driver
   , uqKeysM ~ (GetUniqBy uniq (Unique sc tab))
   , 'Just uqKeys ~ uqKeysM
   , uqs ~ FromRights (FindFields (OriginalTableFields tab) uqKeys)
@@ -350,7 +352,7 @@ getBy :: forall sc tab (uniq :: Symbol) driver cfg uqKeysM uqKeys tuqs uqs.
   , All (HasCol sc tab) uqs
   , ToHList tuqs
   , TupleToHList tuqs ~ uqs
-  ) => Uq sc uniq -> tuqs -> DBM (SchemaDB sc) (Maybe tab)
+  ) => Uq sc uniq -> tuqs -> m (Maybe tab)
 getBy _ tuqs = do
   let filtE = getExpr (applyEqs (Proxy @(DBTag sc tab ())) (toHList tuqs Identity) :: Expr sc Bool)
       cls = clauses { criteria = [filtE] }
@@ -360,12 +362,12 @@ getBy _ tuqs = do
     [r] -> Just r
     _  -> error "get: query with primarykey return more than 1 rows"
 
-getAll :: forall sc tab driver cfg.
-  ( QueryCtx sc tab driver cfg
+getAll :: forall sc tab m driver.
+  ( QueryCtx sc tab m driver
   ) =>    (Q.Columns tab -> Expr sc Bool)
        -> Order sc
        -> Maybe Page
-       -> DBM (SchemaDB sc) [tab]
+       -> m [tab]
 getAll filt ord page = do
   let filtE = case filt (Q.Columns prjs) of
         TRUE -> []
@@ -387,12 +389,12 @@ getAll filt ord page = do
         }
   getAll' (Proxy :: Proxy sc) cls
 
-type QueryCtx sc tab driver cfg =
+type QueryCtx sc tab m driver =
   ( Table sc tab
   , HasQuery driver
   , FromDBRow driver tab
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
-  , MonadIO (DBM (SchemaDB sc))
+  , MonadReader driver m
+  , MonadIO m
   , SingCtx sc tab
   , SingCtxSc sc
   , Break (NoGeneric tab) (Rep tab)
@@ -402,19 +404,19 @@ type QueryCtx sc tab driver cfg =
 query ::
   ( HasQuery driver
   , FromDBRow driver tab
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
-  , MonadIO (DBM (SchemaDB sc))
-  ) => Q.Tab sc tab -> DBM (SchemaDB sc) [tab]
+  , MonadReader driver m
+  , MonadIO m
+  ) => Q.Tab sc tab -> m [tab]
 query = runQuery . Q.convert . Q.getQuery
 
-getAll' :: forall sc tab driver cfg proxy.
-            ( QueryCtx sc tab driver cfg
-            ) => proxy sc -> Clauses -> DBM (SchemaDB sc) [tab]
+getAll' :: forall sc tab m driver proxy.
+            ( QueryCtx sc tab m driver
+            ) => proxy sc -> Clauses -> m [tab]
 getAll' p cl = rawClauses p (cl { projections = getTableProjections (Proxy @sc) (Proxy @tab) })
 
-rawClauses :: forall sc tab driver cfg proxy.
-             ( QueryCtx sc tab driver cfg          
-             ) => proxy sc -> PQ.Clauses -> DBM (SchemaDB sc) [tab]
+rawClauses :: forall sc tab m driver proxy.
+             ( QueryCtx sc tab m driver
+             ) => proxy sc -> PQ.Clauses -> m [tab]
 rawClauses pt = runQuery . rawTable (Proxy @'(sc, tab))
 
 rawTable :: forall sc tab proxy.
@@ -447,11 +449,11 @@ count filt = do
     _         -> error "Panic: Expecting only a singleton @count"
 -}
 
-runQuery :: ( MonadIO (DBM sc)
-            , MonadReader (driver cfg) (DBM sc)
+runQuery :: ( MonadIO m
+            , MonadReader driver m
             , HasQuery driver
             , FromDBRow driver tab
-            ) => PrimQuery -> DBM sc [tab]
+            ) => PrimQuery -> m [tab]
 runQuery primQ = do
   driver <- ask
   liftIO $ dbQuery driver primQ
@@ -466,13 +468,13 @@ type family Updatable' sc tab (ttyp :: TableTypes) :: Constraint where
   Updatable' sc tab 'NonUpdatableView =
     TypeError ('Text "The view " ':<>: 'ShowType tab ':<>: 'Text " in schema " ':<>: 'ShowType sc ':<>: 'Text " cannot be used in update")
 
-update :: forall sc tab keys driver keyFields cfg rets.
+update :: forall sc tab m keys driver keyFields rets.
   ( Table sc tab
-  , MonadIO (DBM (SchemaDB sc))
+  , MonadIO m
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
   , keyFields ~ FieldsOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))  
-  , driver ~ Driver (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
   , HasUpdateRet driver
   , FromDBRow driver (HListToTuple keys)
   , SingCtx sc tab
@@ -482,7 +484,7 @@ update :: forall sc tab keys driver keyFields cfg rets.
   , SingE keyFields
   ) => (Q.Columns tab -> Expr sc Bool)
   -> (Updated sc tab -> Updated sc tab)
-  -> DBM (SchemaDB sc) [HListToTuple keys]  
+  -> m [HListToTuple keys]  
 update filt updateFn =
   runUpdateRet (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) keyExprs
 
@@ -492,11 +494,11 @@ update filt updateFn =
     pkFlds = fromSing (sing :: Sing keyFields)
     colIs = headColInfos (Proxy @sc) (Proxy @tab)
     
-updateRet :: forall sc tab {-keys-} driver cfg rets.
+updateRet :: forall sc tab m {-keys-} driver rets.
   ( Table sc tab
-  , MonadIO (DBM (SchemaDB sc))
-  , driver ~ Driver (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , MonadIO m
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
   , HasUpdateRet driver
   , FromDBRow driver (HListToTuple rets)
   , SingCtx sc tab
@@ -504,38 +506,38 @@ updateRet :: forall sc tab {-keys-} driver cfg rets.
   , Updatable sc tab
   ) => (Q.Columns tab -> Expr sc Bool)
   -> (Updated sc tab -> Updated sc tab)
-  -> HList (Expr sc) rets -> DBM (SchemaDB sc) [HListToTuple rets]  
+  -> HList (Expr sc) rets -> m [HListToTuple rets]  
 updateRet filt updateFn rets =
   runUpdateRet (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate) (toPrimExprs rets)
 
   where prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
   
-update_ :: forall sc tab cfg driver.
+update_ :: forall sc tab m driver.
   ( Table sc tab
   , KnownSymbol (SchemaName sc)
   , Schema sc
   , SingCtx sc tab
   , SingCtxSc sc
-  , MonadIO (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , MonadIO m
+  , MonadReader driver m
   , HasUpdate driver
   , Updatable sc tab
   ) => (Q.Columns tab -> Expr sc Bool)
   -> (Updated sc tab -> Updated sc tab)
-  -> DBM (SchemaDB sc) ()
+  -> m ()
 update_ filt updateFn =
   runUpdate (Proxy @sc) (Proxy @tab) [getExpr $ filt (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updateFn EmptyUpdate)
 
   where prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
 
-runUpdate :: forall sc tab cfg driver.
+runUpdate :: forall sc tab m driver.
              ( Table sc tab
              , SingCtx sc tab
              , SingCtxSc sc
-             , MonadIO (DBM (SchemaDB sc))
-             , MonadReader (driver cfg) (DBM (SchemaDB sc))
+             , MonadIO m
+             , MonadReader driver m
              , HasUpdate driver
-             ) => Proxy sc -> Proxy tab -> [PrimExpr] -> Assoc -> DBM (SchemaDB sc) ()
+             ) => Proxy sc -> Proxy tab -> [PrimExpr] -> Assoc -> m ()
 runUpdate psc ptab crit assoc = do
   let updateQ = UpdateQuery tabId crit assoc []
       tabId   = getTableId psc ptab
@@ -543,33 +545,32 @@ runUpdate psc ptab crit assoc = do
   (_ :: Identity Int64) <- Identity <$> (liftIO $ dbUpdate driver updateQ)
   pure ()
 
-runUpdateRet :: forall sc tab cfg driver a.
+runUpdateRet :: forall sc tab m driver a.
                 ( Table sc tab
-                , Monad (DBM (SchemaDB sc))
                 , SingCtx sc tab
                 , SingCtxSc sc
-                , MonadIO (DBM (SchemaDB sc))
-                , MonadReader (driver cfg) (DBM (SchemaDB sc))
+                , MonadIO m
+                , MonadReader driver m
                 , HasUpdateRet driver
                 , FromDBRow driver a
-                ) => Proxy sc -> Proxy tab -> [PrimExpr] -> Assoc -> [PrimExpr] -> DBM (SchemaDB sc) [a]
+                ) => Proxy sc -> Proxy tab -> [PrimExpr] -> Assoc -> [PrimExpr] -> m [a]
 runUpdateRet psc ptab crit assoc rets = do
   let updateQ = UpdateQuery tabId crit assoc rets
       tabId   = getTableId psc ptab  
   driver <- ask
   liftIO $ dbUpdateRet driver updateQ
 
-delete :: forall sc tab driver cfg.
+delete :: forall sc tab m driver.
   ( Table sc tab
-  , MonadIO (DBM (SchemaDB sc))
+  , MonadIO m
   , KnownSymbol (SchemaName sc)
   , Schema sc
-  , driver ~ Driver (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
   , HasDelete driver
   , SingCtx sc tab
   , SingCtxSc sc
-  ) => (Q.Columns tab -> Expr sc Bool) -> DBM (SchemaDB sc) (RowCount tab)
+  ) => (Q.Columns tab -> Expr sc Bool) -> m (RowCount tab)
 delete filt = do
   let deleteQ = DeleteQuery (getTableId (Proxy @sc) (Proxy @tab)) [getExpr $ filt (Q.Columns prjs)]
   driver <- ask
@@ -613,9 +614,9 @@ type family Insertable' sc tab (ttyp :: TableTypes) :: Constraint where
   Insertable' sc tab 'NonUpdatableView =
     TypeError ('Text "The view " ':<>: 'ShowType tab ':<>: 'Text " in schema " ':<>: 'ShowType sc ':<>: 'Text " cannot be used in insert")
 
-insert :: forall sc tab row keys keyFields defs reqCols driver cfg.
+insert :: forall sc tab m row keys keyFields defs reqCols driver.
   ( Table sc tab
-  , MonadIO (DBM (SchemaDB sc))
+  , MonadIO m
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
   , keyFields ~ FieldsOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
   , defs ~ HasDefault sc tab 
@@ -623,8 +624,8 @@ insert :: forall sc tab row keys keyFields defs reqCols driver cfg.
   , TupleToHList row ~ reqCols
   , ToHList row
   , All (ConstExpr sc) reqCols
-  , driver ~ Driver (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
   , SingCtx sc tab
   , SingCtxSc sc
   , FromDBRow driver (HListToTuple keys)
@@ -634,7 +635,7 @@ insert :: forall sc tab row keys keyFields defs reqCols driver cfg.
   , SingI keyFields
   , SingE keyFields
   , Insertable sc tab
-  ) => Row sc tab row -> DBM (SchemaDB sc) (Maybe (HListToTuple keys))
+  ) => Row sc tab row -> m (Maybe (HListToTuple keys))
 insert row = do
   let
     tabId = getTableId (Proxy @sc) (Proxy @tab)
@@ -654,17 +655,17 @@ insert row = do
     _ ->  error "insert: insert query with return more than 1 rows"
   
 
-insertRet :: forall sc tab row keys rets defs reqCols driver cfg.
+insertRet :: forall sc tab m row keys rets defs reqCols driver.
   ( Table sc tab
-  , MonadIO (DBM (SchemaDB sc))
+  , MonadIO m
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
   , defs ~ HasDefault sc tab
   , reqCols ~ (FilterNonDefaults (OriginalTableFields tab) defs)
   , TupleToHList row ~ reqCols
   , ToHList row
   , All (ConstExpr sc) reqCols
-  , driver ~ Driver (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
   , SingCtx sc tab
   , SingCtxSc sc
   , FromDBRow driver (HListToTuple keys)
@@ -672,7 +673,7 @@ insertRet :: forall sc tab row keys rets defs reqCols driver cfg.
   , SingI (FieldsOf reqCols)
   , SingE (FieldsOf reqCols)
   , Insertable sc tab
-  ) => Row sc tab row -> (Q.Columns tab -> HList (Expr sc) rets) -> DBM (SchemaDB sc) (Maybe (HListToTuple keys))
+  ) => Row sc tab row -> (Q.Columns tab -> HList (Expr sc) rets) -> m (Maybe (HListToTuple keys))
 insertRet row rets = do
   let
     tabId = getTableId (Proxy @sc) (Proxy @tab)
@@ -736,9 +737,9 @@ conflictingColumns _ = ConflictTargetColumns' (fromSing (sing :: Sing cols))
 conflictingAnon :: (Table sc tab) => ConflictTarget' sc tab
 conflictingAnon = ConflictTargetAnon'
 
-insertMany :: forall sc tab row defs reqCols driver keys cfg.
+insertMany :: forall sc tab m row defs reqCols driver keys.
   ( Table sc tab
-  , MonadIO (DBM (SchemaDB sc))
+  , MonadIO m
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))    
   , defs ~ HasDefault sc tab
   , reqCols ~ (FilterNonDefaults (OriginalTableFields tab) defs)
@@ -746,8 +747,8 @@ insertMany :: forall sc tab row defs reqCols driver keys cfg.
   , ToHList row
   , All (ConstExpr sc) reqCols
   , SingCols sc reqCols (ColumnNames sc tab)
-  , driver ~ Driver (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
   , HasInsert driver
   , SingCtx sc tab
   , SingCtxSc sc
@@ -756,7 +757,7 @@ insertMany :: forall sc tab row defs reqCols driver keys cfg.
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
   , Insertable sc tab  
-  ) => Rows sc tab row -> DBM (SchemaDB sc) [HListToTuple keys]
+  ) => Rows sc tab row -> m [HListToTuple keys]
 insertMany rows = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
@@ -769,9 +770,9 @@ insertMany rows = do
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
 
-insertManyRet :: forall sc tab row rets defs reqCols driver keys cfg.
+insertManyRet :: forall sc tab m row rets defs reqCols driver keys.
   ( Table sc tab
-  , MonadIO (DBM (SchemaDB sc))
+  , MonadIO m
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))    
   , defs ~ HasDefault sc tab
   , reqCols ~ (FilterNonDefaults (OriginalTableFields tab) defs)
@@ -779,8 +780,8 @@ insertManyRet :: forall sc tab row rets defs reqCols driver keys cfg.
   , ToHList row
   , All (ConstExpr sc) reqCols
   , SingCols sc reqCols (ColumnNames sc tab)
-  , driver ~ Driver (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
   , HasInsert driver
   , SingCtx sc tab
   , SingCtxSc sc
@@ -789,7 +790,7 @@ insertManyRet :: forall sc tab row rets defs reqCols driver keys cfg.
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
   , Insertable sc tab  
-  ) => Rows sc tab row -> (Q.Columns tab -> HList (Expr sc) rets) -> DBM (SchemaDB sc) [HListToTuple keys]
+  ) => Rows sc tab row -> (Q.Columns tab -> HList (Expr sc) rets) -> m [HListToTuple keys]
 insertManyRet rows rets = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
@@ -802,9 +803,9 @@ insertManyRet rows rets = do
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
 
-insert_ :: forall sc tab row defs reqCols driver cfg.
+insert_ :: forall sc tab m row defs reqCols driver.
   ( Table sc tab
-  , MonadIO (DBM (SchemaDB sc))
+  , MonadIO m
   , KnownSymbol (SchemaName sc)
   , Schema sc
   , defs ~ HasDefault sc tab
@@ -812,20 +813,20 @@ insert_ :: forall sc tab row defs reqCols driver cfg.
   , TupleToHList row ~ reqCols
   , ToHList row
   , All (ConstExpr sc) reqCols
-  , driver ~ Driver (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
   , HasInsert driver
   , SingCtx sc tab
   , SingCtxSc sc
   , SingI (FieldsOf reqCols)
   , SingE (FieldsOf reqCols)
   , Insertable sc tab  
-  ) => Row sc tab row -> DBM (SchemaDB sc) ()
+  ) => Row sc tab row -> m ()
 insert_ = insertMany_ . Rows @sc @tab . pure . getRow
 
-insertWithConflict_ :: forall sc tab row keys keyFields defs reqCols driver cfg.
+insertWithConflict_ :: forall sc tab m row keys keyFields defs reqCols driver.
   ( Table sc tab
-  , MonadIO (DBM (SchemaDB sc))
+  , MonadIO m
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
   , keyFields ~ FieldsOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
   , defs ~ HasDefault sc tab 
@@ -833,8 +834,8 @@ insertWithConflict_ :: forall sc tab row keys keyFields defs reqCols driver cfg.
   , TupleToHList row ~ reqCols
   , ToHList row
   , All (ConstExpr sc) reqCols
-  , driver ~ Driver (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
   , SingCtx sc tab
   , SingCtxSc sc
   , HasInsert driver
@@ -846,7 +847,7 @@ insertWithConflict_ :: forall sc tab row keys keyFields defs reqCols driver cfg.
   ) => ConflictTarget' sc tab        -> 
       ConflictAction' sc tab ->   
       Row sc tab row ->      
-      DBM (SchemaDB sc) ()
+      m ()
 insertWithConflict_ ctgt cact row = do
   let
     tabId = getTableId (Proxy @sc) (Proxy @tab)
@@ -871,9 +872,9 @@ insertWithConflict_ ctgt cact row = do
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
 
-insertMany_ :: forall sc tab row defs reqCols driver cfg.
+insertMany_ :: forall sc tab m row defs reqCols driver.
   ( Table sc tab
-  , MonadIO (DBM (SchemaDB sc))
+  , MonadIO m
   , KnownSymbol (SchemaName sc)
   , Schema sc
   , defs ~ HasDefault sc tab
@@ -881,15 +882,15 @@ insertMany_ :: forall sc tab row defs reqCols driver cfg.
   , TupleToHList row ~ reqCols
   , ToHList row
   , All (ConstExpr sc) reqCols
-  , driver ~ Driver (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
   , HasInsert driver
   , SingCtx sc tab
   , SingCtxSc sc
   , SingI (FieldsOf reqCols)
   , SingE (FieldsOf reqCols)
   , Insertable sc tab
-  ) => Rows sc tab row -> DBM (SchemaDB sc) ()
+  ) => Rows sc tab row -> m ()
 insertMany_ rows = do
   let
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
@@ -902,9 +903,9 @@ insertMany_ rows = do
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
 
-insertManyWithConflict_ :: forall sc tab row keys keyFields defs reqCols driver cfg.
+insertManyWithConflict_ :: forall sc tab m row keys keyFields defs reqCols driver.
   ( Table sc tab
-  , MonadIO (DBM (SchemaDB sc))
+  , MonadIO m
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
   , keyFields ~ FieldsOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
   , defs ~ HasDefault sc tab 
@@ -912,8 +913,8 @@ insertManyWithConflict_ :: forall sc tab row keys keyFields defs reqCols driver 
   , TupleToHList row ~ reqCols
   , ToHList row
   , All (ConstExpr sc) reqCols
-  , driver ~ Driver (DBM (SchemaDB sc))
-  , MonadReader (driver cfg) (DBM (SchemaDB sc))
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
   , SingCtx sc tab
   , SingCtxSc sc
   , HasInsert driver
@@ -925,7 +926,7 @@ insertManyWithConflict_ :: forall sc tab row keys keyFields defs reqCols driver 
   ) => ConflictTarget' sc tab        -> 
       ConflictAction' sc tab ->   
       Rows sc tab row ->       
-      DBM (SchemaDB sc) ()
+      m ()
 insertManyWithConflict_ ctgt cact rows = do
   let
     tabId = getTableId (Proxy @sc) (Proxy @tab)
