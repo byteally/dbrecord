@@ -99,6 +99,7 @@ data DBTypeK
   | DBVarbit Nat
   | DBJsonB
   | DBArray DBTypeK
+  | DBLTree
   | DBCustomType Symbol Type DBTypeNameK
 
 data DBTypeNameK = DBTypeName Symbol [TypeArgK] UDTypeMappings
@@ -128,6 +129,9 @@ data UDTypeMappings = EnumType
 
 newtype Interval = Interval T.Text
                  deriving (Show, Generic, FromJSON, ToJSON) --, FromField)
+
+newtype LTree = LTree [T.Text]
+              deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
 data TableTypes =
     UpdatableView
@@ -337,6 +341,7 @@ data instance Sing (t :: DBTypeK) where
   SDBVarbit      :: Sing n -> Sing ('DBVarbit n)
   SDBJsonB       :: Sing 'DBJsonB  
   SDBArray       :: Sing a -> Sing ('DBArray a)
+  SDBLTree       :: Sing 'DBLTree
   SDBCustomType  :: Sing sc -> Sing t -> Sing dbt -> Sing ('DBCustomType sc t dbt)
 
 data instance Sing (t :: DBTypeNameK) where
@@ -439,6 +444,9 @@ instance SingI ('DBJsonB) where
 
 instance (SingI n) => SingI ('DBArray n) where
   sing = SDBArray sing
+
+instance SingI ('DBLTree) where
+  sing = SDBLTree
 
 instance ( SingI t, SingI dbt, SingI sc
          ) => SingI ('DBCustomType sc t dbt) where

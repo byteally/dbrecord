@@ -48,6 +48,7 @@ data DBType = DBInt4
             | DBVarbit Integer
             | DBJsonB
             | DBArray DBType
+            | DBLTree
             | DBCustomType
                 T.Text -- Schema name
                 DBTypeName
@@ -108,6 +109,7 @@ instance (DBTypeCtx t) => SingE (t :: Type.DBTypeK) where
   fromSing SDBJson                 = DBJson  
   fromSing SDBJsonB                = DBJsonB
   fromSing (SDBArray a)            = DBArray (fromSing a)
+  fromSing SDBLTree                = DBLTree
   fromSing (SDBCustomType sc _ t ) = DBCustomType (fromSing sc) (fromSing t)
 
 type family DBTypeNameKCtx (typn :: Type.DBTypeNameK) where

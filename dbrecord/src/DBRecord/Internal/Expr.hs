@@ -246,6 +246,9 @@ instance (ConstExpr sc a) => ConstExpr sc (Maybe a) where
   constExpr =
     maybe (literalExpr PQ.Null) (toNullable . constExpr)
 
+instance ConstExpr sc LTree where
+  constExpr = ltree
+
 -- instance (ToJSON a, Typeable a) => ConstExpr sc (Json a) where
 --   constExpr =
 --     toJson . getJson
@@ -731,6 +734,12 @@ parseInterval = do
   return undefined -- (sum ds + time*timesign)
 -}
 
+ltree :: LTree -> Expr sc LTree
+ltree (LTree vs) = go vs
+    where
+      go = literalExpr . PQ.String . dotSep
+      dotSep = T.intercalate "."
+
 interval :: ( DBTypeCtx (GetDBTypeRep sc Interval)
            , SingI (GetDBTypeRep sc Interval)
            ) => Interval -> Expr sc Interval
@@ -749,8 +758,8 @@ months i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " months\'"
 
 days :: ( DBTypeCtx (GetDBTypeRep sc Interval)
-           , SingI (GetDBTypeRep sc Interval)
-           ) => Int -> Expr sc Interval
+        , SingI (GetDBTypeRep sc Interval)
+        ) => Int -> Expr sc Interval
 days i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " days\'"
 
@@ -861,6 +870,8 @@ instance (EqExpr sc a) => EqExpr sc (Maybe a) where
 deriving instance (EqExpr sc a)  => EqExpr sc (Identity a)
 deriving instance (OrdExpr sc a) => OrdExpr sc (Identity a)
 
+instance EqExpr sc LTree where
+  a .== b = binOp PQ.OpEq a b
 
 data ScopeRep = FieldRepNode  TypeRep
               | ScopeRepNode  ScopeRepMap

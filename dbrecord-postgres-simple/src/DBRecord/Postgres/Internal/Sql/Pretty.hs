@@ -456,6 +456,7 @@ ppPGType = go
         go DBJson                       = "JSON"
         go DBJsonB                      = "JSONB"
         go DBXml                        = "XML"
+        go DBLTree                      = "LTREE"
         go (DBArray t)                  = go t ++ "[]"
         go (DBNullable t)               = go t
         go (DBCustomType scn tn)        = T.unpack (doubleQuote scn) <> dot <> ppDbTypeName tn
@@ -469,4 +470,3 @@ ppPGType = go
         ppArg (IntegerArg i) = show i
 
         dot = "."
-

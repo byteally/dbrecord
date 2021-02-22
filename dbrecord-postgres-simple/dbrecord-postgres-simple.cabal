@@ -23,6 +23,7 @@ library
                     -- DBRecord.Postgres.Internal.Transaction
                     DBRecord.Postgres.Internal.Query
                     -- DBRecord.Postgres.Internal.Types
+                    DBRecord.Postgres.Internal.LTree
                     DBRecord.Postgres.Internal.Interval
                     DBRecord.Postgres.Internal.TextSearch
                     DBRecord.Postgres.Internal.TextSearch.Query
