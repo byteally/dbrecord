@@ -19,6 +19,7 @@ import Data.Text
 import GHC.Exts
 import Data.Functor.Identity
 import Data.Kind
+import DBRecord.Types
 
 type family GenTyCon (rep :: * -> *) :: Symbol where
   GenTyCon (D1 ('MetaData tyName _ _ _) _) = tyName

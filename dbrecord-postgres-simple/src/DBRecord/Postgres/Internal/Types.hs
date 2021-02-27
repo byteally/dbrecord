@@ -29,3 +29,4 @@ instance FromField Interval where
         Left err -> returnError ConversionFailed f (show err)
         Right a -> return (Interval a)
       else returnError Incompatible f ("Wrong database type for Interval, saw: " ++ show tName)
+

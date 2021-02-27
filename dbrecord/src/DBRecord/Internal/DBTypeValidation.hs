@@ -22,6 +22,7 @@ import Data.CaseInsensitive  (CI)
 import Data.Int
 -- import Data.Vector (Vector)
 import GHC.Generics
+import DBRecord.Types
 
 type family InvalidPGType (db :: *) a :: Constraint where
   InvalidPGType _ Int           = ()

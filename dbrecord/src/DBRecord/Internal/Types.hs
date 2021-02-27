@@ -5,7 +5,6 @@ module DBRecord.Internal.Types where
 import GHC.Generics
 import GHC.TypeLits
 import GHC.OverloadedLabels
-import Data.Aeson
 import qualified Data.Text as T
 import Data.Kind
 import Data.Typeable
@@ -28,16 +27,6 @@ instance (fn ~ fn1, s ~ t) => IsLabel fn (s -> (fn1 ::: t)) where
 
 valOf :: (s ::: t) -> t
 valOf (Field v) = v
-
-newtype JsonStr a = JsonStr { getJsonStr :: a }
-newtype Json a = Json { getJson :: a }
-               deriving (Show, Generic, FromJSON, ToJSON)
-
-json :: (ToJSON a) => a -> Json a
-json = Json
-
-jsonStr :: (ToJSON a) => a -> JsonStr a
-jsonStr = JsonStr
 
 newtype CustomType a = CustomType a
 
@@ -126,12 +115,6 @@ data UDTypeMappings = EnumType
                     | Sum (Maybe Symbol)           -- ^ Alias for tag column
                           [(Symbol, [(Symbol, Symbol)])] -- ^ Alias for flattened field names, in a particular con
                     -- | Json
-
-newtype Interval = Interval T.Text
-                 deriving (Show, Generic, FromJSON, ToJSON) --, FromField)
-
-newtype LTree = LTree [T.Text]
-              deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
 data TableTypes =
     UpdatableView

@@ -11,9 +11,10 @@ import Data.Time.Clock (UTCTime)
 import Data.CaseInsensitive  (CI)
 import Data.Int
 import Data.Word
+import DBRecord.Types (Interval, {-Json, JsonStr,-} )
 
 -- import Data.Vector (Vector)
-import DBRecord.Internal.Types (DbK (..), Interval, {-Json, JsonStr,-} CustomType (..))
+import DBRecord.Internal.Types (DbK (..), CustomType (..))
 import qualified DBRecord.Internal.Types as Type
 import DBRecord.Internal.Types (Sing (..), SingE (..))
 import DBRecord.Internal.Common

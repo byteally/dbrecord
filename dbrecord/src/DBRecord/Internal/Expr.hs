@@ -6,6 +6,7 @@ module DBRecord.Internal.Expr
        ) where
 
 import DBRecord.Internal.PrimQuery (Expr (..), AggExpr (..))
+import DBRecord.Types
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Foldable as F

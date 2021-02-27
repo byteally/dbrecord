@@ -34,6 +34,7 @@ import DBRecord.Internal.Types
 import DBRecord.Internal.Schema hiding (DBType)
 import DBRecord.Internal.DBTypeValidation ()
 import DBRecord.Internal.DBTypes
+import DBRecord.Types
 {-
 IgnoredCol
 ForeignRef

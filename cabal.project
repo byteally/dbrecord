@@ -1,6 +1,7 @@
 compiler: ghc
 packages:
   ./dbrecord
+  ./dbrecord-types
   ./dbrecord-migration
   -- ./dbrecord-mongo
   ./dbrecord-postgres-simple
