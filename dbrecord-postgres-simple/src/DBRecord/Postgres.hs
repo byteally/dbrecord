@@ -12,7 +12,6 @@ import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.FromField (FromField (..))
 import qualified Database.PostgreSQL.Simple.FromField as FF
 import Data.Typeable
-import DBRecord.Internal.Types
 import DBRecord.Postgres.Internal.Query
 
 instance (FromJSON a, Typeable a) => FromField (Json a) where
