@@ -11,7 +11,7 @@ module DBRecord.Postgres.Internal.LTree
        , E.ltree
        ) where
 
-import           DBRecord.Internal.Types ( LTree (..) )
+import           DBRecord.Types ( LTree (..) )
 import qualified DBRecord.Internal.Expr as E ( ltree )
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T

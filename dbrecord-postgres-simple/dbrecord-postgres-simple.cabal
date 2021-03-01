@@ -37,6 +37,7 @@ library
                      , aeson
                      , text
                      , dbrecord
+                     , dbrecord-types
                      -- , dbrecord-migration
                      , pretty            == 1.1.*
                      , vector
