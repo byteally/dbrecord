@@ -7,6 +7,7 @@ module DBRecord.Postgres
        ) where
 
 import Data.Aeson
+import DBRecord.Types
 import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.FromField (FromField (..))
 import qualified Database.PostgreSQL.Simple.FromField as FF
