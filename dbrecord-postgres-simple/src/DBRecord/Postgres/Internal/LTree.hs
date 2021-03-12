@@ -30,8 +30,9 @@ ltreeOid = Oid 32874
 {-# INLINE ltreeOid #-}
 
 instance FromField LTree where
-   fromField f mdata =
-      if typeOid f /= typoid ltree
+   fromField f mdata = do
+      typeName <- typename f
+      if typeName /= typname ltree
         then returnError Incompatible f ""
         else case mdata of
                Nothing  -> returnError UnexpectedNull f ""
