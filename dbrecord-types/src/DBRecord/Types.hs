@@ -1,9 +1,12 @@
 {-# LANGUAGE DeriveGeneric                #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving   #-}
+{-# LANGUAGE DerivingStrategies           #-}
+{-# LANGUAGE PolyKinds                    #-}
 
 module DBRecord.Types where
 
 import           Data.Aeson
+import           Data.Kind
 import qualified Data.Text as T
 import           GHC.Generics
 
@@ -23,6 +26,9 @@ newtype Interval = Interval T.Text
 
 newtype LTree = LTree [T.Text]
               deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
+newtype Key (t :: k) (v :: Type) = Key {getKey :: v}
+  deriving newtype (Show, Read, Eq, Ord, ToJSON, FromJSON)
 
 -- citext rexport, uuid reexport
 
