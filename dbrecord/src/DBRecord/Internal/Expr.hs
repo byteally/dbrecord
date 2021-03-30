@@ -234,9 +234,10 @@ instance ( DBTypeCtx (GetDBTypeRep sc [a])
 instance ConstExpr sc Bool where
   constExpr = literalExpr . PQ.Bool
 
-instance ConstExpr sc A.Value where
-  constExpr = literalExpr . PQ.String . jsonify
-    where jsonify = T.pack . lazyDecodeUtf8 . A.encode
+instance ( DBTypeCtx (GetDBTypeRep sc A.Value)
+         , SingI (GetDBTypeRep sc A.Value)
+         ) => ConstExpr sc A.Value where
+  constExpr = jsonb
 
 instance ( DBTypeCtx (GetDBTypeRep sc UUID)
          , SingI (GetDBTypeRep sc UUID)
@@ -654,6 +655,15 @@ pattern TRUE = Expr (PQ.ConstExpr (PQ.Bool True))
 pattern FALSE :: Expr sc Bool
 pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
 
+jsonb ::
+  forall sc a.
+  ( A.ToJSON a
+  , DBTypeCtx (GetDBTypeRep sc A.Value)
+  , SingI (GetDBTypeRep sc A.Value)
+  ) => a -> Expr sc A.Value
+jsonb = annotateType . Expr . PQ.ConstExpr . PQ.String . jsonify
+  where jsonify = T.pack . lazyDecodeUtf8 . A.encode
+
 text :: T.Text -> Expr sc T.Text
 text = Expr . PQ.ConstExpr . PQ.String
 
@@ -843,6 +853,27 @@ sum = Expr . PQ.FunExpr "sum" . singleton . getExpr
 avg :: (FractionalExpr a) => Expr sc a -> Expr sc a
 avg = Expr . PQ.FunExpr "avg" . singleton . getExpr
   where singleton x = [x]
+
+jsonbSet ::
+  forall sc b.
+  ( A.ToJSON b
+  , DBTypeCtx (GetDBTypeRep sc T.Text)
+  , SingI (GetDBTypeRep sc T.Text)
+  , DBTypeCtx (GetDBTypeRep sc [T.Text])
+  , SingI (GetDBTypeRep sc [T.Text])
+  , DBTypeCtx (GetDBTypeRep sc A.Value)
+  , SingI (GetDBTypeRep sc A.Value)
+  ) => Expr sc A.Value -> [ Text ] -> b -> Expr sc A.Value
+jsonbSet col vs val =
+  Expr (PQ.FunExpr "jsonb_set" args)
+
+  where
+    args =
+      [ getExpr col
+      , getExpr (constExpr @sc vs)
+      , json0
+      ]
+    json0 = coerce $ jsonb @sc val
 
 instance EqExpr sc Bool where
   a .== b = binOp PQ.OpEq a b
