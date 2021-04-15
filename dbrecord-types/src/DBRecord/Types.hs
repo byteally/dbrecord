@@ -29,9 +29,10 @@ newtype LTree = LTree [T.Text]
 
 newtype Key (t :: k) (v :: Type) = Key {getKey :: v}
   deriving newtype (Show, Read, Eq, Ord, ToJSON, FromJSON)
+  deriving stock Generic
+
+-- | A Type representing a regclass. See <https://www.postgresql.org/docs/current/datatype-oid.html>
+newtype RegClass = RegClass { getTypeName :: T.Text }
+                 deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
 -- citext rexport, uuid reexport
-
-
-
-

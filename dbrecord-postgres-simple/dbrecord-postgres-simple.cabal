@@ -24,6 +24,7 @@ library
                     DBRecord.Postgres.Internal.Query
                     -- DBRecord.Postgres.Internal.Types
                     DBRecord.Postgres.Internal.LTree
+                    DBRecord.Postgres.Internal.RegClass
                     DBRecord.Postgres.Internal.Interval
                     DBRecord.Postgres.Internal.TextSearch
                     DBRecord.Postgres.Internal.TextSearch.Query

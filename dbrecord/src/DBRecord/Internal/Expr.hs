@@ -751,6 +751,11 @@ ltree (LTree vs) = go vs
       go = literalExpr . PQ.String . dotSep
       dotSep = T.intercalate "."
 
+regClass :: RegClass -> Expr sc RegClass
+regClass (RegClass s) = go s
+    where
+      go = literalExpr . PQ.String
+
 interval :: ( DBTypeCtx (GetDBTypeRep sc Interval)
            , SingI (GetDBTypeRep sc Interval)
            ) => Interval -> Expr sc Interval

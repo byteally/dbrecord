@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
+{-# LANGUAGE CPP                        #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE DeriveFunctor              #-}
@@ -10,17 +11,18 @@
 
 module DBRecord.Postgres.Internal.Query where
 
+import           Control.Monad.Reader
 import qualified DBRecord.Internal.Sql.SqlGen as PG
+import           DBRecord.Internal.Types
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
-import Database.PostgreSQL.Simple as PGS
-import Database.PostgreSQL.Simple.FromRow as PGS
-import Database.PostgreSQL.Simple.FromField
-import DBRecord.Internal.Types
-import DBRecord.Query
-import Data.Pool
-import Data.String
-import Control.Monad.Reader
-import Data.Functor.Identity
+import           DBRecord.Query
+import           DBRecord.Types
+import           Data.Functor.Identity
+import           Data.Pool
+import           Data.String
+import           Database.PostgreSQL.Simple as PGS
+import           Database.PostgreSQL.Simple.FromField
+import           Database.PostgreSQL.Simple.FromRow as PGS
 import qualified UnliftIO as U
 
 newtype PostgresDBT (db :: *) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
@@ -32,7 +34,7 @@ instance DBDecoder PGS where
   type FromDBRowParser PGS = RowParser
   type FromDBRow PGS       = FromRow
   dbDecoder _ _ = fromRow
-  
+
 type instance ToDBRow PGS a = ToRow a
 
 data PGS where
@@ -81,11 +83,17 @@ instance HasDelete PGS where
 pgDefaultPool :: ConnectInfo -> IO (Pool Connection)
 pgDefaultPool connectInfo = createPool (PGS.connect connectInfo) PGS.close 10 5 10
 
+#if MIN_VERSION_postgresql_simple(0,6,3)
+#else
 instance (FromField a) => FromField (Identity a) where
   fromField f m = Identity <$> fromField f m
+#endif
 
 instance (FromField a) => FromField (fld ::: a) where
   fromField f m = Field <$> fromField f m
+
+instance (FromField v) => FromField (Key t v) where
+  fromField f m = Key <$> fromField f m
 
 instance (FromField a) => FromRow (Identity a) where
   fromRow = Identity <$> field

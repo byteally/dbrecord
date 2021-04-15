@@ -40,4 +40,4 @@ instance FromField LTree where
 
      where
        splitByDot = T.split (== '.')
-       go = pure . LTree . splitByDot  
+       go = pure . LTree . splitByDot
