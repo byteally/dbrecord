@@ -316,7 +316,28 @@ instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x
 
 instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20) where
   toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20) lift =
-    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& lift x13 :& lift x14 :& lift x15 :& lift x16 :& lift x17 :& lift x18 :& lift x19 :& lift x20 :&Nil    
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& lift x13 :& lift x14 :& lift x15 :& lift x16 :& lift x17 :& lift x18 :& lift x19 :& lift x20 :& Nil
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& lift x13 :& lift x14 :& lift x15 :& lift x16 :& lift x17 :& lift x18 :& lift x19 :& lift x20 :& lift x21 :& Nil
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& lift x13 :& lift x14 :& lift x15 :& lift x16 :& lift x17 :& lift x18 :& lift x19 :& lift x20 :& lift x21 :& lift x22 :& Nil
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& lift x13 :& lift x14 :& lift x15 :& lift x16 :& lift x17 :& lift x18 :& lift x19 :& lift x20 :& lift x21 :& lift x22 :& lift x23 :& Nil
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& lift x13 :& lift x14 :& lift x15 :& lift x16 :& lift x17 :& lift x18 :& lift x19 :& lift x20 :& lift x21 :& lift x22 :& lift x23 :& lift x24 :& Nil
+
+instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25) where
+  toHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25) lift =
+    lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& lift x13 :& lift x14 :& lift x15 :& lift x16 :& lift x17 :& lift x18 :& lift x19 :& lift x20 :& lift x21 :& lift x22 :& lift x23 :& lift x24 :& lift x25 :& Nil
+
 
 type family HListToTuple (xs :: [*]) = (ret :: *) | ret -> xs where
   HListToTuple '[]  = ()
@@ -340,7 +361,11 @@ type family HListToTuple (xs :: [*]) = (ret :: *) | ret -> xs where
   HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18)
   HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19)
   HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20)
-
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24)
+  HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25)
 
 type family TupleToHList (t :: *) = (res :: [*]) | res -> t where
   TupleToHList ()           = '[]
@@ -364,6 +389,11 @@ type family TupleToHList (t :: *) = (res :: [*]) | res -> t where
   TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18]
   TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19]
   TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24]
+  TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25]
 
 type family FilterNonDefaults (xs :: [*]) (defs :: [Symbol]) :: [*] where
   FilterNonDefaults '[] _ = '[]
