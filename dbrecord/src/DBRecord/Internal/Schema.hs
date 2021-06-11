@@ -112,6 +112,9 @@ class ( Schema sc
   type TableType sc tab :: TableTypes
   type TableType sc tab = 'BaseTable
 
+  type DefaultTableCodec sc tab :: Bool
+  type DefaultTableCodec sc tab = 'False
+
   defaults :: DBDefaults sc tab
   defaults = DBDefaults Nil
 
