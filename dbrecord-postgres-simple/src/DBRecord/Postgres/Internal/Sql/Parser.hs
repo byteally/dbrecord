@@ -348,6 +348,17 @@ parsePGType scn nullInfo sz = wrapNullable nullInfo . go
         go "xml"                       = DBXml
         go "jsonb"                     = DBJsonB
         go "json"                      = DBJson
+        go "oid"                       = OtherBuiltInType (DBTypeName "oid" [])
+        go "regclass"                  = OtherBuiltInType (DBTypeName "regclass" [])
+        go "regproc"                   = OtherBuiltInType (DBTypeName "regproc" [])
+        go "regprocedure"              = OtherBuiltInType (DBTypeName "regprocedure" [])
+        go "regoper"                   = OtherBuiltInType (DBTypeName "regoper" [])
+        go "regoperator"               = OtherBuiltInType (DBTypeName "regoperator" [])
+        go "regtype"                   = OtherBuiltInType (DBTypeName "regtype" [])
+        go "regrole"                   = OtherBuiltInType (DBTypeName "regrole" [])
+        go "regnamespace"              = OtherBuiltInType (DBTypeName "regnamespace" [])
+        go "regconfig"                 = OtherBuiltInType (DBTypeName "regconfig" [])
+        go "regdictionary"             = OtherBuiltInType (DBTypeName "regdictionary" [])
         go v | isArray v               = DBArray (parseArray v)
              | otherwise               = DBCustomType (T.pack scn) (DBTypeName (T.pack v) [])
 

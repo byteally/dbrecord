@@ -50,6 +50,7 @@ data DBType = DBInt4
             | DBJsonB
             | DBArray DBType
             | DBLTree
+            | OtherBuiltInType DBTypeName
             | DBCustomType
                 T.Text -- Schema name
                 DBTypeName

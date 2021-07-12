@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric                #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving   #-}
 {-# LANGUAGE DerivingStrategies           #-}
+{-# LANGUAGE DataKinds                    #-}
 {-# LANGUAGE PolyKinds                    #-}
 
 module DBRecord.Types where
@@ -32,7 +33,33 @@ newtype Key (t :: k) (v :: Type) = Key {getKey :: v}
   deriving stock Generic
 
 -- | A Type representing a regclass. See <https://www.postgresql.org/docs/current/datatype-oid.html>
-newtype RegClass = RegClass { getTypeName :: T.Text }
-                 deriving (Show, Eq, Generic, FromJSON, ToJSON)
+-- newtype RegClass = RegClass { getTypeName :: T.Text }
+--                  deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
+newtype PGOID (t :: PGOIDType) = PGOID_ { getPGOID :: T.Text }
+  deriving (Show, Eq, Generic, ToJSON)
+
+mkUnsafePGOID :: T.Text -> PGOID oid
+mkUnsafePGOID = PGOID_
+
+data PGOIDType
+  = PGOID
+  | RegProc
+  | RegProcedure
+  | RegOper
+  | RegOperator
+  | RegClass
+  | RegType
+  | RegRole
+  | RegNamespace
+  | RegConfig
+  | RegDictionary
+    deriving (Show, Eq)
+
+type RegClass = PGOID 'RegClass
+type RegType = PGOID 'RegType
+type RegRole = PGOID 'RegRole
+type RegProc = PGOID 'RegProc
+type RegProcedure = PGOID 'RegProcedure
 
 -- citext rexport, uuid reexport

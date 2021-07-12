@@ -751,8 +751,8 @@ ltree (LTree vs) = go vs
       go = literalExpr . PQ.String . dotSep
       dotSep = T.intercalate "."
 
-regClass :: RegClass -> Expr sc RegClass
-regClass (RegClass s) = go s
+pgOID :: PGOID t -> Expr sc (PGOID t)
+pgOID oid = go (getPGOID oid)
     where
       go = literalExpr . PQ.String
 

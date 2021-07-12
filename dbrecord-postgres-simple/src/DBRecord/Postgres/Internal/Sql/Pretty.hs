@@ -11,6 +11,7 @@ module DBRecord.Postgres.Internal.Sql.Pretty
   , renderUpdate
   , ppExpr
   , ppPGType
+  , ppPGOIDType
   ) where
 
 import           Data.ByteString (ByteString)
@@ -29,6 +30,7 @@ import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   space)
 import DBRecord.Schema.Interface
 import qualified Data.List as L
+import           DBRecord.Types (PGOIDType(..))
 
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
@@ -459,6 +461,7 @@ ppPGType = go
         go DBLTree                      = "LTREE"
         go (DBArray t)                  = go t ++ "[]"
         go (DBNullable t)               = go t
+        go (OtherBuiltInType tn)        = ppDbTypeName tn
         go (DBCustomType scn tn)        = T.unpack (doubleQuote scn) <> dot <> ppDbTypeName tn
 
         ppDbTypeName (DBTypeName t args) = T.unpack (doubleQuote t) ++ ppArgs args
@@ -470,3 +473,17 @@ ppPGType = go
         ppArg (IntegerArg i) = show i
 
         dot = "."
+
+
+ppPGOIDType :: PGOIDType -> String
+ppPGOIDType PGOID = "oid"
+ppPGOIDType RegProc = "regproc"
+ppPGOIDType RegProcedure = "regprocedure"
+ppPGOIDType RegOper = "regoper"
+ppPGOIDType RegOperator = "regoperator"
+ppPGOIDType RegClass = "regclass"
+ppPGOIDType RegType = "regtype"
+ppPGOIDType RegRole = "regrole"
+ppPGOIDType RegNamespace = "regnamespace"
+ppPGOIDType RegConfig = "regconfig"
+ppPGOIDType RegDictionary = "regdictionary"

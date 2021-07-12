@@ -1,21 +1,87 @@
 {-# LANGUAGE OverloadedStrings           #-}
 {-# LANGUAGE FlexibleInstances           #-}
 {-# LANGUAGE MultiParamTypeClasses       #-}
+{-# LANGUAGE ScopedTypeVariables         #-}
+{-# LANGUAGE AllowAmbiguousTypes         #-}
+{-# LANGUAGE FlexibleContexts            #-}
+{-# LANGUAGE KindSignatures              #-}
+{-# LANGUAGE TypeApplications            #-}
 
 {-# OPTIONS_GHC -Wno-orphans             #-}
 
 module DBRecord.Postgres.Internal.RegClass
-       ( RegClass (..)
-       , E.regClass
+       ( RegClass
+       , regclass
+       , regtype
        ) where
 
-import qualified DBRecord.Internal.Expr as E ( regClass )
-import           DBRecord.Types ( RegClass (..) )
+import Data.Proxy
+import GHC.TypeLits
+import DBRecord.Schema
+import DBRecord.Internal.Schema
+import DBRecord.Internal.DBTypes as DBTypes
+import DBRecord.Internal.Types
+import DBRecord.Internal.Expr (ConstExpr (..), unsafeCast, literalExpr)
+import           DBRecord.Types ( PGOID, RegClass, RegType, PGOIDType(..), mkUnsafePGOID, getPGOID)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Text as T
 import           Database.PostgreSQL.Simple.FromField
        ( FromField (fromField) , typeOid, returnError, ResultError (..), Oid (..) )
 import           Database.PostgreSQL.Simple.TypeInfo.Static (TypeInfo (..))
+import DBRecord.Postgres.Internal.Sql.Pretty (ppPGType, ppPGOIDType)
+import DBRecord.Internal.PrimQuery (Lit(String))
+
+
+regclass :: forall sc rel. (Table sc rel, KnownSymbol (TableName sc rel)) => RegClass
+regclass = mkUnsafePGOID $ T.pack $ symbolVal (Proxy :: Proxy (TableName sc rel))
+
+regtype :: forall sc ty.
+  ( DBTypeCtx (GetDBTypeRep sc ty)
+  , SingI (GetDBTypeRep sc ty)
+  ) => RegType
+regtype = mkUnsafePGOID $ T.pack $ ppPGType tyRep
+  where tyRep = fromSing (sing :: Sing (GetDBTypeRep sc ty))
+
+instance SingPGOIDType t => ConstExpr sc (PGOID t) where
+  constExpr oid = unsafeCast (OtherBuiltInType $ DBTypes.DBTypeName (T.pack $ ppPGOIDType $ singPGOIDType @t) []) $ go (getPGOID oid)
+    where
+      go = literalExpr . String
+
+class SingPGOIDType (t :: PGOIDType) where
+  singPGOIDType :: PGOIDType
+
+instance SingPGOIDType 'PGOID where
+  singPGOIDType = PGOID
+
+instance SingPGOIDType 'RegProc where
+  singPGOIDType = RegProc
+
+instance SingPGOIDType 'RegProcedure where
+  singPGOIDType = RegProcedure
+
+instance SingPGOIDType 'RegOper where
+  singPGOIDType = RegOper
+
+instance SingPGOIDType 'RegOperator where
+  singPGOIDType = RegOperator
+
+instance SingPGOIDType 'RegClass where
+  singPGOIDType = RegClass
+
+instance SingPGOIDType 'RegType where
+  singPGOIDType = RegType
+
+instance SingPGOIDType 'RegRole where
+  singPGOIDType = RegRole
+
+instance SingPGOIDType 'RegNamespace where
+  singPGOIDType = RegNamespace
+
+instance SingPGOIDType 'RegConfig where
+  singPGOIDType = RegConfig
+
+instance SingPGOIDType 'RegDictionary where
+  singPGOIDType = RegDictionary
 
 regClass :: TypeInfo
 regClass =  Basic {
@@ -35,4 +101,4 @@ instance FromField RegClass where
         then returnError Incompatible f ""
         else case B.unpack `fmap` mdata of
                Nothing  -> returnError UnexpectedNull f ""
-               Just dat -> return (RegClass (T.pack dat))
+               Just dat -> return (mkUnsafePGOID (T.pack dat))
