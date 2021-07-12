@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleContexts            #-}
 {-# LANGUAGE KindSignatures              #-}
 {-# LANGUAGE TypeApplications            #-}
+{-# LANGUAGE DataKinds                   #-}
 
 {-# OPTIONS_GHC -Wno-orphans             #-}
 
