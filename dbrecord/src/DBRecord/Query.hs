@@ -746,7 +746,7 @@ insertMany :: forall sc tab m row defs reqCols driver keys.
   , TupleToHList row ~ reqCols
   , ToHList row
   , All (ConstExpr sc) reqCols
-  , SingCols sc reqCols (ColumnNames sc tab)
+  -- , SingCols sc reqCols (ColumnNames sc tab)
   , driver ~ Driver (SchemaDB sc)
   , MonadReader driver m
   , HasInsert driver
@@ -756,7 +756,7 @@ insertMany :: forall sc tab m row defs reqCols driver keys.
   , SingE (FieldsOf reqCols)
   , FromDBRow driver (HListToTuple keys)
   , HasInsertRet driver
-  , Insertable sc tab  
+  , Insertable sc tab
   ) => Rows sc tab row -> m [HListToTuple keys]
 insertMany rows = do
   let
@@ -764,7 +764,7 @@ insertMany rows = do
     colIs = headColInfos (Proxy @sc) (Proxy @tab)
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap (toDBValues (Proxy @sc)) values
-    
+
     values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
     insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList cexprss) Nothing []
   driver <- ask
@@ -779,7 +779,7 @@ insertManyRet :: forall sc tab m row rets defs reqCols driver keys.
   , TupleToHList row ~ reqCols
   , ToHList row
   , All (ConstExpr sc) reqCols
-  , SingCols sc reqCols (ColumnNames sc tab)
+  -- , SingCols sc reqCols (ColumnNames sc tab)
   , driver ~ Driver (SchemaDB sc)
   , MonadReader driver m
   , HasInsert driver
