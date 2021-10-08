@@ -322,6 +322,7 @@ type family GetMSSQLTypeRepCustom (sc :: Type) (ot :: Type) (t :: Maybe Type) wh
 type family GetPGTypeRep (sc :: *) (t :: *) = (r :: Type.DBTypeK) {-| r -> t-} where
   GetPGTypeRep _ Int                = 'Type.DBInt4
   GetPGTypeRep _ Int16              = 'Type.DBInt2
+  GetPGTypeRep _ Int32              = 'Type.DBInt4
   GetPGTypeRep _ Int64              = 'Type.DBInt8
   GetPGTypeRep _ Float              = 'Type.DBFloat 24
   GetPGTypeRep _ Double             = 'Type.DBFloat 53
