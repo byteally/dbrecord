@@ -546,6 +546,9 @@ instance OrdExpr sc Int where
 instance OrdExpr sc Int32 where
   a .<= b = binOp PQ.OpLtEq a b
 
+instance OrdExpr sc Int64 where
+  a .<= b = binOp PQ.OpLtEq a b
+
 instance OrdExpr sc Word where
   a .<= b = binOp PQ.OpLtEq a b
 
