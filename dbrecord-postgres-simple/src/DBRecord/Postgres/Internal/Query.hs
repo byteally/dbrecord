@@ -26,7 +26,7 @@ import           Database.PostgreSQL.Simple.FromRow as PGS
 import qualified UnliftIO as U
 
 newtype PostgresDBT (db :: *) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
-  deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS)
+  deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS, U.MonadUnliftIO)
 
 type PostgresDB db = PostgresDBT db IO
 
