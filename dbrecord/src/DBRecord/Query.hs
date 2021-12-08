@@ -80,6 +80,8 @@ module DBRecord.Query
        , conflictingConstraint
        , conflictingColumns
        , conflictingAnon
+
+       , QueryCtx
        ) where
 
 import DBRecord.Schema
@@ -374,7 +376,7 @@ getAll filt ord page = do
         e    -> [getExpr e]
       ordE = case ord of
         AnyOrder -> []
-        _        -> getOrder ord        
+        _        -> getOrder ord
       (off, lmt) = case page of
         Nothing -> (Nothing, Nothing)
         (Just (Offset n)) -> (Just n, Nothing)

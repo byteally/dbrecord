@@ -62,4 +62,6 @@ type RegRole = PGOID 'RegRole
 type RegProc = PGOID 'RegProc
 type RegProcedure = PGOID 'RegProcedure
 
+instance FromJSON (PGOID 'RegType)
+
 -- citext rexport, uuid reexport
