@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveGeneric                #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving   #-}
-{-# LANGUAGE DerivingStrategies           #-}
-{-# LANGUAGE DataKinds                    #-}
-{-# LANGUAGE PolyKinds                    #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE PolyKinds                  #-}
 
 module DBRecord.Types where
 
