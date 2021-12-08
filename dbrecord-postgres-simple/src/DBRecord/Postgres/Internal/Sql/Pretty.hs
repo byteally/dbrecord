@@ -9,6 +9,7 @@ module DBRecord.Postgres.Internal.Sql.Pretty
   , renderDelete
   , renderInsert
   , renderUpdate
+  , renderExpr
   , ppExpr
   , ppPGType
   , ppPGOIDType
@@ -427,6 +428,9 @@ renderInsert = render . ppInsert
 
 renderUpdate :: SqlUpdate -> String
 renderUpdate = render . ppUpdate
+
+renderExpr :: SqlExpr -> String
+renderExpr = render . ppExpr
 
 --
 

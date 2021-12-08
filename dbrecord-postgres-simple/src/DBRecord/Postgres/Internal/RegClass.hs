@@ -16,21 +16,22 @@ module DBRecord.Postgres.Internal.RegClass
        , regtype
        ) where
 
-import Data.Proxy
-import GHC.TypeLits
-import DBRecord.Schema
-import DBRecord.Internal.Schema
-import DBRecord.Internal.DBTypes as DBTypes
-import DBRecord.Internal.Types
-import DBRecord.Internal.Expr (ConstExpr (..), unsafeCast, literalExpr)
+import           DBRecord.Internal.DBTypes as DBTypes
+import           DBRecord.Internal.Expr (ConstExpr (..), unsafeCast, literalExpr)
+import           DBRecord.Internal.PrimQuery (Lit(String))
+import           DBRecord.Internal.Schema
+import           DBRecord.Internal.Types
+import           DBRecord.Postgres.Internal.Sql.Pretty (ppPGType, ppPGOIDType)
 import           DBRecord.Types ( PGOID, RegClass, RegType, PGOIDType(..), mkUnsafePGOID, getPGOID)
+import           Data.ByteString.Char8 as ASCII
 import qualified Data.ByteString.Char8 as B
+import           Data.Proxy
 import qualified Data.Text as T
 import           Database.PostgreSQL.Simple.FromField
        ( FromField (fromField) , typeOid, returnError, ResultError (..), Oid (..) )
 import           Database.PostgreSQL.Simple.TypeInfo.Static (TypeInfo (..))
-import DBRecord.Postgres.Internal.Sql.Pretty (ppPGType, ppPGOIDType)
-import DBRecord.Internal.PrimQuery (Lit(String))
+import           GHC.TypeLits
+
 
 
 regclass :: forall sc rel. (Table sc rel, KnownSymbol (TableName sc rel)) => RegClass
@@ -101,5 +102,25 @@ instance FromField RegClass where
       if typeOid f /= typoid regClass
         then returnError Incompatible f ""
         else case B.unpack `fmap` mdata of
+               Nothing  -> returnError UnexpectedNull f ""
+               Just dat -> return (mkUnsafePGOID (T.pack dat))
+
+regtypeInfo :: TypeInfo
+regtypeInfo =  Basic {
+    typoid      = regtypeOid,
+    typcategory = 'N',
+    typdelim    = ',',
+    typname     = "regtype"
+  }
+
+regtypeOid :: Oid
+regtypeOid = Oid 2206
+{-# INLINE regtypeOid #-}
+
+instance FromField RegType where
+   fromField f mdata =
+      if typeOid f /= typoid regtypeInfo
+        then returnError Incompatible f ""
+        else case ASCII.unpack `fmap` mdata of
                Nothing  -> returnError UnexpectedNull f ""
                Just dat -> return (mkUnsafePGOID (T.pack dat))

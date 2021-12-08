@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fno-warn-orphans       #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE CPP                        #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE TypeFamilies               #-}
@@ -8,12 +8,17 @@
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE FlexibleContexts           #-}
+{-# OPTIONS_GHC -fno-warn-orphans       #-}
 
-module DBRecord.Postgres.Internal.Query where
+module DBRecord.Postgres.Internal.Query
+       ( module DBRecord.Postgres.Internal.Query
+       , module DBRecord.Postgres.Internal.RegClass
+       ) where
 
 import           Control.Monad.Reader
 import qualified DBRecord.Internal.Sql.SqlGen as PG
 import           DBRecord.Internal.Types
+import           DBRecord.Postgres.Internal.RegClass
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
 import           DBRecord.Query
 import           DBRecord.Types
@@ -80,6 +85,9 @@ instance HasDelete PGS where
     let delSQL = PG.renderDelete $ PG.deleteSql $ deleteQ
     execute_ conn (fromString delSQL)
 
+runPGExpr :: Expr sc a -> String
+runPGExpr = PG.renderExpr . PG.toSqlExpr . getExpr
+
 pgDefaultPool :: ConnectInfo -> IO (Pool Connection)
 pgDefaultPool connectInfo = createPool (PGS.connect connectInfo) PGS.close 10 5 10
 
@@ -105,4 +113,5 @@ instance ( FromField (f x)
 
 instance FromRow (HList f '[]) where
   fromRow = pure Nil
+
 
