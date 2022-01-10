@@ -28,8 +28,10 @@ module DBRecord.Query
        , getBy, get, getAll
        , delete
        , insert, insert_, insertMany, insertMany_, insertRet, insertManyRet
+       , insertRetWithConflict
+       , insertManyRetWithConflict
+       , insertManyWithConflict
        , insertWithConflict_
-       , insertManyWithConflict_
        , update, update_, updateRet
        -- , count
        , (.~) , (%~)
@@ -858,7 +860,6 @@ insertWithConflict_ ctgt cact row = do
     pkFlds = fromSing (sing :: Sing keyFields)
     colIs = headColInfos (Proxy @sc) (Proxy @tab)
     cnames = map (^. columnNameInfo . dbName) (filterColumns reqFlds colIs)
-    crets = map columnExpr (filterColumns pkFlds colIs)
     cexprs = toDBValues (Proxy @sc) values
     prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
     tgt = case ctgt of
@@ -866,13 +867,67 @@ insertWithConflict_ ctgt cact row = do
       ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
       ConflictTargetAnon' -> ConflictAnon
     insertQ = case cact of
-      ConflictDoNothing' -> InsertQuery tabId cnames (NE.fromList [cexprs]) (Just (Conflict tgt ConflictDoNothing)) crets
+      ConflictDoNothing' -> InsertQuery tabId cnames (NE.fromList [cexprs]) (Just (Conflict tgt ConflictDoNothing)) []
       ConflictUpdate' crit updFn ->
         let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
-        in InsertQuery tabId cnames (NE.fromList [cexprs]) (Just (Conflict tgt (ConflictUpdate updq))) crets
+        in InsertQuery tabId cnames (NE.fromList [cexprs]) (Just (Conflict tgt (ConflictUpdate updq))) []
   driver <- ask
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
+
+insertRetWithConflict :: forall sc tab m row keys keyFields defs reqCols driver.
+  ( Table sc tab
+  , MonadIO m
+  , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
+  , keyFields ~ FieldsOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
+  , defs ~ HasDefault sc tab
+  , reqCols ~ (FilterNonDefaults (OriginalTableFields tab) defs)
+  , TupleToHList row ~ reqCols
+  , ToHList row
+  , All (ConstExpr sc) reqCols
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
+  , SingCtx sc tab
+  , SingCtxSc sc
+  , HasInsert driver
+  , SingI (FieldsOf reqCols)
+  , SingE (FieldsOf reqCols)
+  , SingI keyFields
+  , SingE keyFields
+  , Insertable sc tab
+  , FromDBRow driver (HListToTuple keys)
+  , HasInsertRet driver
+  , Show (HListToTuple keys)
+  ) =>
+  ConflictTarget' sc tab ->
+  ConflictAction' sc tab ->
+  Row sc tab row ->
+  m (HListToTuple keys)
+insertRetWithConflict ctgt cact row = do
+  let
+    tabId = getTableId (Proxy @sc) (Proxy @tab)
+    values = toHList (getRow row) (\v -> Identity v)
+    reqFlds = fromSing (sing :: Sing (FieldsOf reqCols))
+    pkFlds = fromSing (sing :: Sing keyFields)
+    colIs = headColInfos (Proxy @sc) (Proxy @tab)
+    cnames = map (^. columnNameInfo . dbName) (filterColumns reqFlds colIs)
+    crets = map columnExpr (filterColumns pkFlds colIs)
+    prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
+    cexprs = toDBValues (Proxy @sc) values
+    tgt = case ctgt of
+      ConflictTargetConstraint' t -> ConflictConstraint t
+      ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
+      ConflictTargetAnon' -> ConflictAnon
+    insertQ = case cact of
+      ConflictDoNothing' -> InsertQuery tabId cnames (pure cexprs) (Just (Conflict tgt ConflictDoNothing)) crets
+      ConflictUpdate' crit updFn ->
+        let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
+        in InsertQuery tabId cnames (pure cexprs) (Just (Conflict tgt (ConflictUpdate updq))) crets
+  driver <- ask
+  out <- liftIO $ dbInsertRet driver insertQ
+  pure $ case out of
+    [x] -> x
+    xs ->  error $ "insert: insert query with return more than 1 rows" <> show xs
 
 insertMany_ :: forall sc tab m row defs reqCols driver.
   ( Table sc tab
@@ -905,12 +960,12 @@ insertMany_ rows = do
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
 
-insertManyWithConflict_ :: forall sc tab m row keys keyFields defs reqCols driver.
+insertManyRetWithConflict :: forall sc tab m row keys keyFields defs reqCols driver.
   ( Table sc tab
   , MonadIO m
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
   , keyFields ~ FieldsOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
-  , defs ~ HasDefault sc tab 
+  , defs ~ HasDefault sc tab
   , reqCols ~ (FilterNonDefaults (OriginalTableFields tab) defs)
   , TupleToHList row ~ reqCols
   , ToHList row
@@ -924,22 +979,25 @@ insertManyWithConflict_ :: forall sc tab m row keys keyFields defs reqCols drive
   , SingE (FieldsOf reqCols)
   , SingI keyFields
   , SingE keyFields
-  , Insertable sc tab  
-  ) => ConflictTarget' sc tab        -> 
-      ConflictAction' sc tab ->   
-      Rows sc tab row ->       
-      m ()
-insertManyWithConflict_ ctgt cact rows = do
+  , Insertable sc tab
+  , FromDBRow driver (HListToTuple keys)
+  , HasInsertRet driver
+  ) =>
+  ConflictTarget' sc tab ->
+  ConflictAction' sc tab ->
+  Rows sc tab row ->
+  m [HListToTuple keys]
+insertManyRetWithConflict ctgt cact rows = do
   let
     tabId = getTableId (Proxy @sc) (Proxy @tab)
-    values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)    
+    values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
     reqFlds = fromSing (sing :: Sing (FieldsOf reqCols))
     pkFlds = fromSing (sing :: Sing keyFields)
     colIs = headColInfos (Proxy @sc) (Proxy @tab)
     cnames = map (^. columnNameInfo . dbName) (filterColumns reqFlds colIs)
     crets = map columnExpr (filterColumns pkFlds colIs)
     prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
-    cexprss = fmap (toDBValues (Proxy @sc)) values    
+    cexprss = fmap (toDBValues (Proxy @sc)) values
     tgt = case ctgt of
       ConflictTargetConstraint' t -> ConflictConstraint t
       ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
@@ -950,7 +1008,56 @@ insertManyWithConflict_ ctgt cact rows = do
         let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
         in InsertQuery tabId cnames (NE.fromList cexprss) (Just (Conflict tgt (ConflictUpdate updq))) crets
   driver <- ask
-  _ <- liftIO $ dbInsert driver insertQ
+  liftIO $ dbInsertRet driver insertQ
+
+insertManyWithConflict :: forall sc tab m row keys keyFields defs reqCols driver.
+  ( Table sc tab
+  , MonadIO m
+  , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
+  , keyFields ~ FieldsOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
+  , defs ~ HasDefault sc tab
+  , reqCols ~ (FilterNonDefaults (OriginalTableFields tab) defs)
+  , TupleToHList row ~ reqCols
+  , ToHList row
+  , All (ConstExpr sc) reqCols
+  , driver ~ Driver (SchemaDB sc)
+  , MonadReader driver m
+  , SingCtx sc tab
+  , SingCtxSc sc
+  , HasInsert driver
+  , SingI (FieldsOf reqCols)
+  , SingE (FieldsOf reqCols)
+  , SingI keyFields
+  , SingE keyFields
+  , Insertable sc tab
+  , FromDBRow driver (HListToTuple keys)
+  , HasInsertRet driver
+  ) =>
+  ConflictTarget' sc tab ->
+  ConflictAction' sc tab ->
+  Rows sc tab row ->
+  m ()
+insertManyWithConflict ctgt cact rows = do
+  let
+    tabId = getTableId (Proxy @sc) (Proxy @tab)
+    values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
+    reqFlds = fromSing (sing :: Sing (FieldsOf reqCols))
+    pkFlds = fromSing (sing :: Sing keyFields)
+    colIs = headColInfos (Proxy @sc) (Proxy @tab)
+    cnames = map (^. columnNameInfo . dbName) (filterColumns reqFlds colIs)
+    prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)
+    cexprss = fmap (toDBValues (Proxy @sc)) values
+    tgt = case ctgt of
+      ConflictTargetConstraint' t -> ConflictConstraint t
+      ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
+      ConflictTargetAnon' -> ConflictAnon
+    insertQ = case cact of
+      ConflictDoNothing' -> InsertQuery tabId cnames (NE.fromList cexprss) (Just (Conflict tgt ConflictDoNothing)) []
+      ConflictUpdate' crit updFn ->
+        let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
+        in InsertQuery tabId cnames (NE.fromList cexprss) (Just (Conflict tgt (ConflictUpdate updq))) []
+  driver <- ask
+  liftIO $ dbInsert driver insertQ
   pure ()
 
 newtype Row sc tab row = Row { getRow :: row }
