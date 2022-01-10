@@ -51,6 +51,9 @@ library
                      , resource-pool
                      , mtl
                      , unliftio
+                     , exceptions
+                     , monad-control
+                     , transformers-base
 
   default-language:    Haskell2010
 

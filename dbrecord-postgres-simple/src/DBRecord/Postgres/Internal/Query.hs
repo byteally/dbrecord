@@ -1,13 +1,18 @@
-{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE CPP                        #-}
-{-# LANGUAGE GADTs                      #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE DeriveFunctor              #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TypeOperators              #-}
 {-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE TypeOperators              #-}
+{-# LANGUAGE UndecidableInstances       #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 
 module DBRecord.Postgres.Internal.Query
@@ -15,7 +20,10 @@ module DBRecord.Postgres.Internal.Query
        , module DBRecord.Postgres.Internal.RegClass
        ) where
 
+import           Control.Monad.Base
+import           Control.Monad.Catch
 import           Control.Monad.Reader
+import qualified Control.Monad.Trans.Control as U
 import qualified DBRecord.Internal.Sql.SqlGen as PG
 import           DBRecord.Internal.Types
 import           DBRecord.Postgres.Internal.RegClass
@@ -30,8 +38,12 @@ import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow as PGS
 import qualified UnliftIO as U
 
+
 newtype PostgresDBT (db :: *) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
-  deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS, U.MonadUnliftIO)
+  deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS, U.MonadUnliftIO, MonadThrow, MonadCatch)
+
+deriving newtype instance (U.MonadBaseControl IO m, MonadBase IO m) => U.MonadBaseControl IO (PostgresDBT db m)
+deriving newtype instance (MonadBase IO m) => MonadBase IO (PostgresDBT db m)
 
 type PostgresDB db = PostgresDBT db IO
 
