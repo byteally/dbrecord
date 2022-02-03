@@ -11,6 +11,7 @@ import           Data.Aeson
 import           Data.Kind
 import qualified Data.Text as T
 import           GHC.Generics
+import           Codec.Serialise
 
 newtype JsonStr a = JsonStr { getJsonStr :: a }
 newtype Json a = Json { getJson :: a }
@@ -30,7 +31,7 @@ newtype LTree = LTree [T.Text]
               deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
 newtype Key (t :: k) (v :: Type) = Key {getKey :: v}
-  deriving newtype (Show, Read, Eq, Ord, ToJSON, FromJSON)
+  deriving newtype (Show, Read, Eq, Ord, ToJSON, FromJSON, Serialise)
   deriving stock Generic
 
 -- | A Type representing a regclass. See <https://www.postgresql.org/docs/current/datatype-oid.html>
