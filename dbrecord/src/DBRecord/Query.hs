@@ -953,7 +953,7 @@ insertMany_ rows = do
     tabFlds = fromSing (sing :: Sing (FieldsOf reqCols))
     colIs = headColInfos (Proxy @sc) (Proxy @tab)
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
-    cexprss = fmap (toDBValues (Proxy @sc)) values    
+    cexprss = fmap (toDBValues (Proxy @sc)) values
     values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
     insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList cexprss) Nothing []
   driver <- ask

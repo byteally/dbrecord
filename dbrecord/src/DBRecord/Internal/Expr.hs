@@ -1,43 +1,44 @@
 {-# OPTIONS_GHC -fno-warn-redundant-constraints -Wno-orphans #-}
-{-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP, PolyKinds, TypeFamilies, DefaultSignatures #-}
+
+{-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP, PolyKinds, TypeFamilies, DefaultSignatures, DerivingStrategies #-}
 module DBRecord.Internal.Expr
        ( module DBRecord.Internal.Expr
        , Expr (..)
        ) where
 
-import DBRecord.Internal.PrimQuery (Expr (..), AggExpr (..))
-import DBRecord.Types
+import           DBRecord.Internal.PrimQuery (Expr (..), AggExpr (..))
 import qualified DBRecord.Internal.PrimQuery as PQ
-import qualified Data.HashMap.Strict as HM
+import           DBRecord.Types
 import qualified Data.Foldable as F
-import Data.String
-import qualified Data.Text as T
-import Data.Functor.Identity (Identity)
+import           Data.Functor.Identity (Identity)
 import qualified Data.Functor.Identity as I
-import Data.Typeable
+import qualified Data.HashMap.Strict as HM
+import           Data.String
+import qualified Data.Text as T
+import           Data.Typeable
 -- import GHC.TypeLits
-import Data.Int (Int8, Int16, Int32, Int64)
-import Data.Word (Word8, Word16, Word32, Word64)
+import           Data.Int (Int8, Int16, Int32, Int64)
+import           Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Aeson as A
 import qualified Data.Text.Encoding as STE
 import qualified Data.Text.Lazy.Encoding as LTE
 import qualified Data.ByteString.Lazy as LB
 import qualified Data.ByteString as SB
 import qualified Data.Text.Lazy as LT
-import Data.Time
-import Data.Text (Text)
-import DBRecord.Internal.Types
-import DBRecord.Internal.DBTypes hiding (toNullable)
-import Data.UUID (UUID)
+import           Data.Time
+import           Data.Text (Text)
+import           DBRecord.Internal.Types
+import           DBRecord.Internal.DBTypes hiding (toNullable)
+import           Data.UUID (UUID)
 import qualified Data.UUID as UUID
-import Data.CaseInsensitive (CI, foldedCase, mk)
-import Data.Coerce
+import           Data.CaseInsensitive (CI, foldedCase, mk)
+import           Data.Coerce
 -- import Data.Aeson
-import DBRecord.Internal.Schema (GetDBTypeRep, UDTargetType (..), GTarget)
-import DBRecord.Internal.Common (FindAlias, NewtypeRep, FromJust)
-import GHC.Generics
-import GHC.TypeLits
-import GHC.OverloadedLabels
+import           DBRecord.Internal.Schema (GetDBTypeRep, UDTargetType (..), GTarget)
+import           DBRecord.Internal.Common (FindAlias, NewtypeRep, FromJust)
+import           GHC.Generics
+import           GHC.TypeLits
+import           GHC.OverloadedLabels
 
 class ConstExpr sc t where
   constExpr :: t -> Expr sc t
@@ -250,6 +251,21 @@ instance (ConstExpr sc a) => ConstExpr sc (Maybe a) where
 
 instance ConstExpr sc LTree where
   constExpr = ltree
+
+instance (OrdExpr db v) => OrdExpr db (Key t v) where
+  a .<= b = (coerceExprTo a .<= coerceExprTo b)
+   where coerceExprTo :: Expr sc (Key t v) -> Expr sc v
+         coerceExprTo = coerceExpr
+
+deriving newtype instance (EqExpr db v) => EqExpr db (Key t v)
+
+-- instance (NumExpr v) => NumExpr (Key t v) where
+--   exprFromInteger = coerceExprTo . exprFromInteger . coerce
+--    where coerceExprTo :: Expr sc v -> Expr sc (Key t v)
+--          coerceExprTo = coerceExpr
+
+instance (ConstExpr db v) => ConstExpr db (Key t v) where
+  constExpr (Key a) = coerceExpr . constExpr $ a
 
 -- instance (ToJSON a, Typeable a) => ConstExpr sc (Json a) where
 --   constExpr =
