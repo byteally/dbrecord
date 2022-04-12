@@ -4,6 +4,7 @@
 {-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE PolyKinds                  #-}
+{-# LANGUAGE CPP                        #-}
 
 module DBRecord.Types where
 
@@ -11,7 +12,9 @@ import           Data.Aeson
 import           Data.Kind
 import qualified Data.Text as T
 import           GHC.Generics
+#ifndef ghcjs_HOST_OS
 import           Codec.Serialise
+#endif
 
 newtype JsonStr a = JsonStr { getJsonStr :: a }
 newtype Json a = Json { getJson :: a }
@@ -31,7 +34,10 @@ newtype LTree = LTree [T.Text]
               deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
 newtype Key (t :: k) (v :: Type) = Key {getKey :: v}
-  deriving newtype (Show, Read, Eq, Ord, ToJSON, FromJSON, Serialise)
+  deriving newtype (Show, Read, Eq, Ord, ToJSON, FromJSON)
+#ifndef ghcjs_HOST_OS
+  deriving newtype (Serialise)
+#endif
   deriving stock Generic
 
 -- | A Type representing a regclass. See <https://www.postgresql.org/docs/current/datatype-oid.html>
