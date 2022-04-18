@@ -22,6 +22,7 @@ import qualified Data.Text as T
 import GHC.Generics
 import Data.Kind
 import GHC.TypeLits
+import qualified Path as Path
 
 data DBType = DBInt4
             | DBInt8
@@ -337,6 +338,7 @@ type family GetPGTypeRep (sc :: *) (t :: *) = (r :: Type.DBTypeK) {-| r -> t-} w
   GetPGTypeRep _ TimeOfDay          = 'Type.DBTime 6
   GetPGTypeRep _ Value              = 'Type.DBJsonB
   GetPGTypeRep _ Interval           = 'Type.DBInterval 'Nothing 6
+  GetPGTypeRep _ (Path.Path a ft)   = 'Type.DBText
   -- GetPGTypeRep sc (Json a)          = 'Type.DBCustomType (Json a) 'Type.DBJsonB (TypeMappings sc (Json a))
   -- GetPGTypeRep sc (JsonStr a)       = 'Type.DBCustomType (JsonStr a) 'Type.DBJson (TypeMappings sc (JsonStr a))
   GetPGTypeRep _ UUID               = 'Type.DBUuid
