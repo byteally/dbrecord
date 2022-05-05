@@ -11,7 +11,7 @@ import Data.Time.Clock (UTCTime)
 import Data.CaseInsensitive  (CI)
 import Data.Int
 import Data.Word
-import DBRecord.Types (Interval, {-Json, JsonStr,-} )
+import DBRecord.Types (Interval, Json {-, JsonStr,-} )
 
 -- import Data.Vector (Vector)
 import DBRecord.Internal.Types (DbK (..), CustomType (..))
@@ -339,6 +339,7 @@ type family GetPGTypeRep (sc :: *) (t :: *) = (r :: Type.DBTypeK) {-| r -> t-} w
   GetPGTypeRep _ Value              = 'Type.DBJsonB
   GetPGTypeRep _ Interval           = 'Type.DBInterval 'Nothing 6
   GetPGTypeRep _ (Path.Path a ft)   = 'Type.DBText
+  GetPGTypeRep _ (Json a)           = 'Type.DBJsonB
   -- GetPGTypeRep sc (Json a)          = 'Type.DBCustomType (Json a) 'Type.DBJsonB (TypeMappings sc (Json a))
   -- GetPGTypeRep sc (JsonStr a)       = 'Type.DBCustomType (JsonStr a) 'Type.DBJson (TypeMappings sc (JsonStr a))
   GetPGTypeRep _ UUID               = 'Type.DBUuid

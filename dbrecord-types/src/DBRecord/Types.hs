@@ -18,7 +18,8 @@ import           Codec.Serialise
 
 newtype JsonStr a = JsonStr { getJsonStr :: a }
 newtype Json a = Json { getJson :: a }
-               deriving (Show, Generic, FromJSON, ToJSON)
+               deriving (Show, Generic)
+               deriving newtype (FromJSON, ToJSON)
 
 json :: (ToJSON a) => a -> Json a
 json = Json
