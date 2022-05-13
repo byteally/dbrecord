@@ -17,9 +17,13 @@ import           Codec.Serialise
 #endif
 
 newtype JsonStr a = JsonStr { getJsonStr :: a }
-newtype Json a = Json { getJson :: a }
-               deriving (Show, Generic)
-               deriving newtype (FromJSON, ToJSON)
+newtype Json a =
+  Json { getJson :: a }
+  deriving (Eq,Show, Generic)
+  deriving newtype (FromJSON, ToJSON)
+#ifndef ghcjs_HOST_OS
+  deriving newtype (Serialise)
+#endif
 
 json :: (ToJSON a) => a -> Json a
 json = Json
