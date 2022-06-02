@@ -650,7 +650,7 @@ insert row = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns reqFlds colIs)
     crets = map columnExpr (filterColumns pkFlds colIs)
     cexprs = toDBValues (Proxy @sc) values    
-    insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) Nothing crets
+    insertQ = InsertQuery tabId cnames (pure cexprs) Nothing crets
   driver <- ask
   out <- liftIO $ dbInsertRet driver insertQ
   pure $ case out of
@@ -687,7 +687,7 @@ insertRet row rets = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)    
     cexprs = toDBValues (Proxy @sc) values
-    insertQ = InsertQuery tabId cnames (NE.fromList [cexprs]) Nothing (toPrimExprs $ rets (Q.Columns prjs))
+    insertQ = InsertQuery tabId cnames (pure cexprs) Nothing (toPrimExprs $ rets (Q.Columns prjs))
   driver <- ask
   out <- liftIO $ dbInsertRet driver insertQ
   pure $ case out of
@@ -768,11 +768,14 @@ insertMany rows = do
     colIs = headColInfos (Proxy @sc) (Proxy @tab)
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap (toDBValues (Proxy @sc)) values
-
     values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
-    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList cexprss) Nothing []
+    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (go cexprss) Nothing []
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
+
+  where
+    go [] = error "Panic: Zero exprs @insertMany"
+    go vs = NE.fromList vs
 
 insertManyRet :: forall sc tab m row rets defs reqCols driver keys.
   ( Table sc tab
@@ -802,10 +805,14 @@ insertManyRet rows rets = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap (toDBValues (Proxy @sc)) values
     values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
-    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList cexprss) Nothing (toPrimExprs $ rets (Q.Columns prjs))
+    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (go cexprss) Nothing (toPrimExprs $ rets (Q.Columns prjs))
     prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)    
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
+
+  where
+    go [] = error "Panic: Zero exprs @insertManyRet"
+    go vs = NE.fromList vs
 
 insert_ :: forall sc tab m row defs reqCols driver.
   ( Table sc tab
@@ -867,10 +874,10 @@ insertWithConflict_ ctgt cact row = do
       ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
       ConflictTargetAnon' -> ConflictAnon
     insertQ = case cact of
-      ConflictDoNothing' -> InsertQuery tabId cnames (NE.fromList [cexprs]) (Just (Conflict tgt ConflictDoNothing)) []
+      ConflictDoNothing' -> InsertQuery tabId cnames (pure cexprs) (Just (Conflict tgt ConflictDoNothing)) []
       ConflictUpdate' crit updFn ->
         let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
-        in InsertQuery tabId cnames (NE.fromList [cexprs]) (Just (Conflict tgt (ConflictUpdate updq))) []
+        in InsertQuery tabId cnames (pure cexprs) (Just (Conflict tgt (ConflictUpdate updq))) []
   driver <- ask
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
@@ -955,10 +962,15 @@ insertMany_ rows = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap (toDBValues (Proxy @sc)) values
     values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
-    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (NE.fromList cexprss) Nothing []
+    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (go cexprss) Nothing []
   driver <- ask
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
+
+  where
+    go [] = error "Panic: Zero exprs @insertMany_"
+    go vs = NE.fromList vs
+
 
 insertManyRetWithConflict :: forall sc tab m row keys keyFields defs reqCols driver.
   ( Table sc tab
@@ -1003,12 +1015,17 @@ insertManyRetWithConflict ctgt cact rows = do
       ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
       ConflictTargetAnon' -> ConflictAnon
     insertQ = case cact of
-      ConflictDoNothing' -> InsertQuery tabId cnames (NE.fromList cexprss) (Just (Conflict tgt ConflictDoNothing)) crets
+      ConflictDoNothing' -> InsertQuery tabId cnames (go cexprss) (Just (Conflict tgt ConflictDoNothing)) crets
       ConflictUpdate' crit updFn ->
         let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
-        in InsertQuery tabId cnames (NE.fromList cexprss) (Just (Conflict tgt (ConflictUpdate updq))) crets
+        in InsertQuery tabId cnames (go cexprss) (Just (Conflict tgt (ConflictUpdate updq))) crets
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
+
+  where
+    go [] = error "Panic: Zero exprs @insertManyRetWithConflict"
+    go vs = NE.fromList vs
+  
 
 insertManyWithConflict :: forall sc tab m row keys keyFields defs reqCols driver.
   ( Table sc tab
@@ -1052,13 +1069,17 @@ insertManyWithConflict ctgt cact rows = do
       ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
       ConflictTargetAnon' -> ConflictAnon
     insertQ = case cact of
-      ConflictDoNothing' -> InsertQuery tabId cnames (NE.fromList cexprss) (Just (Conflict tgt ConflictDoNothing)) []
+      ConflictDoNothing' -> InsertQuery tabId cnames (go cexprss) (Just (Conflict tgt ConflictDoNothing)) []
       ConflictUpdate' crit updFn ->
         let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
-        in InsertQuery tabId cnames (NE.fromList cexprss) (Just (Conflict tgt (ConflictUpdate updq))) []
+        in InsertQuery tabId cnames (go cexprss) (Just (Conflict tgt (ConflictUpdate updq))) []
   driver <- ask
   liftIO $ dbInsert driver insertQ
   pure ()
+  
+  where
+    go [] = error "Panic: Zero exprs @insertMany"
+    go vs = NE.fromList vs
 
 newtype Row sc tab row = Row { getRow :: row }
 
