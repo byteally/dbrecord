@@ -5,8 +5,9 @@ import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.Expr
 import DBRecord.Internal.Order
 import GHC.TypeLits
+import Data.Kind
 
-newtype Window (w :: Symbol) (sc :: *) = Window { getPartitions :: PQ.WindowPart }
+newtype Window (w :: Symbol) (sc :: Type) = Window { getPartitions :: PQ.WindowPart }
 
 newtype Partition sc = Partition { getPartExprs :: [PQ.PrimExpr] }
 

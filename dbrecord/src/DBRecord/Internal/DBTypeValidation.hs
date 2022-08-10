@@ -20,11 +20,12 @@ import Data.Time.Calendar (Day)
 import Data.Time.Clock (UTCTime)
 import Data.CaseInsensitive  (CI)
 import Data.Int
+import Data.Kind
 -- import Data.Vector (Vector)
 import GHC.Generics
 import DBRecord.Types
 
-type family InvalidPGType (db :: *) a :: Constraint where
+type family InvalidPGType (db :: Type) a :: Constraint where
   InvalidPGType _ Int           = ()
   InvalidPGType _ Double        = ()
   InvalidPGType _ Int64         = ()
@@ -48,19 +49,19 @@ type family InvalidPGType (db :: *) a :: Constraint where
   InvalidPGType db (CustomType a) = ()
   InvalidPGType db a              = ValidateCustTy db (IsNewType (Rep a)) a
 
-type family InvalidDBType (db :: *) a :: Constraint where
+type family InvalidDBType (db :: Type) a :: Constraint where
   InvalidDBType db a  = InvalidDBType' db (DB db) a
 
-type family InvalidDBType' (db :: *) (dbK :: DbK) a :: Constraint where
+type family InvalidDBType' (db :: Type) (dbK :: DbK) a :: Constraint where
   InvalidDBType' db 'Postgres a = InvalidPGType db a
 
-type family ValidateCustTy (db :: *) (isNewTy :: Bool) (t :: *) :: Constraint where
+type family ValidateCustTy (db :: Type) (isNewTy :: Bool) (t :: Type) :: Constraint where
   ValidateCustTy db 'True t = InvalidDBType db (InnerTy t)
   ValidateCustTy db 'False t = AssertCxt (Elem (Types db) t)
     ('Text "Invalid postgres type: " ':<>: 'ShowType t
      ':$$: 'Text "Hint: Add " ':<>: 'ShowType t ':<>: ('Text " to Types field in Database instance of ") ':<>: ('ShowType db)
     )
-type family UnWrapNT (isNewTy :: Bool) (t :: *) where
+type family UnWrapNT (isNewTy :: Bool) (t :: Type) where
   UnWrapNT 'True t  = InnerTy t
   UnWrapNT 'False t = t
 

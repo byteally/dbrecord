@@ -24,7 +24,7 @@ library
 
   build-depends:       base              >= 4.7 && < 5
                      , text              >=0.11.1
-                     , aeson             >= 1.3 && < 1.6
+                     , aeson             >= 1.3 && < 2.2                     
   if !impl (ghcjs)
     build-depends:   serialise         >= 0.2.3 && < 0.3
 

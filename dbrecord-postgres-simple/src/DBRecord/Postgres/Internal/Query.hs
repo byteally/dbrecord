@@ -37,9 +37,10 @@ import           Database.PostgreSQL.Simple as PGS
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow as PGS
 import qualified UnliftIO as U
+import           Data.Kind
 
 
-newtype PostgresDBT (db :: *) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
+newtype PostgresDBT (db :: Type) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
   deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS, U.MonadUnliftIO, MonadThrow, MonadCatch)
 
 deriving newtype instance (U.MonadBaseControl IO m, MonadBase IO m) => U.MonadBaseControl IO (PostgresDBT db m)

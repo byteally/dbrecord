@@ -4,8 +4,9 @@ module DBRecord.Internal.Order where
 
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.Expr
+import Data.Kind
 
-newtype Order (sc :: *) = Order { getOrder :: [PQ.OrderExpr] }
+newtype Order (sc :: Type) = Order { getOrder :: [PQ.OrderExpr] }
 
 instance Semigroup (Order sc) where
   (Order o1) <> (Order o2) = Order (o1 <> o2)

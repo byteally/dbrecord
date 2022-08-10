@@ -287,7 +287,7 @@ type family GetDBTypeRep' sc dbk t where
   GetDBTypeRep' sc 'Postgres t = GetPGTypeRep sc t
   GetDBTypeRep' sc 'MSSQL    t = GetMSSQLTypeRep sc t
 
-type family GetMSSQLTypeRep (sc :: *) (t :: *) = (r :: Type.DBTypeK) {-| r -> t-} where
+type family GetMSSQLTypeRep (sc :: Type) (t :: Type) = (r :: Type.DBTypeK) {-| r -> t-} where
   GetMSSQLTypeRep _ Int                = 'Type.DBInt8
   GetMSSQLTypeRep _ Int8               = 'Type.DBNumeric 3 0
   GetMSSQLTypeRep _ Int16              = 'Type.DBInt2
@@ -320,7 +320,7 @@ type family GetMSSQLTypeRepCustom (sc :: Type) (ot :: Type) (t :: Maybe Type) wh
   GetMSSQLTypeRepCustom sc _ ('Just a) =
     GetMSSQLTypeRep sc a
 
-type family GetPGTypeRep (sc :: *) (t :: *) = (r :: Type.DBTypeK) {-| r -> t-} where
+type family GetPGTypeRep (sc :: Type) (t :: Type) = (r :: Type.DBTypeK) {-| r -> t-} where
   GetPGTypeRep _ Int                = 'Type.DBInt4
   GetPGTypeRep _ Int16              = 'Type.DBInt2
   GetPGTypeRep _ Int32              = 'Type.DBInt4
@@ -356,7 +356,7 @@ type family GetPGTypeRepCustom (sc :: Type) (ot :: Type) (t :: Maybe Type) :: Ty
   GetPGTypeRepCustom sc _ ('Just a) =
     GetPGTypeRep sc a
 
-type family CustomDBTypeRep (sc :: *) (ty :: *) :: Type.DBTypeK
+type family CustomDBTypeRep (sc :: Type) (ty :: Type) :: Type.DBTypeK
 
 doubleQuote :: T.Text -> T.Text
 doubleQuote = quoteBy '"' (Just '"')
@@ -371,7 +371,7 @@ quoteBy ch esc s = T.pack $ ch : go esc (T.unpack s) ++ (ch:[])
     go esc' (x:xs)          = x : go esc' xs
 
 class ( Generic ty
-      ) => UDType (sc :: *) (ty :: *) where
+      ) => UDType (sc :: Type) (ty :: Type) where
   type TypeMappings sc ty :: Type.UDTypeMappings
   type TypeMappings sc ty = GTypeMappings sc (Rep ty)
 
@@ -393,7 +393,7 @@ type family GTypeMappingsSum' rep where
 
 class ( -- Break (NoGeneric db) (Rep db)
       -- TypeCxts db (Types db)
-      ) => Database (db :: *) where
+      ) => Database (db :: Type) where
   type DB db :: DbK
   type DB db = TypeError ('Text "DB type is not configured in the Database instance for type " ':<>: 'ShowType db ':$$:
                           'Text "Hint: add following to the Database instance for type "       ':<>: 'ShowType db ':$$:
@@ -403,7 +403,7 @@ class ( -- Break (NoGeneric db) (Rep db)
 
 class ( -- TypeCxts db (Types db)
         Database (SchemaDB sc)
-      ) => Schema (sc :: *) where
+      ) => Schema (sc :: Type) where
   type SchemaName sc :: Symbol
   type SchemaName sc = "public"
   

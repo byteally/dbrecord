@@ -65,7 +65,7 @@ column :: forall col tgt sc tab a.
          ) => Columns tab -> Expr sc a
 column t = column' t (Proxy :: Proxy '(IsTable tab, tgt, col))
 
-type family IsTable (t :: *) :: Bool where
+type family IsTable (t :: Type) :: Bool where
   IsTable (HList _ _)   = 'False
   IsTable (a, b)        = 'False
   IsTable _             = 'True

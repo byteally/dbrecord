@@ -66,7 +66,7 @@ class ( Schema sc
       , ValidateTableProps sc tab    
       , Generic tab
       , Break0 (NoSchema sc) (SchemaDB sc)
-      ) => Table (sc :: *) (tab :: *) where
+      ) => Table (sc :: Type) (tab :: Type) where
   type PrimaryKey sc tab :: [Symbol]
   type PrimaryKey sc tab = '[]
 
@@ -132,10 +132,10 @@ type family Serial (cname :: Symbol) (seqname :: Symbol) where
 type family Owned (cname :: Symbol) (seqname :: Symbol) where
   Owned cname seqname = 'PGOwned cname seqname
 
-type family GetTypeMappings (db :: *) where
+type family GetTypeMappings (db :: Type) where
   GetTypeMappings db = GetTypeMappings' db (Types db)
 
-type family GetTypeMappings' (db :: *) (ts :: [*]) where
+type family GetTypeMappings' (db :: Type) (ts :: [Type]) where
   GetTypeMappings' db (t ': ts) = '(GetPMT (Rep t), TypeMappings db t) ': GetTypeMappings' db ts
   GetTypeMappings' db '[]       = '[]
 
@@ -260,7 +260,7 @@ instance ( FKCtxTyN SingE fk
     let cols = [fromSing coln]
     in RefByD (fromSing fkname) cols (fromSing reft) cols
 
-type family GetPMT (rep :: * -> *) :: TypeName Symbol where
+type family GetPMT (rep :: Type -> Type) :: TypeName Symbol where
   GetPMT (D1 ('MetaData tyName modName pkgName _) _) =
     'TypeName pkgName modName tyName
 
@@ -291,7 +291,7 @@ instance SingE (t :: TypeName Symbol) where
                                         (fromSing m)
                                         (fromSing f)
 
-type family ValidateTableProps (sc :: *) (tab :: *) :: Constraint where
+type family ValidateTableProps (sc :: Type) (tab :: Type) :: Constraint where
   ValidateTableProps sc tab =
     ( MissingField tab (ElemFields1 (OriginalTableFields tab) (PrimaryKey sc tab))
     , MissingField tab (ElemFields1 (OriginalTableFields tab) (HasDefault sc tab))
@@ -336,17 +336,17 @@ type family GetSequenceNames (seqs :: [Sequence]) :: [Symbol] where
   GetSequenceNames ('PGOwned _ n ': seqs)  = n ': GetSequenceNames seqs
   GetSequenceNames '[]                     = '[]
 
-type family ValidateNames (tab :: *) (msg :: ErrorMessage) (flds :: [k]) (map :: [(Symbol, Symbol)]) :: Constraint where
+type family ValidateNames (tab :: Type) (msg :: ErrorMessage) (flds :: [k]) (map :: [(Symbol, Symbol)]) :: Constraint where
   ValidateNames tab msg flds ('(fn, _) ': maps) = (ValidateAlias' tab msg flds fn, ValidateNames tab msg flds maps)
   ValidateNames _ _ flds '[] = ()
 
-type family ValidateAlias' (tab :: *) (msg :: ErrorMessage) (flds :: [k]) (aliased :: Symbol) :: Constraint where
+type family ValidateAlias' (tab :: Type) (msg :: ErrorMessage) (flds :: [k]) (aliased :: Symbol) :: Constraint where
   ValidateAlias' _ _ (fn ::: _ ': flds) fn     = ()
   ValidateAlias' _ _ (fn ': flds) fn           = ()  
   ValidateAlias' tab msg (fn ': flds) cn       = ValidateAlias' tab msg flds cn  
   ValidateAlias' tab msg '[] cn                = TypeError ('Text "column " ':<>: ('ShowType cn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab) ':$$: msg)
   
-type family ValidateTabPk (tab :: *) (pks :: [Symbol]) :: Constraint where
+type family ValidateTabPk (tab :: Type) (pks :: [Symbol]) :: Constraint where
   ValidateTabPk tab (p ': ps) = If (ElemField (OriginalTableFields tab) p) (ValidateTabPk tab ps) (TypeError ('Text "column " ':<>: ('ShowType p) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)))
   ValidateTabPk tab '[]       = ()
 
@@ -364,11 +364,11 @@ type family ValidateTabFk sc tab (fks :: [ForeignRef Type]) :: Constraint where
       )
   ValidateTabFk fk tab '[]         = ()
 
-type family ValidateRefPk (reft :: *) (rkeys :: [Symbol]) (pkeys :: [Symbol]) :: Constraint where
+type family ValidateRefPk (reft :: Type) (rkeys :: [Symbol]) (pkeys :: [Symbol]) :: Constraint where
   ValidateRefPk reft keys keys = ()
   ValidateRefPk reft rpkeys pkeys = TypeError ('Text "In foreign key declaration:" ':$$: 'ShowType rpkeys ':<>: 'Text " is not a primary key of table " ':<>: 'ShowType reft)
 
-type family MatchFkFields fk tab reft (fkeys :: [Either Symbol *]) (rkeys :: [Either Symbol *]) :: Constraint where
+type family MatchFkFields fk tab reft (fkeys :: [Either Symbol Type]) (rkeys :: [Either Symbol Type]) :: Constraint where
   MatchFkFields fk tab reft ('Right (fn1 ::: t) ': fkeys) ('Right (fn2 ::: t) ': rkeys)
     = MatchFkFields fk tab reft fkeys rkeys
   -- NOTE: only to handle nullable foreignkeys
@@ -400,42 +400,42 @@ type family ValidateTabCk tab (chks :: [CheckCT]) :: Constraint where
   ValidateTabCk tab ('CheckOn fs cn ': chks) = ValidateTabCk' (ElemFields1 (OriginalTableFields tab) fs) tab cn chks
   ValidateTabCk tab '[] = ()
 
-type family ValidateTabCk' (mis :: Maybe Symbol) (tab :: *) (cn :: Symbol) (chks :: [CheckCT]) where
+type family ValidateTabCk' (mis :: Maybe Symbol) (tab :: Type) (cn :: Symbol) (chks :: [CheckCT]) where
   ValidateTabCk' ('Just fn) tab cn chks = (TypeError ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)))
   ValidateTabCk' 'Nothing tab cn chks   = ValidateTabCk tab chks
 
 type family ValidateTabIx tab :: Constraint where
   ValidateTabIx tab = ()
 
-type family ElemFields1 (flds :: [*]) (fs :: [Symbol]) :: Maybe Symbol where
+type family ElemFields1 (flds :: [Type]) (fs :: [Symbol]) :: Maybe Symbol where
   ElemFields1 flds (f :fs) = If (ElemField flds f) (ElemFields1 flds fs) ('Just f)
   ElemFields1 flds '[]     = 'Nothing
 
-type family ElemFields2 (flds :: [*]) (fss :: [[Symbol]]) :: Maybe Symbol where
+type family ElemFields2 (flds :: [Type]) (fss :: [[Symbol]]) :: Maybe Symbol where
   ElemFields2 flds (fs :fss) = ElemFields2' (ElemFields1 flds fs) flds fss
   ElemFields2 flds '[]       = 'Nothing
 
-type family ElemFields2' (may :: Maybe Symbol) (flds :: [*]) (fss :: [[Symbol]])  :: Maybe Symbol where
+type family ElemFields2' (may :: Maybe Symbol) (flds :: [Type]) (fss :: [[Symbol]])  :: Maybe Symbol where
   ElemFields2' ('Just fn) flds fss = ('Just fn)
   ElemFields2' 'Nothing flds fss   = ElemFields2 flds fss
 
-type family ElemUniqs (flds :: [*]) (uniqs :: [UniqueCT]) :: Maybe Symbol where
+type family ElemUniqs (flds :: [Type]) (uniqs :: [UniqueCT]) :: Maybe Symbol where
   ElemUniqs flds ('UniqueOn fs _ : uqs) = ElemUniqs' (ElemFields1 flds fs) flds uqs
   ElemUniqs flds '[]                  = 'Nothing
 
-type family ElemUniqs' (may :: Maybe Symbol) (flds :: [*]) (fss :: [UniqueCT])  :: Maybe Symbol where
+type family ElemUniqs' (may :: Maybe Symbol) (flds :: [Type]) (fss :: [UniqueCT])  :: Maybe Symbol where
   ElemUniqs' ('Just fn) flds uqs = 'Just fn
   ElemUniqs' 'Nothing flds uqs    = ElemUniqs flds uqs
 
-type family MissingField (tab :: *) (fn :: Maybe Symbol) :: Constraint where
+type family MissingField (tab :: Type) (fn :: Maybe Symbol) :: Constraint where
   MissingField tab ('Just fn) = TypeError ('Text "column " ':<>: ('ShowType fn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))
   MissingField tab 'Nothing   = ()
 
-type family MissingDefault (tab :: *) (fn :: Symbol) (isElem :: Bool) :: Constraint where
+type family MissingDefault (tab :: Type) (fn :: Symbol) (isElem :: Bool) :: Constraint where
   MissingDefault _ _ 'True     = ()
   MissingDefault tab fn 'False = TypeError ('Text "Default for column " ':<>: ('ShowType fn) ':<>: 'Text " is not set in table " ':<>: ('ShowType tab))
 
-type family MissingCheck (tab :: *) (fn :: Symbol) (isElem :: Bool) :: Constraint where
+type family MissingCheck (tab :: Type) (fn :: Symbol) (isElem :: Bool) :: Constraint where
   MissingCheck _ _ 'True     = ()
   MissingCheck tab fn 'False = TypeError ('Text "Check expression for column " ':<>: ('ShowType fn) ':<>: 'Text " is not set in table " ':<>: ('ShowType tab))
 
@@ -472,22 +472,22 @@ data IgnoredCol
   | IgnoreExcept [Symbol]
   | IgnoreNone
 
-data Def (sc :: *) (tab :: k) (fn :: Symbol) = forall v.Def (PQ.Expr sc v)
+data Def (sc :: Type) (tab :: k) (fn :: Symbol) = forall v.Def (PQ.Expr sc v)
 
-def :: forall (fn :: Symbol) (tab :: *) (sc :: *) v.(ValidateDBFld tab fn v) => PQ.Expr sc v -> Def sc tab fn
+def :: forall (fn :: Symbol) (tab :: Type) (sc :: Type) v.(ValidateDBFld tab fn v) => PQ.Expr sc v -> Def sc tab fn
 def = Def
 
 instance ( ValidateDBFld tab un a
          , un ~ fn
          , v ~ PQ.Expr sc a
-         ) => IsLabel un (v -> Def sc (tab :: *) fn) where
+         ) => IsLabel un (v -> Def sc (tab :: Type) fn) where
 #if __GLASGOW_HASKELL__ > 800
   fromLabel v = def @un @tab @sc v
 #else
   fromLabel _ v = def @un @tab @sc v
 #endif
 
-data DBDefaults (sc :: *) tab = forall xs. (All KnownSymbol xs) => DBDefaults (HList (Def sc tab) xs)
+data DBDefaults (sc :: Type) tab = forall xs. (All KnownSymbol xs) => DBDefaults (HList (Def sc tab) xs)
 
 end :: HList f '[]
 end = Nil
@@ -498,16 +498,16 @@ dbDefaults :: forall tab sc xs.
               ) => HList (Def sc tab) xs -> DBDefaults sc tab
 dbDefaults = DBDefaults
 
-type family ValidateDefExprs (sc :: *) (tab :: *) (defs :: [Symbol]) (setDefs :: [Symbol]) :: Constraint where
+type family ValidateDefExprs (sc :: Type) (tab :: Type) (defs :: [Symbol]) (setDefs :: [Symbol]) :: Constraint where
   ValidateDefExprs sc tab (def ': defs) setDefs =
     ( MissingDefault tab def (Elem setDefs def)
     , ValidateDefExprs sc tab defs setDefs
     )
   ValidateDefExprs _ _ '[] _ = ()
 
-data Chk (sc :: *) (tab :: k) (chk :: CheckCT) = forall val.(ApCheckOnExpr chk val) => Chk val
+data Chk (sc :: Type) (tab :: k) (chk :: CheckCT) = forall val.(ApCheckOnExpr chk val) => Chk val
 
-data DBChecks (sc :: *) tab = forall chks. (All CheckExpr chks) => DBChecks (HList (Chk sc tab) chks)
+data DBChecks (sc :: Type) tab = forall chks. (All CheckExpr chks) => DBChecks (HList (Chk sc tab) chks)
 
 type family ApCheckOnExpr chk val where
   ApCheckOnExpr ('CheckOn cols name) v = ApCheckExpr cols name v
@@ -517,24 +517,24 @@ type family LookupCheck (chks :: [CheckCT]) (cn :: Symbol) :: Maybe [Symbol] whe
   LookupCheck ('CheckOn args cn1 ': chks) cn = LookupCheck chks cn
   LookupCheck '[] cn                         = 'Nothing
 
-type family UnifyCheck (sc :: *) (tab :: *) (cn :: Symbol) (flds :: [*]) (args :: Maybe [Symbol]) (val :: *) :: Constraint where
+type family UnifyCheck (sc :: Type) (tab :: Type) (cn :: Symbol) (flds :: [Type]) (args :: Maybe [Symbol]) (val :: Type) :: Constraint where
   UnifyCheck _ tab cn flds 'Nothing val = TypeError ('Text "check constraint " ':<>: 'ShowType cn ':<>: 'Text " does not exist on table " ':<>: 'ShowType tab)
   UnifyCheck sc tab cn flds ('Just args) val = UnifyOrErr (SeqEither (MkCheckFn sc tab args val flds)) val
 
 -- TODO: flds are dummied out  
-type family MkCheckFn (sc :: *) (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: [Either ErrorMessage *] where
+type family MkCheckFn (sc :: Type) (tab :: Type) (args :: [Symbol]) (val :: Type) (flds :: [Type]) :: [Either ErrorMessage Type] where
   MkCheckFn sc tab (fn ': fs) chkFun flds = Note (ColNotFoundMsg fn tab) (FMapMaybe (PQ.Expr sc) (FindField flds fn)) ': MkCheckFn sc tab fs chkFun flds
   MkCheckFn sc tab '[] r flds = '[ 'Right (PQ.Expr sc Bool)]
 
 
-check :: forall (cn :: Symbol) (sc :: *) (tab :: *) val args.
+check :: forall (cn :: Symbol) (sc :: Type) (tab :: Type) val args.
         ( args ~ LookupCheck (Check sc tab) cn
         , UnifyCheck sc tab cn (OriginalTableFields tab) args val
         , ApCheckExpr (PartialJust args) cn val
         ) => val -> Chk sc tab ('CheckOn (PartialJust args) cn)
 check = Chk
 
-dbChecks :: forall tab (sc :: *) chks.
+dbChecks :: forall tab (sc :: Type) chks.
             ( All CheckExpr chks
             , ValidateCheckExpr sc tab (Check sc tab) chks
             ) => HList (Chk sc tab) chks -> DBChecks sc tab
@@ -558,21 +558,21 @@ type family ValidateDBFld tab (fn :: Symbol) t :: Constraint where
 type DefaultTableName t    = DefaultTypeName t
 type DefaultDatabaseName t = DefaultTypeName t
 
-type family DefaultTypeName (t :: *) :: Symbol where
+type family DefaultTypeName (t :: Type) :: Symbol where
   DefaultTypeName t = GenTyCon (Rep t)
 
 {-
-type family GetSchemaName (t :: *) :: Symbol where
+type family GetSchemaName (t :: Type) :: Symbol where
   GetSchemaName ()   = Schema ()
   GetSchemaName db  = Schema db
 -}
 
 type OriginalTableFields t = GenTabFields (Rep t)
 
-type family TableFields (sc :: *) (t :: *) :: [*] where
+type family TableFields (sc :: Type) (t :: Type) :: [Type] where
   TableFields sc t = TableFields' (GenTabFields (Rep t)) (ColumnNames sc t)
 
-type family TableFields' (flds :: [*]) (colMap :: [(Symbol, Symbol)]) :: [*] where
+type family TableFields' (flds :: [Type]) (colMap :: [(Symbol, Symbol)]) :: [Type] where
   TableFields' ((fn ::: ft) ': flds) colMap = (AliasedCol fn colMap ::: ft) ': (TableFields' flds colMap)
   TableFields' '[] colMap = '[]
 
@@ -585,7 +585,7 @@ type family AliasedCol (fn :: Symbol) (colMap :: [(Symbol, Symbol)]) :: Symbol w
   AliasedCol fn (_ ': colMap)            = AliasedCol fn colMap
   AliasedCol fn '[]                      = fn
   
-type family GetTypeFields (t :: *) :: [(Symbol, [*])] where
+type family GetTypeFields (t :: Type) :: [(Symbol, [Type])] where
   GetTypeFields t              = GenTyFields (Rep t)
 
 -- newtype EnumType a = EnumType a
@@ -595,12 +595,12 @@ recordToList :: HList (Const a) rs -> [a]
 recordToList Nil = []
 recordToList (x :& xs) = getConst x : recordToList xs
 
-class SingCols (sc :: *) (cols :: [*]) (colMap :: [(Symbol, Symbol)]) where
+class SingCols (sc :: Type) (cols :: [Type]) (colMap :: [(Symbol, Symbol)]) where
   singCols :: Proxy sc -> Proxy cols -> Proxy colMap -> HList (Const Column) cols
 
 newtype DConAttr = DConAttr (ColName, [Column])
 
-class SingAttrs (sc :: *) (attrs :: [(Symbol, [*])]) where
+class SingAttrs (sc :: Type) (attrs :: [(Symbol, [Type])]) where
   singAttrs :: Proxy sc -> Proxy attrs -> HList (Const DConAttr) attrs
 
 instance ( SingAttrs sc cons
@@ -1040,7 +1040,7 @@ headTypeInfo :: forall sc.
   ) => Proxy sc -> [TypeNameInfo]
 headTypeInfo psc = headTypeNameInfos psc (sing :: Sing (Types sc))
 
-headTypeNameInfos :: (AllUDCtx sc xs) => Proxy sc -> Sing (xs :: [*]) -> [TypeNameInfo]
+headTypeNameInfos :: (AllUDCtx sc xs) => Proxy sc -> Sing (xs :: [Type]) -> [TypeNameInfo]
 headTypeNameInfos pdb (SCons x xs) =
   headTypeNameInfo pdb x : headTypeNameInfos pdb xs
 headTypeNameInfos _ SNil =
@@ -1053,7 +1053,7 @@ headTypeNameInfo :: forall sc ty.
                       , Generic ty
                       , DBTypeCtx (GetDBTypeRep sc ty)
                       , SingI (GetDBTypeRep sc ty)
-                      ) => Proxy sc -> Sing (ty :: *) -> TypeNameInfo
+                      ) => Proxy sc -> Sing (ty :: Type) -> TypeNameInfo
 headTypeNameInfo _ _ =
   let _tnm = error "Panic: TODO Sing TypeMappings"
       -- fromSing (sing :: Sing (TypeMappings sc ty))
@@ -1083,7 +1083,7 @@ dbConstructors tyMap =
     EnumTypeNM _ ctors -> ctors
 -}
 
-headTableInfos :: (All (SingCtx sc) xs) => Proxy (sc :: *) -> Sing (xs :: [*]) -> [TableInfo]
+headTableInfos :: (All (SingCtx sc) xs) => Proxy (sc :: Type) -> Sing (xs :: [Type]) -> [TableInfo]
 headTableInfos psc (SCons st sxs) =
   headTableInfo psc st : headTableInfos psc sxs
 headTableInfos _ _ = []  
@@ -1233,7 +1233,7 @@ headSchemaNameInfo :: forall sc.
                , SingI (SchemaName sc)
                , SingE (GetPMT (Rep sc))
                , SingI (GetPMT (Rep sc))
-               ) => Proxy (sc :: *) -> EntityNameWithType
+               ) => Proxy (sc :: Type) -> EntityNameWithType
 headSchemaNameInfo _ =
   (mkEntityName (coerce (fromSing (sing :: Sing (GetPMT (Rep sc)))))
                                (fromSing (sing :: Sing (SchemaName sc)))
@@ -1245,7 +1245,7 @@ headDBNameInfo :: forall db.
                , SingI (DatabaseName db)
                , SingE (GetPMT (Rep db))
                , SingI (GetPMT (Rep db))
-               ) => Proxy (db :: *) -> EntityNameWithType
+               ) => Proxy (db :: Type) -> EntityNameWithType
 headDBNameInfo _ =
   (mkEntityName (coerce (fromSing (sing :: Sing (GetPMT (Rep db)))))
                         (fromSing (sing :: Sing (DatabaseName db)))
@@ -1257,7 +1257,7 @@ headTabNameInfo :: forall tab sc.
                , KnownSymbol (TableName sc tab)
                , SingE (GetPMT (Rep tab))
                , SingI (GetPMT (Rep tab))
-               ) => Proxy (sc :: *) -> Proxy (tab :: *) -> EntityNameWithType
+               ) => Proxy (sc :: Type) -> Proxy (tab :: Type) -> EntityNameWithType
 headTabNameInfo _ _ =
   mkEntityName (coerce (fromSing (sing :: Sing (GetPMT (Rep tab)))))
                        (fromSing (sing :: Sing (TableName sc tab)))
@@ -1430,10 +1430,10 @@ instance ( Schema sc
          , SingI (GetPMT (Rep (SchemaDB sc)))         
          ) => SingCtxSc sc where  
 
-type family OriginalTableFieldInfo (sc :: *) (tab :: *) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where
+type family OriginalTableFieldInfo (sc :: Type) (tab :: Type) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where
   OriginalTableFieldInfo sc tab = GetFieldInfo sc (DB (SchemaDB sc)) (OriginalTableFields tab)
 
-type family GetFieldInfo (sc :: Type) (db :: DbK) (xs :: [*]) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where
+type family GetFieldInfo (sc :: Type) (db :: DbK) (xs :: [Type]) :: [((TagHK DbK DBTypeK, Bool), Symbol)] where
   GetFieldInfo sc db (fld ::: x ': xs) = '(TagTypeInfo db (GetDBTypeRep sc x), fld) ': GetFieldInfo sc db xs
   GetFieldInfo _ _ '[]                 = '[]
 
@@ -1447,7 +1447,7 @@ type family IsNullable (dbt :: DBTypeK) where
 reproxy :: proxy a -> Proxy a
 reproxy _ = Proxy
 
-col :: forall (sc :: *) (tab :: *) (col :: Symbol) (a :: *).
+col :: forall (sc :: Type) (tab :: Type) (col :: Symbol) (a :: Type).
   ( PlainColumnCtx sc tab col a
   ) => Proxy (DBTag sc tab col) -> PQ.Expr sc a
 col _ = PQ.Expr (PQ.AttrExpr sym)
@@ -1470,7 +1470,7 @@ class (PlainColumnCtx sc tab col a) => PlainColumnCtx_ a rep sc tab col where
 instance (PlainColumnCtx sc tab col a) => PlainColumnCtx_ a rep sc tab col where
   
 class Column_ a (rep :: DBTypeK) where
-  type ColumnCtx a rep :: * -> * -> Symbol -> Constraint
+  type ColumnCtx a rep :: Type -> Type -> Symbol -> Constraint
   column_ :: (ColumnCtx a rep sc tab col) => Proxy (DBTag sc tab col) -> Proxy rep -> PQ.Expr sc a
 
 instance Column_ a 'DBInt2 where

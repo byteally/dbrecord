@@ -22,6 +22,7 @@ import GHC.Generics
 import Data.Generics.Uniplate.Direct
 import DBRecord.Internal.DBTypes
 import Data.String
+import Data.Kind
 
 
 -- import DBRecord.Migration hiding (TableName)
@@ -476,11 +477,11 @@ instance ToJSON ByteString where
 transformPE :: (PrimExpr -> PrimExpr) -> PrimExpr -> PrimExpr
 transformPE = transform
 
-newtype Expr (sc :: *) (t :: *) =
+newtype Expr (sc :: Type) (t :: Type) =
   Expr { getExpr :: PrimExpr }
   deriving Show
 
-newtype AggExpr (sc :: *) (t :: *) =
+newtype AggExpr (sc :: Type) (t :: Type) =
   AggExpr { getAggExpr :: Expr sc t }
   deriving Show
 
@@ -492,8 +493,8 @@ unsafeAttrExpr = AttrExpr . sym
   where sym = maybe (error "Panic: Empty col @col_") id . toSym
 {-
 
-class BackendExpr (b :: *) where
-  type BackendExprType b :: *
+class BackendExpr (b :: Type) where
+  type BackendExprType b :: Type
   backendExpr :: proxy b -> PrimExpr -> BackendExprType b
 
 -}

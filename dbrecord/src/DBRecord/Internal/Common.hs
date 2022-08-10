@@ -21,11 +21,11 @@ import Data.Functor.Identity
 import Data.Kind
 import DBRecord.Types
 
-type family GenTyCon (rep :: * -> *) :: Symbol where
+type family GenTyCon (rep :: Type -> Type) :: Symbol where
   GenTyCon (D1 ('MetaData tyName _ _ _) _) = tyName
   GenTyCon r                               = TypeError ('Text "GenTyCon expects only generic rep of type, but found " ':<>: 'ShowType r)
 
-type family InnerTy (t :: *) :: * where
+type family InnerTy (t :: Type) :: Type where
   InnerTy Int                = Int
   InnerTy Int16              = Int16
   InnerTy Int64              = Int64
@@ -48,7 +48,7 @@ type family InnerTy (t :: *) :: * where
   InnerTy (CustomType a)     = CustomType a
   InnerTy a                  = GenInnerTy (Rep a)
 
-type family GenInnerTy (rep :: * -> *) :: * where
+type family GenInnerTy (rep :: Type -> Type) :: Type where
   GenInnerTy (D1 _ (C1 _ (S1 _ (K1 _ t)))) = InnerTy t
   GenInnerTy r = TypeError ('Text "Expecting a newtype rep but found: " ':<>: 'ShowType r)
 
@@ -63,13 +63,13 @@ type family Range (l :: Nat) (r :: Nat) :: [Nat] where
   Range l l = '[]
   Range l r = l ': Range (l + 1) r
 
-type family IsEnumLike (rep :: * -> *) :: Bool where
+type family IsEnumLike (rep :: Type -> Type) :: Bool where
   IsEnumLike (D1 i f)                    = IsEnumLike f
   IsEnumLike ((C1 i1 c1) :+: (C1 i2 c2)) = IsEnumLike c1 && IsEnumLike c2
   IsEnumLike U1                          = 'True
   IsEnumLike r                           = 'False
 
-type family ADTType (rep :: * -> *) :: AdtK where
+type family ADTType (rep :: Type -> Type) :: AdtK where
   ADTType (D1 i f)                    = ADTType f
   ADTType ((C1 i1 U1) :+: (C1 i2 U1)) = 'EnumTy
   ADTType ((C1 i1 U1) :+: (C1 i2 c))  = ADTType c
@@ -77,18 +77,18 @@ type family ADTType (rep :: * -> *) :: AdtK where
   ADTType ((C1 i1 c1) :+: (C1 i2 c2)) = ADTType c1
   ADTType (C1 ('MetaCons cn _ 'False) _) = TypeError ('Text "The constructor " ':<>: 'ShowType cn ':<>: 'Text " does not have named fields")
 
-type family GenTyFields (rep :: * -> *) :: [(Symbol, [*])] where
+type family GenTyFields (rep :: Type -> Type) :: [(Symbol, [Type])] where
   GenTyFields (D1 i f)  = GenTyFields f
   GenTyFields (f :+: g) = (GenTyFields f) :++ (GenTyFields g)
   GenTyFields (C1 ('MetaCons cn i t) c)  = '[ '(cn, GenProdTyFields (C1 ('MetaCons cn i t) c))]
 
-type family GenProdTyFields (rep :: * -> *) :: [*] where
+type family GenProdTyFields (rep :: Type -> Type) :: [Type] where
   GenProdTyFields (C1 i c)  = GenProdTyFields c
   GenProdTyFields U1        = '[]
   GenProdTyFields (f :*: g) = GenProdTyFields f :++ GenProdTyFields g
   GenProdTyFields (S1 ('MetaSel ('Just sn) _ _ _) (K1 i f)) = '[sn ::: f]
 
-type family GenTabFields (rep :: * -> *) :: [*] where
+type family GenTabFields (rep :: Type -> Type) :: [Type] where
   GenTabFields (D1 i f)  = GenTabFields f
   GenTabFields (f :+: g) = TypeError ('Text "Table cannot be a sum type")
   GenTabFields (C1 ('MetaCons cn _ 'False) _) = TypeError ('Text "The constructor " ':<>: 'ShowType cn ':<>: 'Text " does not have named fields")
@@ -96,10 +96,10 @@ type family GenTabFields (rep :: * -> *) :: [*] where
   GenTabFields (f :*: g) = GenTabFields f :++ GenTabFields g
   GenTabFields (S1 ('MetaSel ('Just sn) _ _ _) (K1 i f)) = '[sn ::: f]
 
-type family GetTypeName (t :: *) :: Symbol where
+type family GetTypeName (t :: Type) :: Symbol where
   GetTypeName t              = GenTyCon (Rep t)
 
-type family IsNewType (rep :: * -> *) :: Bool where
+type family IsNewType (rep :: Type -> Type) :: Bool where
   IsNewType (D1 ('MetaData _ _ _ isNew) _) = isNew
 
 type family NewtypeRep t where
@@ -114,18 +114,18 @@ type family (:++) (as :: [k]) (bs :: [k]) :: [k] where
   '[] :++ bs       = bs
   (a ': as) :++ bs = a ': (as :++ bs)
 
-type family TypesOf (xs :: [*]) :: [*] where
+type family TypesOf (xs :: [Type]) :: [Type] where
   TypesOf (x ': xs) = TypeOf x ': TypesOf xs
   TypesOf '[]       = '[]
 
-type family TypeOf (x :: *) :: * where
+type family TypeOf (x :: Type) :: Type where
   TypeOf (fld ::: t) = t
 
-type family FieldsOf (xs :: [*]) :: [Symbol] where
+type family FieldsOf (xs :: [Type]) :: [Symbol] where
   FieldsOf (t ': ts) = FieldOf t ': FieldsOf ts
   FieldsOf '[]       = '[]
 
-type family FieldOf (x :: *) :: Symbol where
+type family FieldOf (x :: Type) :: Symbol where
   FieldOf (fld ::: t) = fld
 
 type family Elem (xs :: [k]) (v :: k) :: Bool where
@@ -143,21 +143,21 @@ type family FindAlias (xs :: [(Symbol, Symbol)]) (fn :: Symbol) :: (Maybe Symbol
   FindAlias (_ ': fns) fn            = FindAlias fns fn
   FindAlias '[] fn                   = 'Nothing
 
-type family FindField (xs :: [*]) (fn :: Symbol) :: (Maybe *) where
+type family FindField (xs :: [Type]) (fn :: Symbol) :: (Maybe Type) where
   FindField ((fn ::: t) ': xs) fn  = 'Just t
   FindField ((fn' ::: t) ': xs) fn = FindField xs fn
   FindField '[] fn                 = 'Nothing
 
-type family FindFieldOrErr (xs :: [*]) (fn :: Symbol) (msg :: ErrorMessage) :: * where
+type family FindFieldOrErr (xs :: [Type]) (fn :: Symbol) (msg :: ErrorMessage) :: Type where
   FindFieldOrErr ((fn ::: t) ': xs) fn msg  = t
   FindFieldOrErr ((fn' ::: t) ': xs) fn msg = FindFieldOrErr xs fn msg
   FindFieldOrErr '[] fn msg                 = TypeError msg
 
-type family FindFields (xs :: [*]) (fns :: [Symbol]) :: [Either Symbol *] where
+type family FindFields (xs :: [Type]) (fns :: [Symbol]) :: [Either Symbol Type] where
   FindFields xs (fn ': fns) = Note fn (FMapMaybe ((:::) fn) (FindField xs fn)) ': FindFields xs fns
   FindFields _ '[]          = '[]
 
-type family ElemField (xs :: [*]) (fn :: Symbol) :: Bool where
+type family ElemField (xs :: [Type]) (fn :: Symbol) :: Bool where
   ElemField ((fn ::: t) ': xs) fn  = 'True
   ElemField ((fn' ::: t) ': xs) fn = ElemField xs fn
   ElemField '[] fn                 = 'False
@@ -166,7 +166,7 @@ type family AssertCxt (c :: Bool) (a :: ErrorMessage) :: Constraint where
   AssertCxt 'True msg  = ()
   AssertCxt 'False msg = TypeError msg
 
-type family UnifyField (flds :: [*]) (fn :: Symbol) (match :: *) (nfMsg :: ErrorMessage) :: Constraint where
+type family UnifyField (flds :: [Type]) (fn :: Symbol) (match :: Type) (nfMsg :: ErrorMessage) :: Constraint where
   UnifyField ((fn ::: ft') ': fs) fn ft nfMsg  = (ft ~ ft')
   UnifyField ((fn' ::: ft') ': fs) fn ft nfMsg = UnifyField fs fn ft nfMsg
   UnifyField '[] _ _ nfMsg                     = TypeError nfMsg
@@ -188,20 +188,20 @@ type family SeqEither' (res :: Either k [k1]) (r :: k1) :: Either k [k1] where
   SeqEither' ('Left l) _   = 'Left l
   SeqEither' ('Right rs) r = 'Right (r ': rs)
 
-type family MkFun (tys :: [*]) :: * where
+type family MkFun (tys :: [Type]) :: Type where
   MkFun (t ': '[]) = t 
   MkFun (t ': ts)  = t -> MkFun ts
 
-type family UnifyOrErr (res :: Either ErrorMessage [*]) (v :: *) :: Constraint where
+type family UnifyOrErr (res :: Either ErrorMessage [Type]) (v :: Type) :: Constraint where
   UnifyOrErr ('Right lhs) rhs = (MkFun lhs) ~ rhs
   UnifyOrErr ('Left err) _    = TypeError err
 
-type ColNotFoundMsg (col :: Symbol) (tab :: *) = ('Text "column " ':<>: ('ShowType col) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))  
+type ColNotFoundMsg (col :: Symbol) (tab :: Type) = ('Text "column " ':<>: ('ShowType col) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab))  
 
 type family PartialJust (may :: Maybe k) :: k where
   PartialJust ('Just m) = m
 
-type family FMapMaybe (fn :: k -> *) (may :: Maybe k) where
+type family FMapMaybe (fn :: k -> Type) (may :: Maybe k) where
   FMapMaybe fn ('Just v) = 'Just (fn v)
   FMapMaybe _ 'Nothing   = 'Nothing
 
@@ -222,7 +222,7 @@ type family If (c :: Bool) (t :: k) (f :: k) :: k where
   If 'True t f  = t
   If 'False t f = f
 
-data T1 (t :: *)
+data T1 (t :: Type)
 type family Break (c :: Constraint) (rep :: Type -> Type) :: Constraint where
   Break _ T1 = ((), ())
   Break _ _  = ()
@@ -339,7 +339,7 @@ instance ToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x
     lift x1 :& lift x2 :& lift x3 :& lift x4 :& lift x5 :& lift x6 :& lift x7 :& lift x8 :& lift x9 :& lift x10 :& lift x11 :& lift x12 :& lift x13 :& lift x14 :& lift x15 :& lift x16 :& lift x17 :& lift x18 :& lift x19 :& lift x20 :& lift x21 :& lift x22 :& lift x23 :& lift x24 :& lift x25 :& Nil
 
 
-type family HListToTuple (xs :: [*]) = (ret :: *) | ret -> xs where
+type family HListToTuple (xs :: [Type]) = (ret :: Type) | ret -> xs where
   HListToTuple '[]  = ()
   HListToTuple '[x] = Identity x
   HListToTuple '[x1, x2] = (x1, x2)
@@ -367,7 +367,7 @@ type family HListToTuple (xs :: [*]) = (ret :: *) | ret -> xs where
   HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24)
   HListToTuple '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25] = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25)
 
-type family TupleToHList (t :: *) = (res :: [*]) | res -> t where
+type family TupleToHList (t :: Type) = (res :: [Type]) | res -> t where
   TupleToHList ()           = '[]
   TupleToHList (Identity x) = '[x]
   TupleToHList (x1, x2) = '[x1, x2]
@@ -395,11 +395,11 @@ type family TupleToHList (t :: *) = (res :: [*]) | res -> t where
   TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24]
   TupleToHList (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25) = '[x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25]
 
-type family FilterNonDefaults (xs :: [*]) (defs :: [Symbol]) :: [*] where
+type family FilterNonDefaults (xs :: [Type]) (defs :: [Symbol]) :: [Type] where
   FilterNonDefaults '[] _ = '[]
   FilterNonDefaults ((x ::: t)': xs) defs = FilterNonDefaults' (Elem defs x) (x ::: t) xs defs
  
-type family FilterNonDefaults' (isDef :: Bool) (c :: *) (xs :: [*]) (defs :: [Symbol]) :: [*] where
+type family FilterNonDefaults' (isDef :: Bool) (c :: Type) (xs :: [Type]) (defs :: [Symbol]) :: [Type] where
   FilterNonDefaults' 'True _ xs defs = FilterNonDefaults xs defs
   FilterNonDefaults' 'False x xs defs = x ': FilterNonDefaults xs defs
   
@@ -475,11 +475,11 @@ instance Extract Identity where
 class Extract w where
   extract :: w a -> a
 
-type family ApplyF (f :: k -> *) (xs :: [k]) where
+type family ApplyF (f :: k -> Type) (xs :: [k]) where
   ApplyF f (x ': xs) = f x ': ApplyF f xs
   ApplyF f '[]       = '[]
 
-type family ExtractF (f :: k -> *) (xs :: [*]) :: [k] where
+type family ExtractF (f :: k -> Type) (xs :: [Type]) :: [k] where
   ExtractF f (f x ': xs) = x ': ExtractF f xs
   ExtractF f '[]         = '[]
 
@@ -487,7 +487,7 @@ type family ExtractF (f :: k -> *) (xs :: [*]) :: [k] where
 
 {-
 
-type family GenTabFields (db :: *) (rep :: * -> *) :: [*] where
+type family GenTabFields (db :: Type) (rep :: Type -> Type) :: [Type] where
   GenTabFields db (D1 i f)  = GenTabFields f
   GenTabFields db (f :+: g) = TypeError ('Text "Table cannot be a sum type")
   GenTabFields db (C1 ('MetaCons cn _ 'False) _) = TypeError ('Text "The constructor " ':<>: 'ShowType cn ':<>: 'Text " does not have named fields")
@@ -495,7 +495,7 @@ type family GenTabFields (db :: *) (rep :: * -> *) :: [*] where
   GenTabFields db (f :*: g) = GenTabFields f :++ GenTabFields g
   GenTabFields db (S1 ('MetaSel ('Just sn) _ _ _) (K1 i f)) = '[sn ::: GetDBTypeRep db (Rep f)]
 
-type family GetTypeName (t :: *) :: Symbol where
+type family GetTypeName (t :: Type) :: Symbol where
   GetTypeName t              = GenTyCon (Rep t)
 
 data TypeKind = EnumT
@@ -504,13 +504,13 @@ data TypeKind = EnumT
               | SumT
               deriving Show
 
-type family GetTypeKind (rep :: * -> *) :: TypeKind where
+type family GetTypeKind (rep :: Type -> Type) :: TypeKind where
   GetTypeKind (D1 ('MetaData _ _ _ isNew) _) = 'NewtypeT
   GetTypeKind (D1 _ (C1 _ (_ :*: _)))        = 'ProductT  
   GetTypeKind (D1 _ (C1 _ (S1 _ _)))        = 'ProductT
   GetTypeKind (D1 _ cs)                      = IsEnumOrSum cs
 
-type family IsEnumOrSum (rep :: * -> *) :: TypeKind where
+type family IsEnumOrSum (rep :: Type -> Type) :: TypeKind where
   IsEnumOrSum (C1 _ U1 :+: c) = IsEnumOrSum c
   IsEnumOrSum (C1 _ _  :+: c) = 'SumT
   IsEnumOrSum (C1 _ U1)       = 'NewtypeT

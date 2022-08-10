@@ -12,7 +12,7 @@ import GHC.Exts
 import Data.Text (Text)
 
 
-data DBTag (db :: *) (tab :: *) (v :: k)
+data DBTag (db :: Type) (tab :: Type) (v :: k)
 
 newtype (f :: Symbol) ::: t = Field { getField :: t }
   deriving (Show, Eq, Generic, Num)
@@ -30,7 +30,7 @@ valOf (Field v) = v
 
 newtype CustomType a = CustomType a
 
-data HList :: (k -> *) -> [k] -> * where
+data HList :: (k -> Type) -> [k] -> Type where
   Nil  :: HList f '[]
   (:&) :: f t -> HList f ts -> HList f (t ': ts)
 
@@ -136,7 +136,7 @@ class SingI (a :: k) where
   sing :: Sing a
 
 class SingE (a :: k) where
-  type Demote a :: *
+  type Demote a :: Type
   fromSing :: Sing a -> Demote (Any :: k)
 
 data instance Sing (s :: Symbol) where

@@ -1,4 +1,6 @@
-with-compiler: ghc-8.8.4
+with-compiler: ghc-8.10.7
+index-state: 2022-08-09T04:58:03Z
+
 packages:
   ./dbrecord
   ./dbrecord-types
@@ -10,10 +12,12 @@ packages:
   ./dbrecord-mysql-haskell
   ./dbrecord-test
 
+  ../hedgehog-gen
+
 source-repository-package
-    type: git
-    location: https://github.com/byteally/mssql-odbc.git
-    tag: 24579b36ad224d3737a0aa78f95e41ab1b6a7ea2
+  type: git
+  location: https://github.com/byteally/mssql-odbc.git
+  tag: 24579b36ad224d3737a0aa78f95e41ab1b6a7ea2
 
 source-repository-package
   type: git

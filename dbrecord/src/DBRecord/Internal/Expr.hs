@@ -33,7 +33,7 @@ import           Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import           Data.CaseInsensitive (CI, foldedCase, mk)
 import           Data.Coerce
--- import Data.Aeson
+import           Data.Kind
 import           DBRecord.Internal.Schema (GetDBTypeRep, UDTargetType (..), GTarget)
 import           DBRecord.Internal.Common (FindAlias, NewtypeRep, FromJust)
 import           GHC.Generics
@@ -46,7 +46,7 @@ class ConstExpr sc t where
   default constExpr :: (Generic t, GConstExpr (TypeMappings sc t) (Rep t) sc t) => t -> Expr sc t
   constExpr = gconstExpr (Proxy @(TypeMappings sc t)) . from
 
-class GConstExpr (udType :: UDTypeMappings) (rep :: * -> *) sc a where
+class GConstExpr (udType :: UDTypeMappings) (rep :: Type -> Type) sc a where
   gconstExpr :: Proxy udType -> rep x -> Expr sc a
 
 instance (GConstExpr ('EnumType al als) g sc a) => GConstExpr ('EnumType al als) (D1 m g) sc a where
@@ -945,15 +945,15 @@ emptyScopeRepMap = ScopeRepMap HM.empty
 lookupScopeRepMap :: T.Text -> ScopeRepMap -> Maybe ScopeRep
 lookupScopeRepMap k = HM.lookup k . getScopeRepMap
 
-class ToScopeRep (sc :: [*]) acc where
+class ToScopeRep (sc :: [Type]) acc where
   toScopeRep :: Proxy sc -> acc -> ScopeRepMap
 
 instance ToScopeRep '[] acc where
   toScopeRep _ _ = emptyScopeRepMap
 
-getScopeRep :: ( ToScopeRep sc (Proxy ('[] :: [* -> *]))
-                ) => Proxy (sc :: [*]) -> ScopeRepMap
-getScopeRep = flip toScopeRep (Proxy :: Proxy ('[] :: [* -> *]))
+getScopeRep :: ( ToScopeRep sc (Proxy ('[] :: [Type -> Type]))
+                ) => Proxy (sc :: [Type]) -> ScopeRepMap
+getScopeRep = flip toScopeRep (Proxy :: Proxy ('[] :: [Type -> Type]))
 
 lookupField :: [T.Text] -> ScopeRepMap -> Maybe TypeRep
 lookupField (fld : flds) scrMap = case lookupScopeRepMap fld scrMap of
