@@ -31,7 +31,7 @@ import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
 import           DBRecord.Query
 import           DBRecord.Types
 import           Data.Functor.Identity
-import           Data.Pool
+import qualified Data.Pool as P
 import           Data.String
 import           Database.PostgreSQL.Simple as PGS
 import           Database.PostgreSQL.Simple.FromField
@@ -60,7 +60,7 @@ data PGS where
 
 instance Session PGS where
   data SessionConfig PGS where
-    PGSConfig :: Pool PGS.Connection -> SessionConfig PGS
+    PGSConfig :: P.Pool PGS.Connection -> SessionConfig PGS
   runSession_ (PGSConfig pool) dbact f = do
     withResource pool (\conn -> f (PGS conn) (runReaderT dbact (PGS conn)))
 
@@ -101,8 +101,19 @@ instance HasDelete PGS where
 runPGExpr :: Expr sc a -> String
 runPGExpr = PG.renderExpr . PG.toSqlExpr . getExpr
 
-pgDefaultPool :: ConnectInfo -> IO (Pool Connection)
-pgDefaultPool connectInfo = createPool (PGS.connect connectInfo) PGS.close 10 5 10
+pgDefaultPool :: ConnectInfo -> IO (P.Pool Connection)
+pgDefaultPool connectInfo =
+#if MIN_VERSION_resource_pool(0,3,0)
+  P.newPool cfg
+  where
+    cfg = P.PoolConfig { P.createResource = PGS.connect connectInfo
+                       , P.freeResource = PGS.close
+                       , P.poolCacheTTL = 5
+                       , P.poolMaxResources = 10
+                       }
+#else
+  P.createPool (PGS.connect connectInfo) PGS.close 10 5 10
+#endif
 
 #if MIN_VERSION_postgresql_simple(0,6,3)
 #else
@@ -127,4 +138,6 @@ instance ( FromField (f x)
 instance FromRow (HList f '[]) where
   fromRow = pure Nil
 
-
+-- | Implementation based on MonadUnliftIO
+withResource :: (U.MonadUnliftIO m) => P.Pool a -> (a -> m r) -> m r
+withResource p k = U.withRunInIO $ \f -> P.withResource p (\a -> f $ k a)

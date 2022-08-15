@@ -221,7 +221,7 @@ class HasSessionConfig e driver | e -> driver where
   getSessionConfig :: e -> SessionConfig driver
 
 class Session driver where
-  data SessionConfig driver :: *  
+  data SessionConfig driver :: Type
   runSession_ :: (U.MonadBaseControl IO m, U.MonadUnliftIO m) => SessionConfig driver -> ReaderT driver m a -> (driver -> m a -> m a) -> m a
 
 class HasTransaction driver where
