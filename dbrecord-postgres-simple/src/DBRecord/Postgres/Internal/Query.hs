@@ -38,7 +38,11 @@ import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow as PGS
 import qualified UnliftIO as U
 import           Data.Kind
-
+import           GHC.Generics
+import           Data.Proxy
+import qualified Data.List as L
+import           Data.ByteString.Char8 as ASCII
+import           Data.Typeable
 
 newtype PostgresDBT (db :: Type) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
   deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS, U.MonadUnliftIO, MonadThrow, MonadCatch)
@@ -141,3 +145,34 @@ instance FromRow (HList f '[]) where
 -- | Implementation based on MonadUnliftIO
 withResource :: (U.MonadUnliftIO m) => P.Pool a -> (a -> m r) -> m r
 withResource p k = U.withRunInIO $ \f -> P.withResource p (\a -> f $ k a)
+
+fromPGEnum :: forall a.(Generic a, Typeable a, Enum a, GEnumToMap (Rep a), Show a) => ByteString -> FieldParser a
+fromPGEnum _tab f Nothing = returnError UnexpectedNull f ""
+fromPGEnum tab f (Just val) = do
+  tName <- typename f
+  if tName == tab || tName == (ASCII.pack "_") `ASCII.append` tab
+    then case L.find (\(_, (_, ename)) -> val == ASCII.pack ename) $ enumToMap (Proxy :: Proxy a)  of
+          Just (en,_) -> return en
+          _         -> returnError ConversionFailed f (show val)
+    else returnError Incompatible f ("Wrong database type for " ++ (show $ (typeRep (Proxy :: Proxy a), tab)) ++ ", saw: " ++ show tName)
+
+enumToMap :: (Generic a, Enum a, GEnumToMap (Rep a), Show a) => Proxy a -> [(a, (Int, String))]
+enumToMap a = let kvs = gEnumToMap (prep a)
+                  prep :: Proxy a -> Proxy (Rep a a)
+                  prep = const Proxy
+              in fmap (\(fa, _cname) -> let a' = to fa in (a', (fromEnum a', show a'))) kvs
+
+class GEnumToMap f where
+  gEnumToMap :: Proxy (f a) -> [(f a, String)]
+instance (GEnumToMap f) => GEnumToMap (D1 c f) where
+  gEnumToMap _p = fmap (\(fa, n) -> (M1 fa, n)) $ gEnumToMap Proxy
+instance (GEnumToMap f, GEnumToMap g) => GEnumToMap (f :+: g) where
+  gEnumToMap _p = let l1 = fmap (\(fa, n) -> (L1 fa, n)) $ gEnumToMap Proxy
+                      r1 = fmap (\(fa, n) -> (R1 fa, n)) $ gEnumToMap Proxy
+                  in l1 ++ r1
+instance (GEnumToMap f, Constructor c) => GEnumToMap (C1 c f) where
+  gEnumToMap _p = let cname = conName (undefined :: (C1 c f) a)
+                      [(con, _)] = gEnumToMap Proxy
+                  in [(M1 con, cname)]
+instance GEnumToMap U1 where
+  gEnumToMap _ = [(U1, "")]
