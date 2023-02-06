@@ -3,10 +3,10 @@
 {-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP, PolyKinds, TypeFamilies, DefaultSignatures, DerivingStrategies #-}
 module DBRecord.Internal.Expr
        ( module DBRecord.Internal.Expr
-       , Expr (..)
+       , Expr (..), getExpr
        ) where
 
-import           DBRecord.Internal.PrimQuery (Expr (..), AggExpr (..))
+import           DBRecord.Internal.PrimQuery (Expr (..), AggExpr (..), getExpr)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import           DBRecord.Types
 import qualified Data.Foldable as F
@@ -34,7 +34,7 @@ import qualified Data.UUID as UUID
 import           Data.CaseInsensitive (CI, foldedCase, mk)
 import           Data.Coerce
 import           Data.Kind
-import           DBRecord.Internal.Schema (GetDBTypeRep, UDTargetType (..), GTarget)
+import           DBRecord.Internal.Schema (UDTargetType (..), GTarget)
 import           DBRecord.Internal.Common (FindAlias, NewtypeRep, FromJust)
 import           GHC.Generics
 import           GHC.TypeLits

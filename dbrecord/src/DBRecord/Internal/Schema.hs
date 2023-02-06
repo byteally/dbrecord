@@ -20,6 +20,11 @@
 {-# LANGUAGE ConstraintKinds         #-}
 {-# LANGUAGE OverloadedStrings       #-}
 {-# LANGUAGE FunctionalDependencies  #-}
+{-# LANGUAGE DerivingStrategies      #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module DBRecord.Internal.Schema
   ( module DBRecord.Internal.Schema
@@ -36,6 +41,7 @@ import GHC.Generics
 import GHC.Exts
 import GHC.OverloadedLabels
 import Data.Kind
+import Data.Typeable
 import Data.Functor.Const
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
@@ -46,6 +52,9 @@ import qualified Data.List as L
 import DBRecord.Internal.Lens ((^.), Lens', coerceL, Traversal', ixBy, view)
 import qualified Data.HashMap.Strict as HM
 import Data.Char
+import qualified GHC.Records as R
+import Record
+import Control.Monad.Trans.State.Strict
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
@@ -54,9 +63,6 @@ type ColName  = Text
 type ColType  = Text
 data Column   = Column !ColName !ColType
   deriving (Show)
-
-type family GetDBTypeRep sc t where
-  GetDBTypeRep sc t = GetDBTypeRep' sc (DB (SchemaDB sc)) t
 
 type family NoSchema t where
   NoSchema x = TypeError ('Text "No instance for " ':<>: 'ShowType (Schema x))  
@@ -121,6 +127,21 @@ class ( Schema sc
   checks :: DBChecks sc tab
   checks = DBChecks Nil
 
+  columnNames :: ColumnAliases sc tab
+  columnNames = mempty
+
+  rel :: (forall s.Clause s sc tab o) -> Query' PlainQ sc o
+  default rel ::
+    ( GConstructHK tab (HasColumn sc tab) (TypeFields tab)
+    , KnownSymbol (TableName sc tab)
+    ) => (forall s.Clause s sc tab o) -> Query' PlainQ sc o
+  rel (Clause clau) = Query' (constructHK @(HasColumn sc tab) (getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)))
+    where tabId = PQ.TableId { PQ.database = "zb"
+                             , PQ.schema = "usfoodimports"
+                             , PQ.tableName = T.pack $ symbolVal (Proxy @(TableName sc tab))
+                             }
+    
+
 data Sequence = PGSerial Symbol   -- Column
                          Symbol   -- Sequence Name
               | PGOwned  Symbol   -- Column
@@ -131,6 +152,85 @@ type family Serial (cname :: Symbol) (seqname :: Symbol) where
 
 type family Owned (cname :: Symbol) (seqname :: Symbol) where
   Owned cname seqname = 'PGOwned cname seqname
+
+data Query' qt sc t = forall i.Query' (HK (PQ.Expr sc) i, State (PQ.Clauses, HK (PQ.Expr sc) i) t, PQ.Clauses -> PQ.PrimQuery)
+
+execQuery :: Query' qt sc t -> PQ.PrimQuery
+execQuery (Query' (exprs, st, mkPQ)) = mkPQ $ fst $ execState st (PQ.clauses, exprs)
+
+-- Clause should be opaque
+-- o should never be `Expr`
+newtype Clause s sc i o = Clause (State (PQ.Clauses, HK (PQ.Expr sc) i) o)
+  deriving newtype (Functor, Applicative, Monad)
+
+instance Semigroup (Clause s sc i o) where
+  clau1 <> clau2 = clau1 *> clau2
+
+-- runClause :: forall i o sc s.
+--   Clause s sc i o
+--   -> PQ.Clauses
+-- runClause (Clause _clau) = undefined
+
+-- Unsafe
+scoped :: forall i o sc s.
+  ((PQ.Clauses, Scoped s sc i) -> (PQ.Clauses, o))
+  -> Clause s sc i o
+scoped fn = Clause $ state (\(c,es) -> let (c', o) = fn (c, Scoped es) in (o, (c', es)))
+
+scopeToListWith :: (forall a.PQ.Expr sc a -> r) -> Scoped s sc i -> [r]
+scopeToListWith fn (Scoped hk) = hkToListWith fn hk
+
+newtype Scoped s sc t = Scoped (HK (PQ.Expr sc) t)
+
+data PlainQ
+data AggQ agglist
+data WindowQ
+data SubQ
+data MutatingQ
+data AsQ (n :: Symbol) q
+
+instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (Scoped s sc i) (PQ.Expr sc t) where
+  getField (Scoped hk) = PQ.Expr $ PQ.getExpr $ R.getField @f hk 
+
+
+class HasColumn sc tab (col :: Symbol) (a :: Type) where
+  getCol :: Proxy '(sc, tab) -> Proxy '(col, a) -> PQ.Expr sc (Field col a)
+
+instance
+  ( HasColumnByDBType sc tab col a dbTypeRep
+  , R.HasField col tab ct
+  , ct ~ a
+  , Table sc tab
+  , KnownSymbol col
+  , dbTypeRep ~ GetDBTypeRep sc a
+  ) => HasColumn sc tab col a where
+  getCol _ _ = PQ.Expr $ PQ.getExpr $ getColByDBTypeRep @sc @tab @col @a @dbTypeRep Proxy
+
+class HasColumnByDBType sc tab (col :: Symbol) (a :: Type) (atrep :: DBTypeK) where
+  getColByDBTypeRep :: Proxy '(sc, tab, col, a, atrep) -> PQ.Expr sc a
+
+instance {-# OVERLAPPING #-}
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('DBCustomType scn a tn) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col
+
+instance {-# OVERLAPPING #-}
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  , UDType sc a
+  ) => HasColumnByDBType sc tab col a (f ('DBCustomType scn a tn)) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col  
+
+instance {-# OVERLAPPABLE #-}
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  ) => HasColumnByDBType sc tab col a atrep where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col  
 
 type family GetTypeMappings (db :: Type) where
   GetTypeMappings db = GetTypeMappings' db (Types db)
@@ -508,6 +608,25 @@ type family ValidateDefExprs (sc :: Type) (tab :: Type) (defs :: [Symbol]) (setD
 data Chk (sc :: Type) (tab :: k) (chk :: CheckCT) = forall val.(ApCheckOnExpr chk val) => Chk val
 
 data DBChecks (sc :: Type) tab = forall chks. (All CheckExpr chks) => DBChecks (HList (Chk sc tab) chks)
+
+newtype ColumnAliases sc tab = ColumnAliases
+  { getColumnAliases :: HM.HashMap Text Text }
+  deriving newtype (Show, Eq, Semigroup, Monoid)
+
+getColumnName :: forall sc tab (fn :: Symbol) a.
+  ( Table sc tab
+  , R.HasField fn tab a
+  , KnownSymbol fn
+  ) => PQ.Expr sc a
+getColumnName =
+  let
+    ColumnAliases caliases = columnNames @sc @tab
+    fname = T.pack $ symbolVal (Proxy @fn)
+    cname = maybe fname id $ HM.lookup fname caliases
+    cexpr = PQ.BaseTableAttrExpr cname
+  in PQ.Expr cexpr
+{-# INLINE getColumnName #-}
+                    
 
 type family ApCheckOnExpr chk val where
   ApCheckOnExpr ('CheckOn cols name) v = ApCheckExpr cols name v
@@ -1658,9 +1777,9 @@ instance ( r ~ GTarget fld (Rep a)
          , als ~ FindAlias flds fld
          ) => UDTargetType ('Composite tyn flds) fld r a where
   udTargetType _ (PQ.Expr _e) =
-    let get = undefined
+    let get' = undefined
         setter _a = undefined
-    in  (setter, get)
+    in  (setter, get')
 
 instance ( r ~ GTarget fld (Rep a) 
          , als ~ FindAlias flds fld

@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
-{-# LANGUAGE TypeApplications, DataKinds, KindSignatures, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, TypeFamilyDependencies, UndecidableInstances, FlexibleInstances, OverloadedStrings, GADTs, TypeOperators, FlexibleContexts #-}
+{-# LANGUAGE TypeApplications, DataKinds, KindSignatures, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, TypeFamilyDependencies, UndecidableInstances, FlexibleInstances, OverloadedStrings, GADTs, TypeOperators, FlexibleContexts, DefaultSignatures #-}
 module DBRecord.Internal.DBTypes where
 
 import Data.Aeson
@@ -11,10 +11,13 @@ import Data.Time.Clock (UTCTime)
 import Data.CaseInsensitive  (CI)
 import Data.Int
 import Data.Word
+import qualified Data.HashMap.Strict as HM
+import Data.Text (Text)
+import Data.Proxy
 import DBRecord.Types (Interval, Json {-, JsonStr,-} )
 
 -- import Data.Vector (Vector)
-import DBRecord.Internal.Types (DbK (..), CustomType (..))
+import DBRecord.Internal.Types (DbK (..), CustomType (..), _getUDTyAliases)
 import qualified DBRecord.Internal.Types as Type
 import DBRecord.Internal.Types (Sing (..), SingE (..))
 import DBRecord.Internal.Common
@@ -24,6 +27,7 @@ import Data.Kind
 import GHC.TypeLits
 import qualified Path as Path
 
+-- TODO: Very similar to DBTypeK! Try to unify.
 data DBType = DBInt4
             | DBInt8
             | DBInt2
@@ -283,6 +287,9 @@ instance (ShowDBType 'Postgres dbTy, Typeable dbTy) => ShowDBType 'Postgres ('Ty
                     else showDBType db (Proxy :: Proxy dbTy)
 -}
 
+type family GetDBTypeRep sc t where
+  GetDBTypeRep sc t = GetDBTypeRep' sc (DB (SchemaDB sc)) t
+
 type family GetDBTypeRep' sc dbk t where
   GetDBTypeRep' sc 'Postgres t = GetPGTypeRep sc t
   GetDBTypeRep' sc 'MSSQL    t = GetMSSQLTypeRep sc t
@@ -320,7 +327,7 @@ type family GetMSSQLTypeRepCustom (sc :: Type) (ot :: Type) (t :: Maybe Type) wh
   GetMSSQLTypeRepCustom sc _ ('Just a) =
     GetMSSQLTypeRep sc a
 
-type family GetPGTypeRep (sc :: Type) (t :: Type) = (r :: Type.DBTypeK) {-| r -> t-} where
+type family GetPGTypeRep (sc :: Type) (t :: Type) = (r :: Type.DBTypeK) where
   GetPGTypeRep _ Int                = 'Type.DBInt4
   GetPGTypeRep _ Int16              = 'Type.DBInt2
   GetPGTypeRep _ Int32              = 'Type.DBInt4
@@ -370,10 +377,19 @@ quoteBy ch esc s = T.pack $ ch : go esc (T.unpack s) ++ (ch:[])
       | ch' == esch          = esch : ch': go esc xs
     go esc' (x:xs)          = x : go esc' xs
 
+newtype TyFieldAliases sc ty = TyFieldAliases (HM.HashMap Text Text)
+
 class ( Generic ty
       ) => UDType (sc :: Type) (ty :: Type) where
   type TypeMappings sc ty :: Type.UDTypeMappings
   type TypeMappings sc ty = GTypeMappings sc (Rep ty)
+
+  _tyFieldAliases :: TyFieldAliases sc ty
+  default _tyFieldAliases :: (Type.GetUDTyAliases' (TypeMappings sc ty)) => TyFieldAliases sc ty
+  _tyFieldAliases = TyFieldAliases $ _getUDTyAliases (Proxy @(TypeMappings sc ty))
+
+_lookupTyFieldAliases :: Text -> TyFieldAliases sc ty -> Maybe Text
+_lookupTyFieldAliases fn (TyFieldAliases als) = HM.lookup fn als
 
 type family GTypeMappings sc rep where
   GTypeMappings sc (D1 _ g)    = GTypeMappings sc g

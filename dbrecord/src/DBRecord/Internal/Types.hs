@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, TypeFamilies, UndecidableInstances, UndecidableSuperClasses, ScopedTypeVariables, FunctionalDependencies, AllowAmbiguousTypes, RankNTypes, FlexibleContexts #-}
+{-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, TypeFamilies, UndecidableInstances, UndecidableSuperClasses, ScopedTypeVariables, FunctionalDependencies, AllowAmbiguousTypes, RankNTypes, FlexibleContexts, TypeApplications #-}
 module DBRecord.Internal.Types where
 
 import GHC.Generics
@@ -10,6 +10,7 @@ import Data.Kind
 import Data.Typeable
 import GHC.Exts
 import Data.Text (Text)
+import qualified Data.HashMap.Strict as HM
 
 
 data DBTag (db :: Type) (tab :: Type) (v :: k)
@@ -115,6 +116,25 @@ data UDTypeMappings = EnumType
                     | Sum (Maybe Symbol)           -- ^ Alias for tag column
                           [(Symbol, [(Symbol, Symbol)])] -- ^ Alias for flattened field names, in a particular con
                     -- | Json
+
+class GetUDTyAliases' (t :: UDTypeMappings) where
+  _getUDTyAliases :: Proxy t -> HM.HashMap Text Text
+
+instance GetUDTyAliases' ('Composite _tn '[]) where
+  _getUDTyAliases _ = HM.empty
+  {-# INLINE _getUDTyAliases #-}
+  
+instance GetUDTyAliases' ('Flat '[]) where
+  _getUDTyAliases _ = HM.empty
+  {-# INLINE _getUDTyAliases #-}
+
+instance (KnownSymbol fn , KnownSymbol cn, GetUDTyAliases' ('Composite _tn fs)) => GetUDTyAliases' ('Composite _tn ('(fn, cn) ': fs)) where
+  _getUDTyAliases _ = HM.insert (T.pack $ symbolVal (Proxy @fn)) (T.pack $ symbolVal (Proxy @cn)) $ _getUDTyAliases (Proxy @('Composite _tn fs))
+  {-# INLINE _getUDTyAliases #-}
+
+instance (KnownSymbol fn , KnownSymbol cn, GetUDTyAliases' ('Flat fs)) => GetUDTyAliases' ('Flat ('(fn, cn) ': fs)) where
+  _getUDTyAliases _ = HM.insert (T.pack $ symbolVal (Proxy @fn)) (T.pack $ symbolVal (Proxy @cn)) $ _getUDTyAliases (Proxy @('Flat fs))
+  {-# INLINE _getUDTyAliases #-}  
 
 data TableTypes =
     UpdatableView

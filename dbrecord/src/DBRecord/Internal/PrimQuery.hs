@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, KindSignatures, TypeFamilies, DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, KindSignatures, TypeFamilies, DataKinds, UndecidableInstances, TypeApplications, FlexibleContexts #-}
 -- |
 -- Copyright   :  Daan Leijen (c) 1999, daan@cs.uu.nl
 --                HWT Group (c) 2003, haskelldb-users@lists.sourceforge.net
@@ -18,11 +18,16 @@ import qualified Data.Text as T
 -- import qualified Data.Aeson as A
 -- import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import GHC.Generics
+import GHC.Records
+import GHC.TypeLits
+-- import qualified Data.HashMap.Strict as HM
 -- import qualified Data.ByteString.Base64 as B64
 import Data.Generics.Uniplate.Direct
-import DBRecord.Internal.DBTypes
+import DBRecord.Internal.Types (DBTypeK (..), DBTypeNameK(..), UDTypeMappings(..))
+import DBRecord.Internal.DBTypes  (GetDBTypeRep, DBType, UDType(..), _lookupTyFieldAliases)
 import Data.String
 import Data.Kind
+import Data.Proxy
 
 
 -- import DBRecord.Migration hiding (TableName)
@@ -478,8 +483,33 @@ transformPE :: (PrimExpr -> PrimExpr) -> PrimExpr -> PrimExpr
 transformPE = transform
 
 newtype Expr (sc :: Type) (t :: Type) =
-  Expr { getExpr :: PrimExpr }
+  Expr PrimExpr
   deriving Show
+
+getExpr :: Expr (sc :: Type) (t :: Type) -> PrimExpr
+getExpr (Expr e) = e
+
+instance (HasField '(fn, GetDBTypeRep sc t) (Expr sc t) a) => HasField (fn :: Symbol) (Expr sc t) a where
+  getField e = getField @'(fn, GetDBTypeRep sc t) e
+  
+instance (HasField fn t a, KnownSymbol fn, UDType sc t) => HasField '(fn :: Symbol, 'DBCustomType scn udt ('DBTypeName tn targs ('Flat fs))) (Expr sc t) (Expr sc a) where
+  getField (Expr (FlatComposite es)) =
+    let
+      fname = T.pack $ symbolVal (Proxy @fn)
+      cname = maybe fname id $ _lookupTyFieldAliases fname $ _tyFieldAliases @sc @t 
+    in case lookup cname es of
+         Just t -> Expr t
+         _      -> error "Panic: Impossible case! Field not found"
+  getField (Expr _e) = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
+
+instance (HasField fn t a, KnownSymbol fn, UDType sc t) => HasField '(fn :: Symbol, 'DBCustomType scn udt ('DBTypeName tn targs ('Composite ctyAs fs))) (Expr sc t) (Expr sc a) where
+  getField (Expr (FlatComposite _es)) = error "Panic: Unexpected Flat Composite"
+  getField (Expr e) =
+    let
+      fname = T.pack $ symbolVal (Proxy @fn)
+      cname = maybe fname id $ _lookupTyFieldAliases fname $ _tyFieldAliases @sc @t 
+    in Expr (CompositeExpr e cname)
+
 
 newtype AggExpr (sc :: Type) (t :: Type) =
   AggExpr { getAggExpr :: Expr sc t }

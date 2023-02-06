@@ -40,7 +40,7 @@ module DBRecord.Internal.Query
 
 import DBRecord.Internal.Schema 
 import DBRecord.Internal.Common
-import DBRecord.Internal.PrimQuery (Expr (..), AggExpr (..))
+import DBRecord.Internal.PrimQuery (Expr (..), AggExpr (..), getExpr)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.Types hiding (TableTypes (..))
 import GHC.TypeLits
