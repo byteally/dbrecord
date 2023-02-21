@@ -483,43 +483,5 @@ type family ExtractF (f :: k -> Type) (xs :: [Type]) :: [k] where
   ExtractF f (f x ': xs) = x ': ExtractF f xs
   ExtractF f '[]         = '[]
 
--- type family ToTableFields (xs :: [(Symbol, 
-
-{-
-
-type family GenTabFields (db :: Type) (rep :: Type -> Type) :: [Type] where
-  GenTabFields db (D1 i f)  = GenTabFields f
-  GenTabFields db (f :+: g) = TypeError ('Text "Table cannot be a sum type")
-  GenTabFields db (C1 ('MetaCons cn _ 'False) _) = TypeError ('Text "The constructor " ':<>: 'ShowType cn ':<>: 'Text " does not have named fields")
-  GenTabFields db (C1 i c) = GenTabFields c
-  GenTabFields db (f :*: g) = GenTabFields f :++ GenTabFields g
-  GenTabFields db (S1 ('MetaSel ('Just sn) _ _ _) (K1 i f)) = '[sn ::: GetDBTypeRep db (Rep f)]
-
-type family GetTypeName (t :: Type) :: Symbol where
-  GetTypeName t              = GenTyCon (Rep t)
-
-data TypeKind = EnumT
-              | NewtypeT
-              | ProductT
-              | SumT
-              deriving Show
-
-type family GetTypeKind (rep :: Type -> Type) :: TypeKind where
-  GetTypeKind (D1 ('MetaData _ _ _ isNew) _) = 'NewtypeT
-  GetTypeKind (D1 _ (C1 _ (_ :*: _)))        = 'ProductT  
-  GetTypeKind (D1 _ (C1 _ (S1 _ _)))        = 'ProductT
-  GetTypeKind (D1 _ cs)                      = IsEnumOrSum cs
-
-type family IsEnumOrSum (rep :: Type -> Type) :: TypeKind where
-  IsEnumOrSum (C1 _ U1 :+: c) = IsEnumOrSum c
-  IsEnumOrSum (C1 _ _  :+: c) = 'SumT
-  IsEnumOrSum (C1 _ U1)       = 'NewtypeT
-
-
-newtype Defs tab a = Defs [a]
-
-[] :: Defs tab (Def tab)
-[#foo 1, #bar 2]
--}
 
 

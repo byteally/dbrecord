@@ -20,7 +20,7 @@
 
 -- | 
 
-module DBRecord.Query
+module DBRecord.Old.Query
        ( module DBRecord.Internal.Order
        , module DBRecord.Internal.Expr
        , module DBRecord.Internal.Window
@@ -35,26 +35,8 @@ module DBRecord.Query
        , update, update_, updateRet
        -- , count
        , (.~) , (%~)
-       , DBM
-       , Driver
-       -- , PGS(..)
-       -- , withResource
-       , runTransaction
-       , runSession         
        , Page(..)
-       , ToDBRow
-       , HasUpdate (..)
-       , HasQuery (..)
-       , HasUpdateRet (..)
-       , HasDelete (..)
-       , HasInsert (..)
-       , HasInsertRet (..)
-       , Session (..)
-       , HasTransaction (..)
-       , HasSessionConfig (..)
-       , DBDecoder (..)
        , DBTag
-       , TransactionConfig (..)
        , Updatable
        , Updated
        , RowCount
@@ -86,7 +68,7 @@ module DBRecord.Query
        , QueryCtx
        ) where
 
-import DBRecord.Schema
+import DBRecord.Old.Schema
 
 import DBRecord.Internal.Order
 import DBRecord.Internal.Expr
@@ -116,11 +98,7 @@ import qualified UnliftIO as U
 import qualified Control.Monad.Trans.Control as U
 import Data.Kind 
 import GHC.Generics
-
-type family DBM (db :: *) = (r :: * -> *) | r -> db
--- type family Driver (dbm :: * -> *) = (r :: * -> *) -- | r -> dbm
-
-type family Driver (db :: *) = (r :: *)
+import DBRecord.Internal.Driver
 
 {-
 type family MkPredFn (tab :: *) (args :: [Symbol]) (val :: *) (flds :: [*]) :: [Either ErrorMessage *] where
@@ -148,7 +126,7 @@ newtype Updated sc tab = Updated {getUpdateMap :: HashMap Attribute PrimExpr}
 newtype WithKey sc t = WithKey { getWithKey :: t }
 
 withPrimaryKey :: forall sc t. t -> WithKey sc t
-withPrimaryKey = coerce
+withPrimaryKey = WithKey
 
 pattern EmptyUpdate :: Updated sc tab
 pattern EmptyUpdate <- (HM.null . getUpdateMap -> True) where
@@ -178,105 +156,6 @@ infixr 4 .~
 
 infixr 4 %~
 
-class DBDecoder (driver :: *) where
-  type FromDBRowParser driver :: * -> *
-  type FromDBRow driver  :: * -> Constraint  
-  dbDecoder :: ( FromDBRow driver a
-              ) => Proxy driver -> Proxy a -> FromDBRowParser driver a
-
-type family ToDBRow (driver :: *) (a :: *) :: Constraint
-  
-class HasUpdate driver where
-  dbUpdate :: driver -> UpdateQuery -> IO Int64
-
-class (DBDecoder driver) => HasUpdateRet driver where
-  dbUpdateRetWith :: FromDBRowParser driver a -> driver -> UpdateQuery -> IO [a]
-  dbUpdateRet     :: (FromDBRow driver a) => driver -> UpdateQuery -> IO [a]
-
-  dbUpdateRet = dbUpdateRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
-  
-
-class HasDelete driver where
-  dbDelete :: driver -> DeleteQuery -> IO Int64
-
-class (DBDecoder driver) => HasQuery driver where
-  dbQueryWith :: FromDBRowParser driver a -> driver -> PrimQuery -> IO [a]
-
-  dbQuery :: (DBDecoder driver, FromDBRow driver a) => driver -> PrimQuery -> IO [a]
-  dbQuery = dbQueryWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
-
-class HasInsert driver where
-  dbInsert :: driver -> InsertQuery -> IO Int64
-
-class (DBDecoder driver) => HasInsertRet driver where
-  dbInsertRetWith :: FromDBRowParser driver a -> driver -> InsertQuery -> IO [a]  
-  
-  dbInsertRet :: (FromDBRow driver a) => driver -> InsertQuery -> IO [a]
-  dbInsertRet = dbInsertRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
-
-class HasDriverConfig e driver | e -> driver where
-  getDriverConfig :: e -> driver
-
-class HasSessionConfig e driver | e -> driver where
-  getSessionConfig :: e -> SessionConfig driver
-
-class Session driver where
-  data SessionConfig driver :: Type
-  runSession_ :: (U.MonadBaseControl IO m, U.MonadUnliftIO m) => SessionConfig driver -> ReaderT driver m a -> (driver -> m a -> m a) -> m a
-
-class HasTransaction driver where
-  withTransaction :: (U.MonadUnliftIO m) => driver -> m a -> m a
-
-data TransactionConfig driver m a = TransactionConfig
-  { maxTries          :: Int
-  , beforeTransaction :: m a
-  , onRetry           :: forall e . Exception e => e -> a -> m ()
-  , afterTransaction  :: a -> m ()
-  } 
-
-runSession ::
-  ( Session driver
-  , U.MonadUnliftIO m
-  , U.MonadBaseControl IO m
-  , MonadReader e m
-  , HasSessionConfig e driver
-  ) => ReaderT driver m a -> m a
-runSession dbact = do
-  scfg <- getSessionConfig <$> ask
-  runSession_ scfg dbact (\_ io -> io)
-
-runTransaction :: forall driver cfg m a e.
-  ( Session driver
-  , HasTransaction driver
-  , MonadReader e m
-  , HasSessionConfig e driver
-  , U.MonadUnliftIO m
-  , U.MonadBaseControl IO m  
-  ) => TransactionConfig driver m a -> ReaderT driver m a -> m a
-runTransaction cfg dbact = do 
-  scfg <- getSessionConfig <$> ask
-  c <- beforeTransaction cfg
-  res <- withRetry c 1
-    $ runSession_ scfg dbact withTransaction
-  afterTransaction cfg c
-  return res
-  where
-    withRetry :: (U.MonadUnliftIO m) => a -> Int -> m a -> m a
-    withRetry c n act = act `catchRecoverableExceptions` handler c n act
-
-    handler :: (MonadIO m) => a -> Int -> m a -> SomeException -> m a
-    handler a n act (SomeException e) =
-      if n < maxTries cfg
-        then onRetry cfg e a >> withRetry a (n + 1) act
-        else U.throwIO e
-    catchRecoverableExceptions :: (U.MonadUnliftIO m) => m a -> (SomeException -> m a) -> m a
-    catchRecoverableExceptions action h = action `U.catches`
-      [ U.Handler $ \(e :: AsyncException)            -> U.throwIO e
-      , U.Handler $ \(e :: BlockedIndefinitelyOnSTM)  -> U.throwIO e
-      , U.Handler $ \(e :: BlockedIndefinitelyOnMVar) -> U.throwIO e
-      , U.Handler $ \(e :: Deadlock)                  -> U.throwIO e
-      , U.Handler $ \(e :: SomeException)             -> h e
-      ]
 
 class HasCol sc tab (t :: *) where
   hasCol :: proxy (DBTag sc tab t) -> Expr sc t
@@ -421,7 +300,7 @@ getAll' p cl = rawClauses p (cl { projections = getTableProjections (Proxy @sc) 
 rawClauses :: forall sc tab m driver proxy.
              ( QueryCtx sc tab m driver
              ) => proxy sc -> PQ.Clauses -> m [tab]
-rawClauses pt = runQuery . rawTable (Proxy @'(sc, tab))
+rawClauses _ = runQuery . rawTable (Proxy @'(sc, tab))
 
 rawTable :: forall sc tab proxy.
   ( SingCtxSc sc 
@@ -472,7 +351,7 @@ type family Updatable' sc tab (ttyp :: TableTypes) :: Constraint where
   Updatable' sc tab 'NonUpdatableView =
     TypeError ('Text "The view " ':<>: 'ShowType tab ':<>: 'Text " in schema " ':<>: 'ShowType sc ':<>: 'Text " cannot be used in update")
 
-update :: forall sc tab m keys driver keyFields rets.
+update :: forall sc tab m keys driver keyFields.
   ( Table sc tab
   , MonadIO m
   , keys ~ TypesOf (FromRights (FindFields (OriginalTableFields tab) (PrimaryKey sc tab)))
@@ -1084,7 +963,7 @@ insertManyWithConflict ctgt cact rows = do
 newtype Row sc tab row = Row { getRow :: row }
 
 withRow :: row -> Row sc tab row
-withRow = coerce
+withRow = Row
 
 newtype Rows sc tab row = Rows { getRows :: [row] }
 

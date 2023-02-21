@@ -1,0 +1,3 @@
+module DBRecord.Postgres
+  (
+  ) where

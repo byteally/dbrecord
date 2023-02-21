@@ -399,11 +399,13 @@ type family ValidateTableProps (sc :: Type) (tab :: Type) :: Constraint where
     , ValidateTabFk sc tab (ForeignKey sc tab)
     , ValidateTabCk tab (Check sc tab)
     , ValidateTabIx tab
+{- TODO: Enable Name Validations    
     , ValidateNames tab ('Text "at the usage of ColumnNames") (OriginalTableFields tab) (ColumnNames sc tab)
     , ValidateNames tab ('Text "at the usage of ForeignKeyNames") (OriginalFKNames sc tab) (ForeignKeyNames sc tab)
     , ValidateNames tab ('Text "at the usage of UniqueNames") (OriginalUQNames sc tab) (UniqueNames sc tab)
     , ValidateNames tab ('Text "at the usage of CheckNames") (OriginalCheckNames sc tab) (CheckNames sc tab)
-    , ValidateNames tab ('Text "at the usage of SequenceNames") (OriginalSequenceNames sc tab) (SequenceNames sc tab)            
+    , ValidateNames tab ('Text "at the usage of SequenceNames") (OriginalSequenceNames sc tab) (SequenceNames sc tab)
+-}
     )
 
 type family OriginalFKNames sc tab :: [Symbol] where
@@ -436,6 +438,7 @@ type family GetSequenceNames (seqs :: [Sequence]) :: [Symbol] where
   GetSequenceNames ('PGOwned _ n ': seqs)  = n ': GetSequenceNames seqs
   GetSequenceNames '[]                     = '[]
 
+{-
 type family ValidateNames (tab :: Type) (msg :: ErrorMessage) (flds :: [k]) (map :: [(Symbol, Symbol)]) :: Constraint where
   ValidateNames tab msg flds ('(fn, _) ': maps) = (ValidateAlias' tab msg flds fn, ValidateNames tab msg flds maps)
   ValidateNames _ _ flds '[] = ()
@@ -445,6 +448,7 @@ type family ValidateAlias' (tab :: Type) (msg :: ErrorMessage) (flds :: [k]) (al
   ValidateAlias' _ _ (fn ': flds) fn           = ()  
   ValidateAlias' tab msg (fn ': flds) cn       = ValidateAlias' tab msg flds cn  
   ValidateAlias' tab msg '[] cn                = TypeError ('Text "column " ':<>: ('ShowType cn) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab) ':$$: msg)
+-}
   
 type family ValidateTabPk (tab :: Type) (pks :: [Symbol]) :: Constraint where
   ValidateTabPk tab (p ': ps) = If (ElemField (OriginalTableFields tab) p) (ValidateTabPk tab ps) (TypeError ('Text "column " ':<>: ('ShowType p) ':<>: 'Text " does not exist in table " ':<>: ('ShowType tab)))
@@ -746,7 +750,7 @@ class CheckExpr (chk :: CheckCT) where
   checkExpr :: [ColumnInfo] -> [(T.Text, T.Text)] -> Chk sc tab chk -> (T.Text, PQ.PrimExpr)
 
 instance CheckExpr ('CheckOn chkOns chkName) where
-  checkExpr cis chkMaps (Chk val) = apCheckExpr (Proxy @chkOns) (Proxy @chkName) cis chkMaps val
+  checkExpr cis chkMaps (Chk val') = apCheckExpr (Proxy @chkOns) (Proxy @chkName) cis chkMaps val'
 
 class ApCheckExpr (chkOns :: [Symbol]) (chkName :: Symbol) val where
   apCheckExpr :: Proxy chkOns -> Proxy chkName -> [ColumnInfo] -> [(T.Text, T.Text)] -> val -> (T.Text, PQ.PrimExpr)

@@ -639,6 +639,9 @@ ifThenElse cond t f = case_ [(cond, t)] f
 like :: Expr sc T.Text -> Expr sc T.Text -> Expr sc Bool
 like = binOp PQ.OpLike
 
+between :: OrdExpr sc a => Expr sc a -> (Expr sc a, Expr sc a) -> Expr sc Bool
+between _v (_lb, _ub) = undefined
+
 lower :: Expr sc T.Text -> Expr sc T.Text
 lower = prefixOp PQ.OpLower
 

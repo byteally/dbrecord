@@ -134,7 +134,11 @@ instance (KnownSymbol fn , KnownSymbol cn, GetUDTyAliases' ('Composite _tn fs)) 
 
 instance (KnownSymbol fn , KnownSymbol cn, GetUDTyAliases' ('Flat fs)) => GetUDTyAliases' ('Flat ('(fn, cn) ': fs)) where
   _getUDTyAliases _ = HM.insert (T.pack $ symbolVal (Proxy @fn)) (T.pack $ symbolVal (Proxy @cn)) $ _getUDTyAliases (Proxy @('Flat fs))
-  {-# INLINE _getUDTyAliases #-}  
+  {-# INLINE _getUDTyAliases #-}
+
+instance GetUDTyAliases' ('EnumType tynMay conMaps) where
+  _getUDTyAliases _ = HM.empty
+  {-# INLINE _getUDTyAliases #-}
 
 data TableTypes =
     UpdatableView

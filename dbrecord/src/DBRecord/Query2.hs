@@ -30,10 +30,16 @@ module DBRecord.Query2
   , module DBRecord.Internal.Window
   , module DBRecord.Internal.Predicate
   , module DBRecord.Query2
+  , module Record
+  -- Schema Internal Reexports
+  , Query' (..)
+  , Query
+  , PlainQ
+  --
   ) where
 
 
-import DBRecord.Schema
+import DBRecord.Old.Schema
 
 import DBRecord.Internal.Order
 import DBRecord.Internal.Expr hiding (Alias)
@@ -69,7 +75,7 @@ import GHC.Records as R
 import GHC.Generics
 
 -- TODO: Clean up
-import DBRecord.Query (DBM)
+import DBRecord.Driver
 import GHC.Records
 
 type Query sc t = Query' PlainQ sc t
@@ -78,6 +84,7 @@ newtype As (fn :: Symbol) t = As t
 
 
 
+{-
 (.=) :: Alias f => Label n -> f t -> f (As n t)
 (.=) = alias
 
@@ -93,7 +100,7 @@ data Label (n :: Symbol) = Label
 
 instance (fn ~ n) => IsLabel fn (Label n) where
   fromLabel = Label
-
+-}
 
 -- * Joins
 -- FROM T1 CROSS JOIN T2 is equivalent to FROM T1 INNER JOIN T2 ON TRUE. It is also equivalent to FROM T1, T2.
@@ -150,13 +157,29 @@ fullJoin = undefined
 -- In order to calculate the union, intersection, or difference of two queries, the two queries must be “union compatible”, which means that they return the same number of columns and the corresponding columns have compatible data types.
 -- REF: https://www.postgresql.org/docs/13/typeconv-union-case.html
 union :: Query sc r -> Query sc r -> Query sc r
-union = undefined
+union = binQ Union
 
+unionAll :: Query sc r -> Query sc r -> Query sc r
+unionAll = binQ UnionAll
+  
 intersect :: Query sc r -> Query sc r -> Query sc r
-intersect = undefined
+intersect = binQ Intersection
+
+intersectAll :: Query sc r -> Query sc r -> Query sc r
+intersectAll = binQ IntersectionAll
 
 except :: Query sc r -> Query sc r -> Query sc r
-except = undefined
+except = binQ Except
+
+exceptAll :: Query sc r -> Query sc r -> Query sc r
+exceptAll = binQ ExceptAll
+
+binQ :: BinType -> Query sc r -> Query sc r -> Query sc r
+binQ binType q1 q2 = Query'
+  ( undefined
+  , let (Clause clau) = selectAll in clau
+  , const $ Binary Union ((execQuery q1)) ((execQuery q2)) Nothing
+  )
 
 {- Variants
 query1 UNION [ALL] query2
@@ -178,12 +201,23 @@ restrict filtFn = scoped $ \(clau, inp) -> (clau {criteria = criteria clau <> [P
 selectAll :: forall i sc s.Clause s sc i i
 selectAll = scoped $ \(clau, scopes) -> (clau {projections = zip [T.pack "A",T.pack "B",T.pack "C",T.pack "D",T.pack "E"] $ scopeToListWith (getExpr) scopes}, undefined)
 
-data SelectList os = SelectList (HList Identity os)
+newtype SelectList sc os = SelectList (HRec (PQ.Expr sc) os)
+  deriving newtype (AnonRec)
+
+newtype SelectScope s sc i = SelectScope (Scoped s sc i)
+
+instance (R.HasField fn i t, KnownSymbol fn, Typeable t) => R.HasField (fn :: Symbol) (SelectScope s sc i) (Field fn (PQ.Expr sc t)) where
+  getField (SelectScope scope) = fromLabel @fn .= R.getField @fn scope
+
+instance R.HasField fn (HRec (PQ.Expr sc) os) (PQ.Expr sc t) => R.HasField (fn :: Symbol) (SelectList sc os) (PQ.Expr sc t) where
+  getField (SelectList r) = R.getField @fn r
+  
 -- * Select List
 select :: forall i os sc s.
   ( 
-  ) => (Scoped s sc i -> SelectList os) -> Clause s sc i (SelectList os)
-select = undefined
+  ) => (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (SelectList sc os)
+select selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList selRec) = selFn (SelectScope scopes)
+  in (clau {projections = zip [T.pack "A",T.pack "B",T.pack "C",T.pack "D",T.pack "E"] $ hrecToListWith (getExpr) selRec},selCols)
 
 {- Variants
 SELECT DISTINCT select_list ...
@@ -192,7 +226,7 @@ SELECT DISTINCT ON (expression [, expression ...]) select_list ...
 
 selectDistinct :: forall i os sc s.
   ( 
-  ) => (Scoped s sc i -> SelectList os) -> Clause s sc i (SelectList os)
+  ) => (Scoped s sc i -> SelectList sc os) -> Clause s sc i (SelectList sc os)
 selectDistinct = undefined
 
 -- * Grouping
@@ -230,12 +264,23 @@ with2 ::
   -> Query sc res
 with2 = undefined
 
+runQueryAsList :: forall r m sc driver.
+  ( MonadIO m
+  , HasQuery driver
+  , FromDBRow driver r
+  , MonadReader driver m
+  ) => Query sc r
+    -> m [r]
+runQueryAsList q = do
+  driver <- ask
+  liftIO $ dbQuery driver (execQuery q)
+
 -- MutationQ
 
 
 
 -- TEST CODE
-
+{-
 -- testClau1 :: _ -- Clause s sc User2 User2
 testClau1 = do
   let ce :: Scoped s ZB User2 -> Expr ZB Int
@@ -245,7 +290,7 @@ testClau1 = do
   sort $ \i -> asc $ R.getField @"age" i
   DBRecord.Query2.limit $ Just 10
   DBRecord.Query2.offset $ Just 11
-  selectAll @User2
+  selectAll
 
 -- testClau2 :: _
 testClau2 = restrict @User2 $ \i -> R.getField @"age" i .> 10
@@ -255,7 +300,11 @@ testClau3 = restrict $ \i -> R.getField @"isVerified" i
 
 -- testQ1 :: _
 testQ1 = rel @ZB @User2 $ testClau1
-  
+
+testBinQ1 = testQ1 `union` testQ1
+-}
+
+
 {-
 usrQ :: As "user" (Query ZB User1)
 usrQ = #user .= rel @ZB @User1
@@ -315,7 +364,7 @@ rel @ZB @Addr $ do
 -}
 
 
-
+{-
 data ZB
 
 instance Database ZB where
@@ -349,3 +398,4 @@ data Address = Address
   , pincode :: String
   } deriving (Show, Generic)
 
+-}

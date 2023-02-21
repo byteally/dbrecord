@@ -1,9 +1,10 @@
+cabal-version:       3.0
 name:                dbrecord
 version:             0.1.0.0
 synopsis:            Initial project template from stack
 description:         Please see README.md
 homepage:            https://github.com/byteally/dbrecord#readme
-license:             BSD3
+license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Magesh B
 maintainer:          magesh85@gmail.com
@@ -11,68 +12,152 @@ copyright:           © 2016 Magesh B
 category:            Web
 build-type:          Simple
 -- extra-source-files:
-cabal-version:       >=1.10
 
-library
-  hs-source-dirs:      src
+common ghc-opts
   ghc-options:         -Wall -Werror
-  exposed-modules:
-                       DBRecord.Interface
-                       DBRecord.Query
-                       DBRecord.Query2
-                       DBRecord.Schema
-                       DBRecord.Schema.Interface
-                       DBRecord.Query.Interface
-                       DBRecord.Internal.PrimQuery
-                       DBRecord.Internal.Sql
-                       DBRecord.Internal.Sql.DML
-                       DBRecord.Internal.Sql.SqlGen
-                       DBRecord.Internal.Expr
-                       DBRecord.Internal.Order
-                       DBRecord.Internal.Predicate
-                       DBRecord.Internal.Window
-                       DBRecord.Internal.Common
-                       DBRecord.Internal.Lens                  
-                       DBRecord.Internal.Types
-                       DBRecord.Internal.DBTypeValidation
-                       DBRecord.Internal.DDL
-                       DBRecord.Internal.DBTypes
-                       DBRecord.Internal.Schema
-                       DBRecord.Internal.Query
 
+common ghc2021Shim
+  if impl(ghc >= 9.0)
+    default-language:    GHC2021
+  else
+    default-language:    Haskell2010
+    default-extensions:  BangPatterns
+                       , BinaryLiterals
+                       , ConstrainedClassMethods
+                       , ConstraintKinds
+                       , DeriveDataTypeable
+                       , DeriveFoldable
+                       , DeriveFunctor
+                       , DeriveGeneric
+                       , DeriveLift
+                       , DeriveTraversable
+                       , DoAndIfThenElse
+                       , EmptyCase
+                       , EmptyDataDecls
+                       , EmptyDataDeriving
+                       , ExistentialQuantification
+                       , ExplicitForAll
+                       , FieldSelectors
+                       , FlexibleContexts
+                       , FlexibleInstances
+                       , ForeignFunctionInterface
+                       , GADTSyntax
+                       , GeneralisedNewtypeDeriving
+                       , HexFloatLiterals
+                       , ImplicitPrelude
+                       , ImportQualifiedPost
+                       , InstanceSigs
+                       , KindSignatures
+                       , MonomorphismRestriction
+                       , MultiParamTypeClasses
+                       , NamedFieldPuns
+                       , NamedWildCards
+                       , NumericUnderscores
+                       , PatternGuards
+                       , PolyKinds
+                       , PostfixOperators
+                       , RankNTypes
+                       , RelaxedPolyRec
+                       , ScopedTypeVariables
+                       , StandaloneDeriving
+                       , StandaloneKindSignatures
+                       , StarIsType
+                       , TraditionalRecordSyntax
+                       , TupleSections
+                       , TypeApplications
+                       , TypeOperators
+                       , TypeSynonymInstances
+  
+
+common common-build-deps
   build-depends:       base              >= 4.7 && < 5
-                     , text              >=0.11.1
-                     , uuid              == 1.3.*
-                     , transformers      == 0.5.*
-                     , mtl               == 2.*
-                     , case-insensitive  == 1.2.*
-                     , base16-bytestring >= 0.1.1.6 && < 1.1
-                     , bytestring
-                     , aeson             >= 1.3 && < 2.2
+                     , text              >= 0.11.1
+                     , dbrecord-types
+
+common lib-build-deps
+  import:              common-build-deps
+  build-depends:       aeson             >= 1.3 && < 2.2
                      , vector
                      , time              >= 1.5
+                     , uuid              == 1.3.*
+                     , bytestring                     
                      , unordered-containers >= 0.2
-                     , uniplate             >= 1.6
+                     , case-insensitive  == 1.2.*
                      , scientific        >= 0.3 
+
+  
+library
+  import:              ghc-opts
+                     , lib-build-deps
+                     , ghc2021Shim
+  hs-source-dirs:      src
+  exposed-modules:
+                  DBRecord
+                  DBRecord.Query2
+                  DBRecord.Driver
+
+                  DBRecord.Old.Query
+                  DBRecord.Old.Schema
+                  DBRecord.Internal.Driver
+                  DBRecord.Internal.PrimQuery
+                  DBRecord.Internal.Sql
+                  DBRecord.Internal.Sql.DML
+                  DBRecord.Internal.Sql.SqlGen
+                  DBRecord.Internal.Expr
+                  DBRecord.Internal.Order
+                  DBRecord.Internal.Predicate
+                  DBRecord.Internal.Window
+                  DBRecord.Internal.Common
+                             
+                  DBRecord.Internal.Types
+                  DBRecord.Internal.DBTypeValidation
+                  DBRecord.Internal.DDL
+                  DBRecord.Internal.DBTypes
+                  DBRecord.Internal.Schema
+                  DBRecord.Internal.Query
+                  
+  other-modules:       DBRecord.Internal.Lens                  
+  build-depends:       uniplate             >= 1.6
+                     , transformers      == 0.5.*
+                     , mtl               == 2.*
+                     , base16-bytestring >= 0.1.1.6 && < 1.1
                      , binary            >= 0.8
                      , base64-bytestring >= 1.0
-                     , time              >= 1.6   && < 1.10
                      , hashable          >= 1.2   && < 1.4
-                     , record-hasfield   >= 1
                      , rec               >= 0.1.0.0 && < 0.3
                      , unliftio          >= 0.2 && < 0.3
                      , path >= 0.9
                      , monad-control
-                     , dbrecord-types
+  default-extensions:  DuplicateRecordFields
+                     , TypeFamilies
+                     , TypeFamilyDependencies
+                     , FunctionalDependencies
+  -- if impl (ghc >= 9.2)
+  --   default-extensions:  NoFieldSelectors                     
 
-  default-language:    Haskell2010
-
+library dbrecord-test-generic
+  import:              ghc-opts
+                     , lib-build-deps
+                     , ghc2021Shim
+  visibility:          public
+  hs-source-dirs:      dbrecord-test-generic
+  build-depends:       dbrecord
+                     , hedgehog
+  exposed-modules:     Test.Schema
+                     , Test.Query
+                     , Test.SampleDB.DVDRental
+  default-extensions:  DuplicateRecordFields
+                     , TypeFamilies
+  if impl (ghc >= 9.2)
+    default-extensions:  NoFieldSelectors
+  
 test-suite dbrecord-test
+  import:              ghc-opts
+                     , ghc2021Shim
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Main.hs
-  build-depends:       base
-                     , dbrecord
+  build-depends:       dbrecord
                      , tasty-hunit
                      , hspec
                      , mtl
@@ -80,7 +165,6 @@ test-suite dbrecord-test
   other-modules:       Test.QuerySpec
                                                                      
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
-  default-language:    Haskell2010
 
 source-repository head
   type:     git

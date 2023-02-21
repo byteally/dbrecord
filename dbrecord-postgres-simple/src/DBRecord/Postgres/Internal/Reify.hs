@@ -14,16 +14,13 @@ import Data.Text  (Text)
 import qualified Data.Text as T
 import qualified Data.List as L
 import Data.Hashable
-import Data.Attoparsec.Text (parseOnly)
-import Data.Either (either)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Postgres.Internal.Sql.Parser
-import DBRecord.Internal.Sql.SqlGen (primExprGen)
 import Data.Coerce
 import Data.Maybe
-import DBRecord.Internal.Schema hiding (Sequence, dbTypeName, DbKeyName (..), DatabaseName, SchemaName)
+import DBRecord.Internal.Schema hiding (Sequence, DbKeyName (..), DatabaseName, SchemaName)
 import qualified Data.HashMap.Strict as HM
-import DBRecord.Internal.Lens
+--import DBRecord.Internal.Lens
 import DBRecord.Internal.Types
 
 data EnumInfo = EnumInfo { enumTypeName :: Text
@@ -149,7 +146,7 @@ toCheckInfo hints tcis = HM.fromListWith (++) . catMaybes . map chkInfo
         isNotNullCk itcis chkOn (PQ.PostfixExpr PQ.OpIsNotNull (PQ.BaseTableAttrExpr coln)) =
           maybe False (const True) $ do
             itcis' <- HM.lookup chkOn itcis
-            L.find (\tci -> (tci ^. columnNameInfo . dbName) == coln) itcis'          
+            undefined --L.find (\tci -> (tci ^. columnNameInfo . dbName) == coln) itcis'          
         isNotNullCk _ _ _ = True
         chkNameHints = checkKeyNameHints hints
 
@@ -462,8 +459,8 @@ foreignKeysQ =
     \AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME \
     \AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION"
 
-seqsQ :: Query
-seqsQ =
+_seqsQ :: Query
+_seqsQ =
   "SELECT sequence_schema.sequence_name as seq_name \
         \, sequence_schema.start_value as start_value \
         \, sequence_schema.minimum_value as min_value \ 

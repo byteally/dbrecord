@@ -28,8 +28,9 @@ import qualified DBRecord.Internal.Sql.SqlGen as PG
 import           DBRecord.Internal.Types
 import           DBRecord.Postgres.Internal.RegClass
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
-import           DBRecord.Query
+import           DBRecord.Old.Query
 import           DBRecord.Types
+import           DBRecord.Driver
 import           Data.Functor.Identity
 import qualified Data.Pool as P
 import           Data.String
@@ -171,8 +172,9 @@ instance (GEnumToMap f, GEnumToMap g) => GEnumToMap (f :+: g) where
                       r1 = fmap (\(fa, n) -> (R1 fa, n)) $ gEnumToMap Proxy
                   in l1 ++ r1
 instance (GEnumToMap f, Constructor c) => GEnumToMap (C1 c f) where
-  gEnumToMap _p = let cname = conName (undefined :: (C1 c f) a)
-                      [(con, _)] = gEnumToMap Proxy
-                  in [(M1 con, cname)]
+  gEnumToMap _p = let cname = conName (undefined :: (C1 c f) a)                      
+                  in case gEnumToMap Proxy of
+                       [(con, _)] -> [(M1 con, cname)]
+                       _ -> error "Panic: Expected a Singleton" 
 instance GEnumToMap U1 where
   gEnumToMap _ = [(U1, "")]

@@ -27,15 +27,25 @@ desc = order PQ.OrderOp { PQ.orderDirection = PQ.OpDesc
                         , PQ.orderNulls = PQ.NullsFirst
                         }
 
-ascNullsFirst :: OrdExpr sc a => Expr sc a -> Order sc
+ascNullsFirst :: OrdExpr sc a => Expr sc (Maybe a) -> Order sc
 ascNullsFirst = order PQ.OrderOp { PQ.orderDirection = PQ.OpAsc
                                  , PQ.orderNulls = PQ.NullsFirst
                                  }
 
-descNullsLast :: OrdExpr sc a => Expr sc a -> Order sc
+ascNullsLast :: OrdExpr sc a => Expr sc (Maybe a) -> Order sc
+ascNullsLast = order PQ.OrderOp { PQ.orderDirection = PQ.OpAsc
+                                , PQ.orderNulls = PQ.NullsLast
+                                }                
+
+descNullsLast :: OrdExpr sc a => Expr sc (Maybe a) -> Order sc
 descNullsLast = order PQ.OrderOp { PQ.orderDirection = PQ.OpDesc
                                  , PQ.orderNulls = PQ.NullsLast
                                  }
+
+descNullsFirst :: OrdExpr sc a => Expr sc (Maybe a) -> Order sc
+descNullsFirst = order PQ.OrderOp { PQ.orderDirection = PQ.OpDesc
+                                  , PQ.orderNulls = PQ.NullsFirst
+                                  }                
 
 pattern AnyOrder :: Order sc
 pattern AnyOrder = Order []

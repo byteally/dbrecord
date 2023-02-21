@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-dodgy-exports #-}
-module DBRecord.Schema
+module DBRecord.Old.Schema
        ( DbK (..)
        , Col (..)
        , col
