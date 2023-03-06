@@ -5,6 +5,8 @@
 {-# LANGUAGE OverloadedRecordDot     #-}
 {-# LANGUAGE OverloadedLabels        #-}
 {-# LANGUAGE OverloadedStrings       #-}
+{-# LANGUAGE DerivingStrategies      #-}
+{-# LANGUAGE DeriveAnyClass          #-}
 module Test.SampleDB.DVDRental
   ( module Test.SampleDB.DVDRental
   ) where
@@ -46,10 +48,12 @@ data Category = Category
   , name :: Text
   , lastUpdate :: LocalTime
   } deriving (Show, Generic)
+    deriving anyclass (DBRepr sc)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Category where
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Customer where
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Film where
+instance (db ~ 'Postgres) => Table (DVDRentalDB db) Payment where
 
 -- ^ stores the relationships between films and categories
 data FilmCategory = FilmCategory
@@ -57,6 +61,7 @@ data FilmCategory = FilmCategory
   , categoryId :: Int16
   , lastUpdate :: LocalTime
   } deriving (Show, Generic)
+    deriving anyclass (DBRepr sc)
 
 newtype Year = Year {getYear :: Int16}
   deriving (Show, Generic)
@@ -77,6 +82,7 @@ data Film = Film
   , specialFeatures :: [Text]
   , fulltext :: Text -- tsvector TODO: Handle this
   } deriving (Show, Generic)
+    deriving anyclass (DBRepr sc)
 
 -- ^ stores language of the film
 data Language = Language
@@ -105,8 +111,14 @@ data Rental = Rental
 
 -- ^ stores customer’s payments
 data Payment = Payment
-  {
+  { paymentId :: Int32
+  , customerId :: Int16
+  , staffId :: Int16
+  , rentalId :: Int32
+  , amount :: Double -- numeric(5,2)
+  , paymentDate :: LocalTime
   } deriving (Show, Generic)
+    deriving anyclass (DBRepr sc)
 
 -- ^ stores staff data
 data Staff = Staff
@@ -126,6 +138,7 @@ data Customer = Customer
   , lastUpdate :: Maybe LocalTime
   , active :: Maybe Int32
   } deriving (Show, Generic)
+    deriving anyclass (DBRepr sc)
 
 -- ^ stores address data for staff and customers
 data Address = Address
@@ -151,18 +164,18 @@ data Store = Store
 -- select
 queryOneColumn :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               ])
 queryOneColumn = rel @(DVDRentalDB db) @Customer $ select $ \customer ->
   customer.firstName
   .& end
 
 queryMultipleColumn :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("lastName", Text)
-                                                       , '("email", Maybe Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("lastName", Text)
+                               , '("email", Maybe Text)
+                               ])
 queryMultipleColumn = rel @(DVDRentalDB db) @Customer $ select $ \customer ->
   customer.firstName
   .& customer.lastName
@@ -176,17 +189,17 @@ queryAllColumn = rel @(DVDRentalDB db) @Customer $ selectAll
 
 selectWithExpr :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("fullName", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("fullName", Text)
+                               ])
 selectWithExpr = rel @(DVDRentalDB db) @Customer $ select $ \customer ->
   #fullName .= val (customer.firstName) .++ " " .++ val (customer.lastName)
   .& end
 
 selectWithColumnAlias :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("surname", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("surname", Text)
+                               ])
 selectWithColumnAlias = rel @(DVDRentalDB db) @Customer $ select $ \customer ->
   customer.firstName
   .& #surname .= val customer.lastName
@@ -197,9 +210,9 @@ selectWithColumnAlias = rel @(DVDRentalDB db) @Customer $ select $ \customer ->
 
 orderByOneColumn :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("lastName", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("lastName", Text)
+                               ])
 orderByOneColumn = rel @(DVDRentalDB db) @Customer $ do
   sort $ \customer -> asc customer.firstName
   select $ \customer ->
@@ -209,9 +222,9 @@ orderByOneColumn = rel @(DVDRentalDB db) @Customer $ do
 
 orderByOneColumnByDesc :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("lastName", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("lastName", Text)
+                               ])
 orderByOneColumnByDesc = rel @(DVDRentalDB db) @Customer $ do
   sort $ \customer -> desc customer.lastName
   select $ \customer ->
@@ -221,9 +234,9 @@ orderByOneColumnByDesc = rel @(DVDRentalDB db) @Customer $ do
 
 orderByMultipleColumn :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("lastName", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("lastName", Text)
+                               ])
 orderByMultipleColumn = rel @(DVDRentalDB db) @Customer $ do
   sort $ \customer -> asc customer.firstName <> desc customer.lastName
   select $ \customer ->
@@ -233,9 +246,9 @@ orderByMultipleColumn = rel @(DVDRentalDB db) @Customer $ do
 
 orderByExpr :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("len", Int)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("len", Int)
+                               ])
 orderByExpr = rel @(DVDRentalDB db) @Customer $ do
   res <- select $ \customer ->
     customer.firstName
@@ -246,9 +259,9 @@ orderByExpr = rel @(DVDRentalDB db) @Customer $ do
 
 orderByAscNullsFirst :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("email", Maybe Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("email", Maybe Text)
+                               ])
 orderByAscNullsFirst = rel @(DVDRentalDB db) @Customer $ do
   sort $ \customer -> ascNullsFirst customer.email
   select $ \customer ->
@@ -258,9 +271,9 @@ orderByAscNullsFirst = rel @(DVDRentalDB db) @Customer $ do
 
 orderByAscNullsLast :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("email", Maybe Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("email", Maybe Text)
+                               ])
 orderByAscNullsLast = rel @(DVDRentalDB db) @Customer $ do
   sort $ \customer -> ascNullsLast customer.email
   select $ \customer ->
@@ -270,9 +283,9 @@ orderByAscNullsLast = rel @(DVDRentalDB db) @Customer $ do
 
 orderByDescNullsFirst :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("email", Maybe Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("email", Maybe Text)
+                               ])
 orderByDescNullsFirst = rel @(DVDRentalDB db) @Customer $ do
   sort $ \customer -> descNullsFirst customer.email
   select $ \customer ->
@@ -282,9 +295,9 @@ orderByDescNullsFirst = rel @(DVDRentalDB db) @Customer $ do
     
 orderByDescNullsLast :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("email", Maybe Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("email", Maybe Text)
+                               ])
 orderByDescNullsLast = rel @(DVDRentalDB db) @Customer $ do
   sort $ \customer -> descNullsLast customer.email
   select $ \customer ->
@@ -297,9 +310,9 @@ orderByDescNullsLast = rel @(DVDRentalDB db) @Customer $ do
 
 whereWithEq :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("lastName", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("lastName", Text)
+                               ])
 whereWithEq = rel @(DVDRentalDB db) @Customer $ do
   restrict $ \customer -> customer.firstName .== "Jamie"
   select $ \customer ->
@@ -309,9 +322,9 @@ whereWithEq = rel @(DVDRentalDB db) @Customer $ do
 
 whereWithAnd :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("lastName", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("lastName", Text)
+                               ])
 whereWithAnd = rel @(DVDRentalDB db) @Customer $ do
   restrict $ \customer -> customer.firstName .== "Jamie" .&& customer.lastName .== "Rice"
   select $ \customer ->
@@ -321,9 +334,9 @@ whereWithAnd = rel @(DVDRentalDB db) @Customer $ do
 
 whereWithOr :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("lastName", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("lastName", Text)
+                               ])
 whereWithOr = rel @(DVDRentalDB db) @Customer $ do
   restrict $ \customer -> customer.firstName .== "Rodriguez" .|| customer.lastName .== "Adam"
   select $ \customer ->
@@ -335,9 +348,9 @@ whereWithOr = rel @(DVDRentalDB db) @Customer $ do
 -- TODO: in_ arg order & usage of native `in`
 whereWithIn :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("lastName", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("lastName", Text)
+                               ])
 whereWithIn = rel @(DVDRentalDB db) @Customer $ do
   restrict $ \customer ->  ["Ann","Anne","Annie"] `in_` customer.firstName
   select $ \customer ->
@@ -347,9 +360,9 @@ whereWithIn = rel @(DVDRentalDB db) @Customer $ do
 
 whereWithLike :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("lastName", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("lastName", Text)
+                               ])
 whereWithLike = rel @(DVDRentalDB db) @Customer $ do
   restrict $ \customer -> customer.firstName `like` "Ann%"
   select $ \customer ->
@@ -359,9 +372,9 @@ whereWithLike = rel @(DVDRentalDB db) @Customer $ do
 
 whereWithBetween :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("nameLength", Int)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("nameLength", Int)
+                               ])
 whereWithBetween = rel @(DVDRentalDB db) @Customer $ do
   restrict $ \customer -> customer.firstName `like` "A%" .&& len customer.firstName `between` (3, 5)
   select $ \customer ->
@@ -371,9 +384,9 @@ whereWithBetween = rel @(DVDRentalDB db) @Customer $ do
 
 whereWithNE :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("firstName", Text)
-                                                       , '("lastName", Text)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("lastName", Text)
+                               ])
 whereWithNE = rel @(DVDRentalDB db) @Customer $ do
   restrict $ \customer -> customer.firstName `like` "Bra%" .&& customer.lastName ./= "Motley"
   select $ \customer ->
@@ -385,10 +398,10 @@ whereWithNE = rel @(DVDRentalDB db) @Customer $ do
 
 qWithLimit :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("filmId", Int32)
-                                                       , '("title", Text)
-                                                       , '("releaseYear", Year)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("filmId", Int32)
+                               , '("title", Text)
+                               , '("releaseYear", Year)
+                               ])
 qWithLimit = rel @(DVDRentalDB db) @Film $ do
   limit $ Just 5
   select $ \film ->
@@ -399,10 +412,10 @@ qWithLimit = rel @(DVDRentalDB db) @Film $ do
 
 qWithLimitOffset :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("filmId", Int32)
-                                                       , '("title", Text)
-                                                       , '("releaseYear", Year)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("filmId", Int32)
+                               , '("title", Text)
+                               , '("releaseYear", Year)
+                               ])
 qWithLimitOffset = rel @(DVDRentalDB db) @Film $ do
   limit $ Just 5
   offset $ Just 3
@@ -414,10 +427,10 @@ qWithLimitOffset = rel @(DVDRentalDB db) @Film $ do
 
 qWithTopOrBottomN :: forall db.
   (db ~ 'Postgres) =>
-  Query (DVDRentalDB db) (SelectList (DVDRentalDB db) '[ '("filmId", Int32)
-                                                       , '("title", Text)
-                                                       , '("rentalRate", Double)
-                                                       ])
+  Query (DVDRentalDB db) (Rec '[ '("filmId", Int32)
+                               , '("title", Text)
+                               , '("rentalRate", Double)
+                               ])
 qWithTopOrBottomN = rel @(DVDRentalDB db) @Film $ do
   limit $ Just 10
   sort $ \film -> desc film.rentalRate
@@ -426,6 +439,53 @@ qWithTopOrBottomN = rel @(DVDRentalDB db) @Film $ do
     .& film.title
     .& film.rentalRate
     .& end
+
+-- fetch
+-- in
+-- between
+-- like
+-- isNull
+-- tableAliases
+-- joins
+
+-- inner join
+innerJoin2Tables :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("customer", Customer)
+                               , '("payment", Payment)
+                               ])
+innerJoin2Tables =
+  innerJoin
+  (#customer .= rel @(DVDRentalDB db) @Customer selectAll)
+  (#payment .= rel @(DVDRentalDB db) @Payment selectAll)
+  (\custPayment -> custPayment.customer.customerId .== 1) $ do
+  selectAll
+-- left join
+-- right join
+-- self join
+-- full outer join
+-- cross join
+-- natural join
+-- group by
+-- union
+-- intersect
+-- having
+-- grouping sets
+-- cube
+-- rollup
+-- subquery
+-- any
+-- all
+-- exits
+
+-- MUTATIONS
+-- insert
+-- insert many
+-- update
+-- update join
+-- delete
+-- delete join
+-- upsert
 -- TODO:
 
 len :: Expr sc Text -> Expr sc Int 

@@ -26,6 +26,7 @@ import GHC.Generics
 import Data.Kind
 import GHC.TypeLits
 import qualified Path as Path
+import Record
 
 -- TODO: Very similar to DBTypeK! Try to unify.
 data DBType = DBInt4
@@ -406,6 +407,43 @@ type family GTypeMappingsSum' rep where
   GTypeMappingsSum' (C1 _ U1)    = 'True
   GTypeMappingsSum' (C1 _ _)     = 'False
 
+data DBObjK
+  = TableObj
+  | NativeTypeObj
+  | UDTypeObj
+
+class DBRepr (sc :: Type) (t :: Type) where
+  type ToDBType sc t :: DBObjK
+  type ToDBType sc t = 'TableObj
+
+instance DBRepr sc Int where
+  type ToDBType sc Int = 'NativeTypeObj
+
+instance DBRepr sc Int64 where
+  type ToDBType sc Int64 = 'NativeTypeObj
+
+instance DBRepr sc Int32 where
+  type ToDBType sc Int32 = 'NativeTypeObj
+
+instance DBRepr sc a => DBRepr sc (Maybe a) where
+  type ToDBType sc (Maybe a) = ToDBType sc a
+
+-- TODO: Json is not native is all the DB
+instance DBRepr sc (Json a) where
+  type ToDBType sc (Json a) = 'NativeTypeObj
+
+instance DBRepr sc (Rec xs) where
+  type ToDBType sc (Rec xs) = 'TableObj
+
+newtype Row xs = Row (Rec xs)
+
+instance DBRepr sc (Row xs) where
+  type ToDBType sc (Row xs) = 'UDTypeObj
+
+newtype AsUDType t = AsUDType t
+
+instance DBRepr sc (AsUDType t) where
+  type ToDBType sc (AsUDType t) = 'UDTypeObj
 
 class ( -- Break (NoGeneric db) (Rep db)
       -- TypeCxts db (Types db)

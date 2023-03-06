@@ -24,7 +24,7 @@ import GHC.TypeLits
 -- import qualified Data.ByteString.Base64 as B64
 import Data.Generics.Uniplate.Direct
 import DBRecord.Internal.Types (DBTypeK (..), DBTypeNameK(..), UDTypeMappings(..))
-import DBRecord.Internal.DBTypes  (GetDBTypeRep, DBType, UDType(..), _lookupTyFieldAliases)
+import DBRecord.Internal.DBTypes  (DBRepr (..), DBObjK(..), GetDBTypeRep, DBType, UDType(..), _lookupTyFieldAliases)
 import Data.String
 import Data.Kind
 import Data.Proxy
@@ -489,8 +489,21 @@ newtype Expr (sc :: Type) (t :: Type) =
 getExpr :: Expr (sc :: Type) (t :: Type) -> PrimExpr
 getExpr (Expr e) = e
 
-instance (HasField '(fn, GetDBTypeRep sc t) (Expr sc t) a) => HasField (fn :: Symbol) (Expr sc t) a where
-  getField e = getField @'(fn, GetDBTypeRep sc t) e
+
+instance (DBRepr sc t, HasField '(fn, ToDBType sc t) (Expr sc t) a) => HasField (fn :: Symbol) (Expr sc t) a where
+  getField e = getField @'(fn, ToDBType sc t) e
+
+instance (HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'TableObj) (Expr sc t) (Expr sc a) where
+  getField (Expr (FlatComposite es)) =
+    let
+      cname = T.pack $ symbolVal (Proxy @fn)
+    in case lookup cname es of
+         Just t -> Expr t
+         _      -> error "Panic: Impossible case! Field not found"
+  getField (Expr _e) = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
+  
+instance (HasField '(fn, GetDBTypeRep sc t) (Expr sc t) a, UDType sc t) => HasField '(fn :: Symbol, 'UDTypeObj) (Expr sc t) a where
+  getField e = getField @'(fn, GetDBTypeRep sc t) e  
   
 instance (HasField fn t a, KnownSymbol fn, UDType sc t) => HasField '(fn :: Symbol, 'DBCustomType scn udt ('DBTypeName tn targs ('Flat fs))) (Expr sc t) (Expr sc a) where
   getField (Expr (FlatComposite es)) =

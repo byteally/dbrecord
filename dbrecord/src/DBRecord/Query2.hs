@@ -47,7 +47,7 @@ import DBRecord.Internal.Predicate
 import DBRecord.Internal.Common
 import DBRecord.Internal.Window
 import DBRecord.Internal.Schema hiding (insert, delete)
-import DBRecord.Internal.PrimQuery  hiding (insertQ, updateQ, deleteQ, alias)
+import DBRecord.Internal.PrimQuery  hiding (insertQ, updateQ, deleteQ, alias, Join)
 import DBRecord.Internal.Query (getTableId, getTableProjections)
 import           DBRecord.Internal.DBTypes (GetDBTypeRep)
 import qualified DBRecord.Internal.Query as Q
@@ -62,6 +62,7 @@ import Data.Int
 import GHC.Exts
 import GHC.TypeLits
 import Data.Typeable
+import Data.Type.Equality
 import Data.Functor.Identity
 import Control.Monad.IO.Class
 import Control.Monad.Reader
@@ -79,34 +80,38 @@ import DBRecord.Driver
 import GHC.Records
 
 type Query sc t = Query' PlainQ sc t
-newtype As (fn :: Symbol) t = As t
-  deriving newtype (Show, Eq, Read)
-
-
-
-{-
-(.=) :: Alias f => Label n -> f t -> f (As n t)
-(.=) = alias
-
-
--- Label n -> Query' qt sc t -> Query' (AsQ n qt) sc t
-class Alias (f :: Type -> Type) where
-  alias :: Label n -> f t -> f (As n t)
-
-instance Alias (Expr sc) where
-  alias _ (Expr _e) = undefined
-
-data Label (n :: Symbol) = Label
-
-instance (fn ~ n) => IsLabel fn (Label n) where
-  fromLabel = Label
--}
+type As = Field
 
 -- * Joins
 -- FROM T1 CROSS JOIN T2 is equivalent to FROM T1 INNER JOIN T2 ON TRUE. It is also equivalent to FROM T1, T2.
 
-data Join (n1 :: Symbol) r1 (n2 :: Symbol) r2 = Join {left :: r1, right :: r2}
+-- newtype Rel (n :: Symbol) r = Rel (
+data Join (n1 :: Symbol) r1 (n2 :: Symbol) r2 = Join (Field n1 r1) (Field n2 r2)
   deriving (Show, Eq)
+
+data JoinScope s sc (n1 :: Symbol) r1 (n2 :: Symbol) r2 = JoinScope (Scoped s sc r1) (Scoped s sc r2)
+
+instance
+  ( GHC.Records.HasField '(fn, fn == n1, fn == n2) (Join n1 r1 n2 r2) t
+  ) => R.HasField (fn :: Symbol) (Join n1 r1 n2 r2) t where
+  getField v = R.getField @'(fn, fn == n1, fn == n2) v
+
+instance (t ~ r1) => R.HasField '(fn :: Symbol, 'True, 'False) (Join n1 r1 n2 r2) (Field n1 t) where
+  getField (Join r1 r2) = r1
+
+instance (t ~ r2) => R.HasField '(fn :: Symbol, 'False, 'True) (Join n1 r1 n2 r2) (Field n2 t) where
+  getField (Join r1 r2) = r2
+
+instance
+  ( GHC.Records.HasField '(fn, fn == n1, fn == n2) (JoinScope s sc n1 r1 n2 r2) t
+  ) => R.HasField (fn :: Symbol) (JoinScope s sc n1 r1 n2 r2) t where
+  getField v = R.getField @'(fn, fn == n1, fn == n2) v
+
+instance (t ~ Scoped s sc r1) => R.HasField '(fn :: Symbol, 'True, 'False) (JoinScope s sc n1 r1 n2 r2) (Field n1 t) where
+  getField (JoinScope r1 r2) = fromLabel @n1 .= r1
+
+instance (t ~ Scoped s sc r2) => R.HasField '(fn :: Symbol, 'False, 'True) (JoinScope s sc n1 r1 n2 r2) (Field n2 t) where
+  getField (JoinScope r1 r2) = fromLabel @n2 .= r2  
 
 {-
 crossJoin :: forall o1 o2 n1 r1 n2 r2 sc.
@@ -116,26 +121,42 @@ crossJoin :: forall o1 o2 n1 r1 n2 r2 sc.
   -> Query sc (Join n1 o1 n2 o2)
 crossJoin _ _ _ = undefined
 
-innerJoin :: forall o1 o2 n1 r1 n2 r2 sc.
-  As n1 (Query sc r1)
-  -> As n2 (Query sc r2)
-  -> (forall s.Scoped s sc (Join n1 r1 n2 r2) -> Expr sc Bool)
-  -> (forall s.Clause s sc (Join n1 r1 n2 r2) (Join n1 o1 n2 o2))
-  -> Query sc (Join n1 o1 n2 o2)
-innerJoin _ _ _ _ = undefined
 -}
 
+innerJoin :: forall o n1 r1 n2 r2 sc.
+  (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) =>
+    As n1 (Query sc r1)
+  -> As n2 (Query sc r2)
+  -> (forall s.Scoped s sc (Rec '[ '(n1, r1), '(n2, r2)]) -> Expr sc Bool)
+  -> (forall s.Clause s sc (Rec '[ '(n1, r1), '(n2, r2)]) (TableValue sc o))
+  -> Query sc o
+innerJoin q1 q2 on (Clause clau) =
+  let
+    (q1PQ, q1Res) = runQuery' $ val q1
+    (q2PQ, q2Res) = runQuery' $ val q2
+    joinTabVal = crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
+    onCond = getExpr $ on $ getScopeOfTable $ joinTabVal
+  in Query' ( joinTabVal
+            , clau
+            , PQ.Join PQ.InnerJoin False (Just onCond) (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
+            )
+
+class (KnownSymbol fn, Typeable t) => FieldCxt (fn :: Symbol) (t :: Type)
+instance (KnownSymbol fn, Typeable t) => FieldCxt fn t
+
+{-
 leftJoin :: forall o n1 r1 n2 r2 sc.
     As n1 (Query sc r1)
   -> As n2 (Query sc r2)
   -> (forall s.Scoped s sc (Join n1 r1 n2 r2) -> Expr sc Bool)
   -> (forall s.Clause s sc (Join n1 r1 n2 (HK Maybe r2)) o)
   -> Query sc o
-leftJoin (As q1) (As q2) on (Clause clau) =
+leftJoin q1 q2 on (Clause clau) =
   Query' ( undefined
          , clau
-         , PQ.Join PQ.LeftJoin False Nothing (PQ.PrimQuery (execQuery q1)) (PQ.PrimQuery (execQuery q2))
+         , PQ.Join PQ.LeftJoin False Nothing (PQ.PrimQuery (execQuery $ val q1)) (PQ.PrimQuery (execQuery $ val q2))
          )
+-}
 
 {-
 rightJoin :: () -> As n1 (Query sc r1) -> As n2 (Query sc r2) -> Query sc (Join n1 (HK Maybe r1) n2 r2)
@@ -198,11 +219,17 @@ sort ordFn = scoped $ \(clau, inp) -> (clau {orderbys = orderbys clau <> getOrde
 restrict :: forall i sc s.(Scoped s sc i -> Expr sc Bool) -> Clause s sc i ()
 restrict filtFn = scoped $ \(clau, inp) -> (clau {criteria = criteria clau <> [PQ.getExpr (filtFn inp)]}, ())
 
-selectAll :: forall i sc s.Clause s sc i i
-selectAll = scoped $ \(clau, scopes) -> (clau {projections = zip [T.pack "A",T.pack "B",T.pack "C",T.pack "D",T.pack "E"] $ scopeToListWith (getExpr) scopes}, undefined)
+selectAll :: forall i sc s.Clause s sc i (TableValue sc i)
+selectAll = scoped $ \(clau, scopes@(Scoped tabv)) -> (clau {projections = scopeToListWith getPrjs scopes}, nextStage tabv)
+
+getPrjs :: forall a sc.(Typeable a) => PQ.Expr sc a -> (T.Text, PQ.PrimExpr)
+getPrjs e = (aliasedExprName e, getExpr e)
 
 newtype SelectList sc os = SelectList (HRec (PQ.Expr sc) os)
   deriving newtype (AnonRec)
+
+selectListToTable :: SelectList sc os -> TableValue sc (Rec os)
+selectListToTable (SelectList selRec) = TableValue $ hoistWithKeyHK aliasedExpr $ hrecToHKOfRec selRec
 
 newtype SelectScope s sc i = SelectScope (Scoped s sc i)
 
@@ -215,9 +242,9 @@ instance R.HasField fn (HRec (PQ.Expr sc) os) (PQ.Expr sc t) => R.HasField (fn :
 -- * Select List
 select :: forall i os sc s.
   ( 
-  ) => (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (SelectList sc os)
+  ) => (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (TableValue sc (Rec os))
 select selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList selRec) = selFn (SelectScope scopes)
-  in (clau {projections = zip [T.pack "A",T.pack "B",T.pack "C",T.pack "D",T.pack "E"] $ hrecToListWith (getExpr) selRec},selCols)
+  in (clau {projections = hrecToListWith getPrjs selRec},selectListToTable selCols)
 
 {- Variants
 SELECT DISTINCT select_list ...
@@ -263,6 +290,19 @@ with2 ::
   -> (Query sc r1 -> Query sc r2 -> Query sc res)
   -> Query sc res
 with2 = undefined
+
+-- Subquery
+from :: forall o r fn sc.Field fn (Query sc r) -> (forall s.Clause s sc r (TableValue sc o)) -> Query' PlainQ sc o
+from _ _ = undefined
+
+{-
+4.2.11. Scalar Subqueries
+A scalar subquery is an ordinary SELECT query in parentheses that returns exactly one row with one column. (See Chapter 7 for information about writing queries.) The SELECT query is executed and the single returned value is used in the surrounding value expression. It is an error to use a query that returns more than one row or more than one column as a scalar subquery. (But if, during a particular execution, the subquery returns no rows, there is no error; the scalar result is taken to be null.) The subquery can refer to variables from the surrounding query, which will act as constants during any one evaluation of the subquery. See also Section 9.23 for other expressions involving subqueries.
+SELECT name, (SELECT max(pop) FROM cities WHERE cities.state = states.name)
+    FROM states;
+-}
+scalarSubQuery :: forall t par r sc ps.((forall s.Clause s sc r (TableValue sc t)) -> Query sc t) -> (forall s1.Clause s1 sc r {- + par -} (Scalar sc t)) -> Clause ps sc par (Scalar sc t)
+scalarSubQuery _ _ = undefined
 
 runQueryAsList :: forall r m sc driver.
   ( MonadIO m

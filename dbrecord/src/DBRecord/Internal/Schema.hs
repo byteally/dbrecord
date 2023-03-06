@@ -39,6 +39,7 @@ import qualified Data.Text as T
 import GHC.TypeLits
 import GHC.Generics
 import GHC.Exts
+import GHC.Stack
 import GHC.OverloadedLabels
 import Data.Kind
 import Data.Typeable
@@ -55,6 +56,7 @@ import Data.Char
 import qualified GHC.Records as R
 import Record
 import Control.Monad.Trans.State.Strict
+import Type.Reflection
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
@@ -72,6 +74,8 @@ class ( Schema sc
       , ValidateTableProps sc tab    
       , Generic tab
       , Break0 (NoSchema sc) (SchemaDB sc)
+      , DBRepr sc tab
+      , ToDBType sc tab ~ 'TableObj
       ) => Table (sc :: Type) (tab :: Type) where
   type PrimaryKey sc tab :: [Symbol]
   type PrimaryKey sc tab = '[]
@@ -130,12 +134,12 @@ class ( Schema sc
   columnNames :: ColumnAliases sc tab
   columnNames = mempty
 
-  rel :: (forall s.Clause s sc tab o) -> Query' PlainQ sc o
+  rel :: (forall s.Clause s sc tab (TableValue sc o)) -> Query' PlainQ sc o
   default rel ::
     ( GConstructHK tab (HasColumn sc tab) (TypeFields tab)
     , KnownSymbol (TableName sc tab)
-    ) => (forall s.Clause s sc tab o) -> Query' PlainQ sc o
-  rel (Clause clau) = Query' (constructHK @(HasColumn sc tab) (getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)))
+    ) => (forall s.Clause s sc tab (TableValue sc o)) -> Query' PlainQ sc o
+  rel (Clause clau) = Query' (TableValue $ constructHK @(HasColumn sc tab) (getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)))
     where tabId = PQ.TableId { PQ.database = "zb"
                              , PQ.schema = "usfoodimports"
                              , PQ.tableName = T.pack $ symbolVal (Proxy @(TableName sc tab))
@@ -153,14 +157,22 @@ type family Serial (cname :: Symbol) (seqname :: Symbol) where
 type family Owned (cname :: Symbol) (seqname :: Symbol) where
   Owned cname seqname = 'PGOwned cname seqname
 
-data Query' qt sc t = forall i.Query' (HK (PQ.Expr sc) i, State (PQ.Clauses, HK (PQ.Expr sc) i) t, PQ.Clauses -> PQ.PrimQuery)
+data Query' qt sc t = forall i.Query' (TableValue sc i, State (PQ.Clauses, TableValue sc i) (TableValue sc t), PQ.Clauses -> PQ.PrimQuery)
 
 execQuery :: Query' qt sc t -> PQ.PrimQuery
 execQuery (Query' (exprs, st, mkPQ)) = mkPQ $ fst $ execState st (PQ.clauses, exprs)
+{-# INLINE execQuery #-}
+
+runQuery' :: Query' qt sc t -> (PQ.PrimQuery, TableValue sc t)
+runQuery' (Query' (exprs, st, mkPQ)) =
+  let
+    (tv, (clau, _)) = runState st (PQ.clauses, exprs)
+  in (mkPQ clau, tv)
+{-# INLINE runQuery' #-}
 
 -- Clause should be opaque
 -- o should never be `Expr`
-newtype Clause s sc i o = Clause (State (PQ.Clauses, HK (PQ.Expr sc) i) o)
+newtype Clause s sc i o = Clause (State (PQ.Clauses, TableValue sc i) o)
   deriving newtype (Functor, Applicative, Monad)
 
 instance Semigroup (Clause s sc i o) where
@@ -177,10 +189,45 @@ scoped :: forall i o sc s.
   -> Clause s sc i o
 scoped fn = Clause $ state (\(c,es) -> let (c', o) = fn (c, Scoped es) in (o, (c', es)))
 
-scopeToListWith :: (forall a.PQ.Expr sc a -> r) -> Scoped s sc i -> [r]
-scopeToListWith fn (Scoped hk) = hkToListWith fn hk
+scopeToListWith :: (forall a.Typeable a => PQ.Expr sc a -> r) -> Scoped s sc i -> [r]
+scopeToListWith fn (Scoped tab) = tableToListWith fn tab
 
-newtype Scoped s sc t = Scoped (HK (PQ.Expr sc) t)
+tableToListWith :: (forall a.Typeable a => PQ.Expr sc a -> r) -> TableValue sc i -> [r]
+tableToListWith fn (TableValue hk) = hkToListWith fn hk
+tableToListWith fn (NestedTable hk) = concat $ hkToListWith (tableToListWith fn) hk
+
+-- mapScope :: (forall a.Typeable a => PQ.Expr sc a -> PQ.Expr sc a) -> Scoped s sc i -> Scoped s sc i
+-- mapScope fn (Scoped hk) = Scoped $ hoistWithKeyHK fn hk
+
+crossRel :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc r1) -> Field n2 (TableValue sc r2) -> TableValue sc (Rec '[ '(n1, r1), '(n2, r2)])
+crossRel q1 q2 = NestedTable $ hrecToHKOfRec $ q1 .& q2 .& Record.end
+
+nextStage :: TableValue sc i -> TableValue sc i
+nextStage (TableValue hk) = TableValue $ hoistWithKeyHK aliasedExpr hk
+nextStage (NestedTable tabhk) = NestedTable $ hoistWithKeyHK nextStage tabhk
+
+getScopeOfTable :: TableValue sc i -> Scoped s sc i
+getScopeOfTable tab = Scoped tab
+
+aliasedExpr :: forall a sc.(Typeable a, HasCallStack) => PQ.Expr sc a -> PQ.Expr sc a
+aliasedExpr e = PQ.unsafeCol [aliasedExprName e]
+
+aliasedExprName :: forall a sc.(Typeable a, HasCallStack) => PQ.Expr sc a -> Text
+aliasedExprName _ = fldN
+  where argRep = Data.Typeable.typeRep (Proxy @a)
+        fldN = case typeRepArgs argRep of
+          (SomeTypeRep srep : _)
+            | SomeTypeRep (typeRepKind srep) == (Data.Typeable.typeRep (Proxy @Symbol)) -> T.pack $ show srep
+            | otherwise -> error $ "Panic: Expecting type of form (Field (sym :: Symbol) a) but got (" ++ (show argRep) ++ ") with it's first arg's kind instead of Symbol got " ++ (show $ typeRepKind srep)
+          [] -> error $ "Panic: Expecting type of form (Field sym a) but got " ++ (show argRep)
+
+newtype Scoped s sc t = Scoped (TableValue sc t)
+  
+data TableValue sc t
+  = TableValue (HK (PQ.Expr sc) t)
+  | NestedTable (HK (TableValue sc) t)
+  
+newtype Scalar sc t = Scalar (PQ.Expr sc t)
 
 data PlainQ
 data AggQ agglist
@@ -190,7 +237,11 @@ data MutatingQ
 data AsQ (n :: Symbol) q
 
 instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (Scoped s sc i) (PQ.Expr sc t) where
-  getField (Scoped hk) = PQ.Expr $ PQ.getExpr $ R.getField @f hk 
+  getField (Scoped hk) = PQ.Expr $ PQ.getExpr $ R.getField @f hk
+
+instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (TableValue sc i) (PQ.Expr sc t) where
+  getField (TableValue hk) = PQ.Expr $ PQ.getExpr $ R.getField @f hk
+  getField (NestedTable _hk) = undefined
 
 
 class HasColumn sc tab (col :: Symbol) (a :: Type) where
