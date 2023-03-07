@@ -499,8 +499,16 @@ instance (HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'TableObj
       cname = T.pack $ symbolVal (Proxy @fn)
     in case lookup cname es of
          Just t -> Expr t
-         _      -> error "Panic: Impossible case! Field not found"
+         _      -> error $ "Panic: Impossible case! Field not found: " ++ show (cname, fmap fst es)
   getField (Expr _e) = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
+
+instance (HasField '(fn, dbrepr) (Expr sc t) (Expr sc a), HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'NullableObjOf dbrepr) (Expr sc (Maybe t)) (Expr sc (Maybe a)) where
+  getField e = toMaybe $ getField @'(fn, dbrepr) (unsafeUnMaybe e)
+    where
+      unsafeUnMaybe :: Expr sc (Maybe x) -> Expr sc x
+      unsafeUnMaybe (Expr ex) = Expr ex
+      toMaybe :: Expr sc x -> Expr sc (Maybe x)
+      toMaybe (Expr ex) = Expr ex
   
 instance (HasField '(fn, GetDBTypeRep sc t) (Expr sc t) a, UDType sc t) => HasField '(fn :: Symbol, 'UDTypeObj) (Expr sc t) a where
   getField e = getField @'(fn, GetDBTypeRep sc t) e  

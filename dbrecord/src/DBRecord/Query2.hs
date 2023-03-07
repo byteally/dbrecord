@@ -144,6 +144,23 @@ innerJoin q1 q2 on (Clause clau) =
 class (KnownSymbol fn, Typeable t) => FieldCxt (fn :: Symbol) (t :: Type)
 instance (KnownSymbol fn, Typeable t) => FieldCxt fn t
 
+leftJoin :: forall o n1 r1 n2 r2 sc.
+  (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) =>
+    As n1 (Query sc r1)
+  -> As n2 (Query sc r2)
+  -> (forall s.Scoped s sc (Rec '[ '(n1, r1), '(n2, r2)]) -> Expr sc Bool)
+  -> (forall s.Clause s sc (Rec '[ '(n1, r1), '(n2, Maybe r2)]) (TableValue sc o))
+  -> Query sc o
+leftJoin q1 q2 on (Clause clau) =
+  let
+    (q1PQ, q1Res) = runQuery' $ val q1
+    (q2PQ, q2Res) = runQuery' $ val q2
+    joinTabVal = crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
+    onCond = getExpr $ on $ getScopeOfTable $ joinTabVal
+  in Query' ( joinTabVal
+            , undefined clau
+            , PQ.Join PQ.InnerJoin False (Just onCond) (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
+            )
 {-
 leftJoin :: forall o n1 r1 n2 r2 sc.
     As n1 (Query sc r1)

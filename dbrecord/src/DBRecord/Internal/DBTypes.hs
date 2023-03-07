@@ -411,6 +411,7 @@ data DBObjK
   = TableObj
   | NativeTypeObj
   | UDTypeObj
+  | NullableObjOf DBObjK
 
 class DBRepr (sc :: Type) (t :: Type) where
   type ToDBType sc t :: DBObjK
@@ -426,7 +427,7 @@ instance DBRepr sc Int32 where
   type ToDBType sc Int32 = 'NativeTypeObj
 
 instance DBRepr sc a => DBRepr sc (Maybe a) where
-  type ToDBType sc (Maybe a) = ToDBType sc a
+  type ToDBType sc (Maybe a) = 'NullableObjOf (ToDBType sc a)
 
 -- TODO: Json is not native is all the DB
 instance DBRepr sc (Json a) where

@@ -43,6 +43,7 @@ import GHC.Stack
 import GHC.OverloadedLabels
 import Data.Kind
 import Data.Typeable
+--import Data.Functor.Identity
 import Data.Functor.Const
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
@@ -209,6 +210,10 @@ nextStage (NestedTable tabhk) = NestedTable $ hoistWithKeyHK nextStage tabhk
 getScopeOfTable :: TableValue sc i -> Scoped s sc i
 getScopeOfTable tab = Scoped tab
 
+tableToExpr :: TableValue sc i -> PQ.Expr sc i
+tableToExpr (TableValue hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\e -> (aliasedExprName e, PQ.getExpr e)) hk
+tableToExpr (NestedTable hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\texp -> (aliasedTableName texp, PQ.getExpr $ tableToExpr texp)) hk
+
 aliasedExpr :: forall a sc.(Typeable a, HasCallStack) => PQ.Expr sc a -> PQ.Expr sc a
 aliasedExpr e = PQ.unsafeCol [aliasedExprName e]
 
@@ -217,15 +222,32 @@ aliasedExprName _ = fldN
   where argRep = Data.Typeable.typeRep (Proxy @a)
         fldN = case typeRepArgs argRep of
           (SomeTypeRep srep : _)
-            | SomeTypeRep (typeRepKind srep) == (Data.Typeable.typeRep (Proxy @Symbol)) -> T.pack $ show srep
+            | SomeTypeRep (typeRepKind srep) == (Data.Typeable.typeRep (Proxy @Symbol)) -> symStrToText $ show srep
             | otherwise -> error $ "Panic: Expecting type of form (Field (sym :: Symbol) a) but got (" ++ (show argRep) ++ ") with it's first arg's kind instead of Symbol got " ++ (show $ typeRepKind srep)
           [] -> error $ "Panic: Expecting type of form (Field sym a) but got " ++ (show argRep)
 
+aliasedTableName :: forall a sc.(Typeable a, HasCallStack) => TableValue sc a -> Text
+aliasedTableName _ = fldN
+  where argRep = Data.Typeable.typeRep (Proxy @a)
+        fldN = case typeRepArgs argRep of
+          (SomeTypeRep srep : _)
+            | SomeTypeRep (typeRepKind srep) == (Data.Typeable.typeRep (Proxy @Symbol)) -> symStrToText $ show srep
+            | otherwise -> error $ "Panic: Expecting type of form (Field (sym :: Symbol) a) but got (" ++ (show argRep) ++ ") with it's first arg's kind instead of Symbol got " ++ (show $ typeRepKind srep)
+          [] -> error $ "Panic: Expecting type of form (Field sym a) but got " ++ (show argRep)
+
+symStrToText :: String -> Text
+symStrToText [] = ""
+symStrToText s@(_ : []) = T.pack s
+symStrToText s = T.pack $ init $ tail s
+{-# INLINE symStrToText #-}
+          
+
 newtype Scoped s sc t = Scoped (TableValue sc t)
   
-data TableValue sc t
-  = TableValue (HK (PQ.Expr sc) t)
-  | NestedTable (HK (TableValue sc) t)
+data TableValue sc t where
+  TableValue :: (HK (PQ.Expr sc) t) -> TableValue sc t -- (Identity t)
+  NestedTable :: (HK (TableValue sc) t) -> TableValue sc t -- (Identity t)
+--  NullableTable :: HK (PQ.Expr sc) (Maybe t) -> TableValue sc (Maybe t)
   
 newtype Scalar sc t = Scalar (PQ.Expr sc t)
 
@@ -241,7 +263,7 @@ instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbo
 
 instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (TableValue sc i) (PQ.Expr sc t) where
   getField (TableValue hk) = PQ.Expr $ PQ.getExpr $ R.getField @f hk
-  getField (NestedTable _hk) = undefined
+  getField (NestedTable hk) = tableToExpr $ R.getField @f hk
 
 
 class HasColumn sc tab (col :: Symbol) (a :: Type) where

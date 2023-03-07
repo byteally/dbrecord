@@ -418,6 +418,9 @@ instance FractionalExpr Float where
 instance FractionalExpr Double where
   exprFromRational = literalExpr . PQ.Double . fromRational
 
+fromIntegralExpr :: (Integral a, NumExpr b) => Expr sc a -> Expr sc b
+fromIntegralExpr e = unsafeCoerceExpr e
+
 instance ( DBTypeCtx (GetDBTypeRep sc T.Text)
          , SingI (GetDBTypeRep sc T.Text)
          ) => IsString (Expr sc T.Text) where
@@ -521,6 +524,12 @@ instance EqExpr sc Day where
 instance EqExpr sc A.Value where
   a .== b = binOp PQ.OpEq a b
 
+instance EqExpr sc LocalTime where
+  a .== b = binOp PQ.OpEq a b
+
+instance EqExpr sc Int16 where
+  a .== b = binOp PQ.OpEq a b  
+
 instance OrdExpr sc Day where
   a .<= b = binOp PQ.OpLtEq a b
 
@@ -588,6 +597,9 @@ instance OrdExpr sc Float where
 
 instance OrdExpr sc Double where
   a .<= b = binOp PQ.OpLtEq a b
+
+instance OrdExpr sc LocalTime where
+  a .<= b = binOp PQ.OpLtEq a b  
 
 infixr 3 .&&
 (.&&) :: Expr sc Bool -> Expr sc Bool -> Expr sc Bool

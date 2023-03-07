@@ -122,8 +122,34 @@ data Payment = Payment
 
 -- ^ stores staff data
 data Staff = Staff
-  {
+  { staffId :: Int32
+  , firstName :: Text
+  , lastName :: Text
+  , addressId :: Int16
+  , email :: Maybe Text
+  , storeId :: Int16
+  , active :: Bool
+  , username :: Text
+  , password :: Maybe Text
+  , lastUpdate :: LocalTime
+  , picture :: Text -- ByteString
   } deriving (Show, Generic)
+    deriving anyclass (DBRepr sc)
+instance (db ~ 'Postgres) => Table (DVDRentalDB db) Staff where
+
+{-
+staff_id integer DEFAULT nextval('public.staff_staff_id_seq'::regclass) NOT NULL,
+    first_name character varying(45) NOT NULL,
+    last_name character varying(45) NOT NULL,
+    address_id smallint NOT NULL,
+    email character varying(50),
+    store_id smallint NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    username character varying(16) NOT NULL,
+    password character varying(40),
+    last_update timestamp without time zone DEFAULT now() NOT NULL,
+    picture bytea
+-}
 
 -- ^ stores customer data
 data Customer = Customer
@@ -458,7 +484,27 @@ innerJoin2Tables =
   innerJoin
   (#customer .= rel @(DVDRentalDB db) @Customer selectAll)
   (#payment .= rel @(DVDRentalDB db) @Payment selectAll)
-  (\custPayment -> custPayment.customer.customerId .== 1) $ do
+  (\r -> r.customer.customerId .== fromIntegralExpr r.payment.customerId) $ do
+  sort $ \r -> asc r.payment.paymentDate
+  selectAll
+
+innerJoin3Tables :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec [ '("customerPayment", Rec '[ '("customer", Customer)
+                                                          , '("payment", Payment)
+                                                          ])
+                              , '("staff", Staff)
+                              ])
+innerJoin3Tables =
+  innerJoin
+  ( #customerPayment .= innerJoin
+    (#customer .= rel @(DVDRentalDB db) @Customer selectAll)
+    (#payment .= rel @(DVDRentalDB db) @Payment selectAll)
+    (\res -> res.customer.customerId .== fromIntegralExpr res.payment.customerId)
+    selectAll)
+  (#staff .= rel @(DVDRentalDB db) @Staff selectAll)
+  (\r -> r.customerPayment.payment.staffId .== fromIntegralExpr r.staff.staffId) $ do
+  sort $ \r -> asc r.customerPayment.payment.paymentDate
   selectAll
 -- left join
 -- right join
