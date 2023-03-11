@@ -101,8 +101,13 @@ data Actor = Actor
 
 -- ^ stores inventory data
 data Inventory = Inventory
-  {
+  { inventoryId :: Int32
+  , filmId :: Int16
+  , storeId :: Int16
+  , lastUpdate :: LocalTime
   } deriving (Show, Generic)
+    deriving anyclass (DBRepr sc)
+instance (db ~ 'Postgres) => Table (DVDRentalDB db) Inventory where
 
 -- ^ stores rental data
 data Rental = Rental
@@ -136,20 +141,6 @@ data Staff = Staff
   } deriving (Show, Generic)
     deriving anyclass (DBRepr sc)
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Staff where
-
-{-
-staff_id integer DEFAULT nextval('public.staff_staff_id_seq'::regclass) NOT NULL,
-    first_name character varying(45) NOT NULL,
-    last_name character varying(45) NOT NULL,
-    address_id smallint NOT NULL,
-    email character varying(50),
-    store_id smallint NOT NULL,
-    active boolean DEFAULT true NOT NULL,
-    username character varying(16) NOT NULL,
-    password character varying(40),
-    last_update timestamp without time zone DEFAULT now() NOT NULL,
-    picture bytea
--}
 
 -- ^ stores customer data
 data Customer = Customer
@@ -506,8 +497,63 @@ innerJoin3Tables =
   (\r -> r.customerPayment.payment.staffId .== fromIntegralExpr r.staff.staffId) $ do
   sort $ \r -> asc r.customerPayment.payment.paymentDate
   selectAll
+  
 -- left join
+leftJoinEg1 :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("film", Film)
+                               , '("inventory", Maybe Inventory)
+                               ])
+leftJoinEg1 =
+  leftJoin
+  (#film .= rel @(DVDRentalDB db) @Film selectAll)
+  (#inventory .= rel @(DVDRentalDB db) @Inventory selectAll)
+  (\r -> r.inventory.filmId .== fromIntegralExpr r.film.filmId) $ do
+  sort $ \r -> asc r.film.title
+  selectAll
+
+leftJoinEg2 :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("film", Film)
+                               , '("inventory", Maybe Inventory)
+                               ])
+leftJoinEg2 =
+  leftJoin
+  (#film .= rel @(DVDRentalDB db) @Film selectAll)
+  (#inventory .= rel @(DVDRentalDB db) @Inventory selectAll)
+  (\r -> r.inventory.filmId .== fromIntegralExpr r.film.filmId) $ do
+  restrict $ \r -> isNull r.inventory.filmId
+  sort $ \r -> asc r.film.title
+  selectAll  
 -- right join
+
+rightJoinEg1 :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("inventory", Maybe Inventory)
+                               , '("film", Film)
+                               ])
+rightJoinEg1 =
+  rightJoin
+  (#inventory .= rel @(DVDRentalDB db) @Inventory selectAll)
+  (#film .= rel @(DVDRentalDB db) @Film selectAll)
+  (\r -> r.inventory.filmId .== fromIntegralExpr r.film.filmId) $ do
+  sort $ \r -> asc r.film.title
+  selectAll
+
+rightJoinEg2 :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("inventory", Maybe Inventory)
+                               , '("film", Film)
+                               ])
+rightJoinEg2 =
+  rightJoin
+  (#inventory .= rel @(DVDRentalDB db) @Inventory selectAll)
+  (#film .= rel @(DVDRentalDB db) @Film selectAll)
+  (\r -> r.inventory.filmId .== fromIntegralExpr r.film.filmId) $ do
+  restrict $ \r -> isNull r.inventory.filmId
+  sort $ \r -> asc r.film.title
+  selectAll
+  
 -- self join
 -- full outer join
 -- cross join

@@ -37,13 +37,14 @@ import Data.Proxy
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.TypeLits
+-- import Data.Type.Equality
 import GHC.Generics
 import GHC.Exts
 import GHC.Stack
 import GHC.OverloadedLabels
 import Data.Kind
 import Data.Typeable
---import Data.Functor.Identity
+import Data.Functor.Identity
 import Data.Functor.Const
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
@@ -135,16 +136,18 @@ class ( Schema sc
   columnNames :: ColumnAliases sc tab
   columnNames = mempty
 
-  rel :: (forall s.Clause s sc tab (TableValue sc o)) -> Query' PlainQ sc o
+  rel :: (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
   default rel ::
     ( GConstructHK tab (HasColumn sc tab) (TypeFields tab)
     , KnownSymbol (TableName sc tab)
-    ) => (forall s.Clause s sc tab (TableValue sc o)) -> Query' PlainQ sc o
-  rel (Clause clau) = Query' (TableValue $ constructHK @(HasColumn sc tab) (getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)))
+    ) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
+  rel (Clause clau) = Query' (TableValue $ constructHK @(HasColumn sc tab) (ExprF . toExprId . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)))
     where tabId = PQ.TableId { PQ.database = "zb"
                              , PQ.schema = "usfoodimports"
                              , PQ.tableName = T.pack $ symbolVal (Proxy @(TableName sc tab))
                              }
+          toExprId :: PQ.Expr sc a -> PQ.Expr sc (Identity a)
+          toExprId (PQ.Expr e) = PQ.Expr e
     
 
 data Sequence = PGSerial Symbol   -- Column
@@ -158,13 +161,13 @@ type family Serial (cname :: Symbol) (seqname :: Symbol) where
 type family Owned (cname :: Symbol) (seqname :: Symbol) where
   Owned cname seqname = 'PGOwned cname seqname
 
-data Query' qt sc t = forall i.Query' (TableValue sc i, State (PQ.Clauses, TableValue sc i) (TableValue sc t), PQ.Clauses -> PQ.PrimQuery)
+data Query' qt sc t = forall i.Query' (TableValue sc Identity i, State (PQ.Clauses, TableValue sc Identity i) (TableValue sc Identity t), PQ.Clauses -> PQ.PrimQuery)
 
 execQuery :: Query' qt sc t -> PQ.PrimQuery
 execQuery (Query' (exprs, st, mkPQ)) = mkPQ $ fst $ execState st (PQ.clauses, exprs)
 {-# INLINE execQuery #-}
 
-runQuery' :: Query' qt sc t -> (PQ.PrimQuery, TableValue sc t)
+runQuery' :: Query' qt sc t -> (PQ.PrimQuery, TableValue sc Identity t)
 runQuery' (Query' (exprs, st, mkPQ)) =
   let
     (tv, (clau, _)) = runState st (PQ.clauses, exprs)
@@ -173,7 +176,7 @@ runQuery' (Query' (exprs, st, mkPQ)) =
 
 -- Clause should be opaque
 -- o should never be `Expr`
-newtype Clause s sc i o = Clause (State (PQ.Clauses, TableValue sc i) o)
+newtype Clause s sc i o = Clause (State (PQ.Clauses, TableValue sc Identity i) o)
   deriving newtype (Functor, Applicative, Monad)
 
 instance Semigroup (Clause s sc i o) where
@@ -190,43 +193,94 @@ scoped :: forall i o sc s.
   -> Clause s sc i o
 scoped fn = Clause $ state (\(c,es) -> let (c', o) = fn (c, Scoped es) in (o, (c', es)))
 
-scopeToListWith :: (forall a.Typeable a => PQ.Expr sc a -> r) -> Scoped s sc i -> [r]
+scopeToListWith :: (forall g (a :: Type).Typeable a => ExprF sc g a -> r) -> Scoped s sc i -> [r]
 scopeToListWith fn (Scoped tab) = tableToListWith fn tab
 
-tableToListWith :: (forall a.Typeable a => PQ.Expr sc a -> r) -> TableValue sc i -> [r]
+tableToListWith :: (forall g (a :: Type).Typeable a => ExprF sc g a -> r) -> TableValue sc f i -> [r]
 tableToListWith fn (TableValue hk) = hkToListWith fn hk
-tableToListWith fn (NestedTable hk) = concat $ hkToListWith (tableToListWith fn) hk
+tableToListWith fn (CrossTable tv1 tv2) = tableToListWith fn (val tv1) ++ tableToListWith fn (val tv2)
+tableToListWith fn (LeftJoinTable tv1 tv2) = tableToListWith fn (val tv1) ++ tableToListWith fn (val tv2)
+tableToListWith fn (RightJoinTable tv1 tv2) = tableToListWith fn (val tv1) ++ tableToListWith fn (val tv2)
+tableToListWith _ (ConsTable _ _) = undefined
+tableToListWith _ (ConsOptTable _ _ _) = undefined
+--tableToListWith fn (NestedTable hk) = concat $ hkToListWith (tableToListWith fn) hk
 
 -- mapScope :: (forall a.Typeable a => PQ.Expr sc a -> PQ.Expr sc a) -> Scoped s sc i -> Scoped s sc i
 -- mapScope fn (Scoped hk) = Scoped $ hoistWithKeyHK fn hk
 
-crossRel :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc r1) -> Field n2 (TableValue sc r2) -> TableValue sc (Rec '[ '(n1, r1), '(n2, r2)])
-crossRel q1 q2 = NestedTable $ hrecToHKOfRec $ q1 .& q2 .& Record.end
+crossRel :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, r2)])
+crossRel q1 q2 = CrossTable q1 q2
+-- crossRel q1 q2 = NestedTable $ hrecToHKOfRec $ q1 .& q2 .& Record.end
 
-nextStage :: TableValue sc i -> TableValue sc i
+ljRel :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc Maybe r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, Maybe r2)])
+ljRel q1 q2 = LeftJoinTable q1 q2
+-- ljRel q1 q2 = NestedTable $ hrecToHKOfRec $ q1 .& (R.getField <$> q2) .& Record.end
+
+rjRel :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc Maybe r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, Maybe r1), '(n2, r2)])
+rjRel q1 q2 = RightJoinTable q1 q2
+
+nextStage :: TableValue sc f i -> TableValue sc f i
 nextStage (TableValue hk) = TableValue $ hoistWithKeyHK aliasedExpr hk
-nextStage (NestedTable tabhk) = NestedTable $ hoistWithKeyHK nextStage tabhk
+nextStage (CrossTable ntv1 ntv2) = CrossTable (fmap nextStage ntv1) (fmap nextStage ntv2)
+nextStage (LeftJoinTable ntv1 ntv2) = LeftJoinTable (fmap nextStage ntv1) (fmap nextStage ntv2)
+nextStage (RightJoinTable ntv1 ntv2) = RightJoinTable (fmap nextStage ntv1) (fmap nextStage ntv2)
+nextStage (ConsTable _ _) = undefined
+nextStage (ConsOptTable _ _ _) = undefined
+--nextStage (NestedTable tabhk) = NestedTable $ hoistWithKeyHK nextStage tabhk
 
-getScopeOfTable :: TableValue sc i -> Scoped s sc i
+hoistMaybeTable :: (forall g x. ExprF sc g x -> ExprF sc Maybe x) -> TableValue sc f i -> TableValue sc Maybe i
+hoistMaybeTable fn (TableValue hk) = TableValue $ hoistHK fn hk
+hoistMaybeTable fn (CrossTable ntv1 ntv2) = CrossTable (fmap (hoistMaybeTable fn) ntv1) (fmap (hoistMaybeTable fn) ntv2)
+hoistMaybeTable fn (LeftJoinTable ntv1 ntv2) = LeftJoinTable (fmap (hoistMaybeTable fn) ntv1) (fmap (hoistMaybeTable fn) ntv2)
+hoistMaybeTable fn (RightJoinTable ntv1 ntv2) = RightJoinTable (fmap (hoistMaybeTable fn) ntv1) (fmap (hoistMaybeTable fn) ntv2)
+hoistMaybeTable _ (ConsTable _ _) = undefined
+hoistMaybeTable _ (ConsOptTable _ _ _) = undefined
+
+toNullExprF :: ExprF sc g x -> ExprF sc Maybe x
+toNullExprF (ExprF (PQ.Expr x)) = (ExprF (PQ.Expr x))
+
+
+getScopeOfTable :: TableValue sc Identity i -> Scoped s sc i
 getScopeOfTable tab = Scoped tab
 
-tableToExpr :: TableValue sc i -> PQ.Expr sc i
-tableToExpr (TableValue hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\e -> (aliasedExprName e, PQ.getExpr e)) hk
-tableToExpr (NestedTable hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\texp -> (aliasedTableName texp, PQ.getExpr $ tableToExpr texp)) hk
+maybeExprsToExpr :: HK (ExprF sc Maybe) r -> PQ.Expr sc (Maybe r)
+maybeExprsToExpr hk = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\e -> (aliasedExprName e, PQ.getExpr $ getExprF e)) hk
 
-aliasedExpr :: forall a sc.(Typeable a, HasCallStack) => PQ.Expr sc a -> PQ.Expr sc a
-aliasedExpr e = PQ.unsafeCol [aliasedExprName e]
+maybeTableToExpr :: TableValue sc Maybe i -> PQ.Expr sc (Maybe i)
+maybeTableToExpr = unsafeTableToExpr
 
-aliasedExprName :: forall a sc.(Typeable a, HasCallStack) => PQ.Expr sc a -> Text
+idTableToExpr :: TableValue sc Identity i -> PQ.Expr sc i
+idTableToExpr = unsafeTableToExpr
+
+unsafeTableToExpr :: TableValue sc f i -> PQ.Expr sc o
+unsafeTableToExpr (TableValue hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\e -> (aliasedExprName e, PQ.getExpr $ getExprF e)) hk
+-- unsafeTableToExpr (NestedTable hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\texp -> (aliasedTableName texp, PQ.getExpr $ unsafeTableToExpr texp)) hk
+unsafeTableToExpr (CrossTable tv1 tv2) = PQ.Expr $ PQ.FlatComposite $ [ (getFnName tv1, PQ.getExpr $ unsafeTableToExpr $ val tv1), (getFnName tv2, PQ.getExpr $ unsafeTableToExpr $ val tv2)]
+unsafeTableToExpr (LeftJoinTable tv1 tv2) = PQ.Expr $ PQ.FlatComposite $ [ (getFnName tv1, PQ.getExpr $ unsafeTableToExpr $ val tv1), (getFnName tv2, PQ.getExpr $ unsafeTableToExpr $ val tv2)]
+unsafeTableToExpr (RightJoinTable tv1 tv2) = PQ.Expr $ PQ.FlatComposite $ [ (getFnName tv1, PQ.getExpr $ unsafeTableToExpr $ val tv1), (getFnName tv2, PQ.getExpr $ unsafeTableToExpr $ val tv2)]
+unsafeTableToExpr (ConsTable _ _) = undefined
+unsafeTableToExpr (ConsOptTable _ _ _) = undefined
+
+getFnName :: forall n a.KnownSymbol n => Field n a -> Text
+getFnName _ = T.pack $ symbolVal (Proxy @n)
+
+aliasedExpr :: forall a f sc.(Typeable a, HasCallStack) => ExprF sc f a -> ExprF sc f a
+aliasedExpr e = ExprF $ PQ.unsafeCol [aliasedExprName e]
+
+aliasedExprName :: forall a f sc.(Typeable a, HasCallStack) => ExprF sc f a -> Text
 aliasedExprName _ = fldN
-  where argRep = Data.Typeable.typeRep (Proxy @a)
+  where idargRep = Data.Typeable.typeRep (Proxy @a)
+        argRep = case typeRepArgs idargRep of
+          (_ : _ : []) -> idargRep
+          (frep@(SomeTypeRep _srep) : _) -> frep
+          [] -> error $ "Panic: Expected f (Field (sym :: Symbol) a) but got " ++ (show argRep)
         fldN = case typeRepArgs argRep of
           (SomeTypeRep srep : _)
             | SomeTypeRep (typeRepKind srep) == (Data.Typeable.typeRep (Proxy @Symbol)) -> symStrToText $ show srep
             | otherwise -> error $ "Panic: Expecting type of form (Field (sym :: Symbol) a) but got (" ++ (show argRep) ++ ") with it's first arg's kind instead of Symbol got " ++ (show $ typeRepKind srep)
           [] -> error $ "Panic: Expecting type of form (Field sym a) but got " ++ (show argRep)
 
-aliasedTableName :: forall a sc.(Typeable a, HasCallStack) => TableValue sc a -> Text
+aliasedTableName :: forall a f sc.(Typeable a, HasCallStack) => TableValue sc f a -> Text
 aliasedTableName _ = fldN
   where argRep = Data.Typeable.typeRep (Proxy @a)
         fldN = case typeRepArgs argRep of
@@ -242,12 +296,27 @@ symStrToText s = T.pack $ init $ tail s
 {-# INLINE symStrToText #-}
           
 
-newtype Scoped s sc t = Scoped (TableValue sc t)
+newtype Scoped s sc t = Scoped (TableValue sc Identity t)
+
+newtype ExprF sc f t = ExprF (PQ.Expr sc (f t))
+
+getExprF :: ExprF sc f t -> PQ.Expr sc (f t)
+getExprF (ExprF e) = e
+
+distExprF :: ExprF sc Maybe t -> ExprF sc Identity (Maybe t)
+distExprF = undefined
+
+data TableValue sc f t where
+  TableValue :: (HK (ExprF sc f) t) -> TableValue sc f t
+--  NestedTable :: (HK (TableValue sc f) t) -> TableValue sc f t
+  CrossTable :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, r2)])
+  LeftJoinTable :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc Maybe r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, Maybe r2)])
+  RightJoinTable :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc Maybe r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, Maybe r1), '(n2, r2)])
+  ConsTable :: (KnownSymbol n, Typeable r) => Field n (TableValue sc f r) -> TableValue sc f (Rec xs) -> TableValue sc f (Rec ('(n, r) ': xs))
+  ConsOptTable :: (KnownSymbol n, Typeable r) => PQ.JoinType -> Field n (TableValue sc Maybe r) -> TableValue sc f (Rec xs) -> TableValue sc f (Rec ('(n, Maybe r) ': xs))  
   
-data TableValue sc t where
-  TableValue :: (HK (PQ.Expr sc) t) -> TableValue sc t -- (Identity t)
-  NestedTable :: (HK (TableValue sc) t) -> TableValue sc t -- (Identity t)
---  NullableTable :: HK (PQ.Expr sc) (Maybe t) -> TableValue sc (Maybe t)
+--  NullableTable :: (TableValue sc Maybe x -> PQ.Expr sc (Maybe t)) -> TableValue sc f t
+--  TableExpr :: (TableValue sc g x -> PQ.Expr sc (Maybe t)) -> TableValue sc f t
   
 newtype Scalar sc t = Scalar (PQ.Expr sc t)
 
@@ -261,10 +330,34 @@ data AsQ (n :: Symbol) q
 instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (Scoped s sc i) (PQ.Expr sc t) where
   getField (Scoped hk) = PQ.Expr $ PQ.getExpr $ R.getField @f hk
 
-instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (TableValue sc i) (PQ.Expr sc t) where
-  getField (TableValue hk) = PQ.Expr $ PQ.getExpr $ R.getField @f hk
-  getField (NestedTable hk) = tableToExpr $ R.getField @f hk
+instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (TableValue sc Identity i) (PQ.Expr sc t) where
+  getField (TableValue hk) = PQ.Expr $ PQ.getExpr $ getExprF $ R.getField @f hk
+--  getField (NestedTable hk) = undefined -- idTableToExpr $ R.getField @f hk
+  getField (CrossTable tv1 tv2) = idTableToExpr $ getMat tv1 tv2
+    where getMat :: forall n1 n2 r1 r2.(Typeable r1, Typeable r2) => Field n1 (TableValue sc Identity r1) -> Field n2 (TableValue sc Identity r2) -> TableValue sc Identity t
+          getMat ntv1 ntv2 = case (eqT @t @r1, eqT @t @r2) of
+            (Just Refl, Nothing) -> val ntv1
+            (Nothing, Just Refl) -> val ntv2
+            (Nothing, Nothing) -> error "Panic"
+            (Just _, Just _) -> error "Panic"
 
+  getField (LeftJoinTable tv1 tv2) = getMat tv1 tv2
+    where getMat :: forall n1 n2 r1 r2.(Typeable r1, Typeable r2) => Field n1 (TableValue sc Identity r1) -> Field n2 (TableValue sc Maybe r2) -> PQ.Expr sc t
+          getMat ntv1 ntv2 = case (eqT @t @r1, eqT @t @(Maybe r2)) of
+            (Just Refl, Nothing) -> idTableToExpr $ val ntv1
+            (Nothing, Just Refl) -> maybeTableToExpr $ val ntv2              
+            (Nothing, Nothing) -> error "Panic"
+            (Just _, Just _) -> error "Panic"
+
+  getField (RightJoinTable tv1 tv2) = getMat tv1 tv2
+    where getMat :: forall n1 n2 r1 r2.(Typeable r1, Typeable r2) => Field n1 (TableValue sc Maybe r1) -> Field n2 (TableValue sc Identity r2) -> PQ.Expr sc t
+          getMat ntv1 ntv2 = case (eqT @t @(Maybe r1), eqT @t @r2) of
+            (Just Refl, Nothing) -> maybeTableToExpr $ val ntv1
+            (Nothing, Just Refl) -> idTableToExpr $ val ntv2              
+            (Nothing, Nothing) -> error "Panic"
+            (Just _, Just _) -> error "Panic"
+  getField (ConsTable _ _) = undefined
+  getField (ConsOptTable _ _ _) = undefined
 
 class HasColumn sc tab (col :: Symbol) (a :: Type) where
   getCol :: Proxy '(sc, tab) -> Proxy '(col, a) -> PQ.Expr sc (Field col a)
@@ -2048,4 +2141,4 @@ oid ?
 pg_lsn 
 
 --
--}
+r-}

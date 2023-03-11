@@ -128,7 +128,7 @@ innerJoin :: forall o n1 r1 n2 r2 sc.
     As n1 (Query sc r1)
   -> As n2 (Query sc r2)
   -> (forall s.Scoped s sc (Rec '[ '(n1, r1), '(n2, r2)]) -> Expr sc Bool)
-  -> (forall s.Clause s sc (Rec '[ '(n1, r1), '(n2, r2)]) (TableValue sc o))
+  -> (forall s.Clause s sc (Rec '[ '(n1, r1), '(n2, r2)]) (TableValue sc Identity o))
   -> Query sc o
 innerJoin q1 q2 on (Clause clau) =
   let
@@ -149,36 +149,40 @@ leftJoin :: forall o n1 r1 n2 r2 sc.
     As n1 (Query sc r1)
   -> As n2 (Query sc r2)
   -> (forall s.Scoped s sc (Rec '[ '(n1, r1), '(n2, r2)]) -> Expr sc Bool)
-  -> (forall s.Clause s sc (Rec '[ '(n1, r1), '(n2, Maybe r2)]) (TableValue sc o))
+  -> (forall s.Clause s sc (Rec '[ '(n1, r1), '(n2, Maybe r2)]) (TableValue sc Identity o))
   -> Query sc o
 leftJoin q1 q2 on (Clause clau) =
   let
     (q1PQ, q1Res) = runQuery' $ val q1
     (q2PQ, q2Res) = runQuery' $ val q2
-    joinTabVal = crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
-    onCond = getExpr $ on $ getScopeOfTable $ joinTabVal
-  in Query' ( joinTabVal
-            , undefined clau
-            , PQ.Join PQ.InnerJoin False (Just onCond) (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
+    crossTableVal = crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
+    ljjoinTabVal = ljRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= hoistMaybeTable toNullExprF q2Res)
+    onCond = getExpr $ on $ getScopeOfTable $ crossTableVal
+  in Query' ( ljjoinTabVal
+            , clau
+            , PQ.Join PQ.LeftJoin False (Just onCond) (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
             )
-{-
-leftJoin :: forall o n1 r1 n2 r2 sc.
+
+rightJoin :: forall o n1 r1 n2 r2 sc.
+  (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) =>
     As n1 (Query sc r1)
   -> As n2 (Query sc r2)
-  -> (forall s.Scoped s sc (Join n1 r1 n2 r2) -> Expr sc Bool)
-  -> (forall s.Clause s sc (Join n1 r1 n2 (HK Maybe r2)) o)
+  -> (forall s.Scoped s sc (Rec '[ '(n1, r1), '(n2, r2)]) -> Expr sc Bool)
+  -> (forall s.Clause s sc (Rec '[ '(n1, Maybe r1), '(n2, r2)]) (TableValue sc Identity o))
   -> Query sc o
-leftJoin q1 q2 on (Clause clau) =
-  Query' ( undefined
-         , clau
-         , PQ.Join PQ.LeftJoin False Nothing (PQ.PrimQuery (execQuery $ val q1)) (PQ.PrimQuery (execQuery $ val q2))
-         )
--}
+rightJoin q1 q2 on (Clause clau) =
+  let
+    (q1PQ, q1Res) = runQuery' $ val q1
+    (q2PQ, q2Res) = runQuery' $ val q2
+    crossTableVal = crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
+    rjoinTabVal = rjRel (fromLabel @n1 .= hoistMaybeTable toNullExprF q1Res) (fromLabel @n2 .= q2Res)
+    onCond = getExpr $ on $ getScopeOfTable $ crossTableVal
+  in Query' ( rjoinTabVal
+            , clau
+            , PQ.Join PQ.RightJoin False (Just onCond) (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
+            )
 
 {-
-rightJoin :: () -> As n1 (Query sc r1) -> As n2 (Query sc r2) -> Query sc (Join n1 (HK Maybe r1) n2 r2)
-rightJoin = undefined
-
 fullJoin :: () -> As n1 (Query sc r1) -> As n2 (Query sc r2) -> Query sc (Join n1 (HK Maybe r1) n2 (HK Maybe r2))
 fullJoin = undefined
 -}
@@ -236,17 +240,24 @@ sort ordFn = scoped $ \(clau, inp) -> (clau {orderbys = orderbys clau <> getOrde
 restrict :: forall i sc s.(Scoped s sc i -> Expr sc Bool) -> Clause s sc i ()
 restrict filtFn = scoped $ \(clau, inp) -> (clau {criteria = criteria clau <> [PQ.getExpr (filtFn inp)]}, ())
 
-selectAll :: forall i sc s.Clause s sc i (TableValue sc i)
+selectAll :: forall i sc s.Clause s sc i (TableValue sc Identity i)
 selectAll = scoped $ \(clau, scopes@(Scoped tabv)) -> (clau {projections = scopeToListWith getPrjs scopes}, nextStage tabv)
 
-getPrjs :: forall a sc.(Typeable a) => PQ.Expr sc a -> (T.Text, PQ.PrimExpr)
-getPrjs e = (aliasedExprName e, getExpr e)
+getPrjs :: forall a f sc.(Typeable a) => ExprF sc f a -> (T.Text, PQ.PrimExpr)
+getPrjs e = (aliasedExprName e, getExpr $ getExprF e)
+
+getPrjs' :: forall a sc.(Typeable a) => PQ.Expr sc a -> (T.Text, PQ.PrimExpr)
+getPrjs' e = (aliasedExprName $ ExprF $ toIdExpr e, getExpr e)
 
 newtype SelectList sc os = SelectList (HRec (PQ.Expr sc) os)
   deriving newtype (AnonRec)
 
-selectListToTable :: SelectList sc os -> TableValue sc (Rec os)
-selectListToTable (SelectList selRec) = TableValue $ hoistWithKeyHK aliasedExpr $ hrecToHKOfRec selRec
+selectListToTable :: SelectList sc os -> TableValue sc Identity (Rec os)
+selectListToTable (SelectList selRec) = TableValue $ hoistWithKeyHK (aliasedExpr . ExprF . toIdExpr) $ hrecToHKOfRec selRec
+
+toIdExpr :: Expr sc x -> Expr sc (Identity x)
+toIdExpr (Expr x) = Expr x
+  
 
 newtype SelectScope s sc i = SelectScope (Scoped s sc i)
 
@@ -259,9 +270,9 @@ instance R.HasField fn (HRec (PQ.Expr sc) os) (PQ.Expr sc t) => R.HasField (fn :
 -- * Select List
 select :: forall i os sc s.
   ( 
-  ) => (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (TableValue sc (Rec os))
+  ) => (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (TableValue sc Identity (Rec os))
 select selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList selRec) = selFn (SelectScope scopes)
-  in (clau {projections = hrecToListWith getPrjs selRec},selectListToTable selCols)
+  in (clau {projections = hrecToListWith getPrjs' selRec},selectListToTable selCols)
 
 {- Variants
 SELECT DISTINCT select_list ...
@@ -309,7 +320,7 @@ with2 ::
 with2 = undefined
 
 -- Subquery
-from :: forall o r fn sc.Field fn (Query sc r) -> (forall s.Clause s sc r (TableValue sc o)) -> Query' PlainQ sc o
+from :: forall o r fn sc.Field fn (Query sc r) -> (forall s.Clause s sc r (TableValue sc Identity o)) -> Query' PlainQ sc o
 from _ _ = undefined
 
 {-
@@ -318,7 +329,7 @@ A scalar subquery is an ordinary SELECT query in parentheses that returns exactl
 SELECT name, (SELECT max(pop) FROM cities WHERE cities.state = states.name)
     FROM states;
 -}
-scalarSubQuery :: forall t par r sc ps.((forall s.Clause s sc r (TableValue sc t)) -> Query sc t) -> (forall s1.Clause s1 sc r {- + par -} (Scalar sc t)) -> Clause ps sc par (Scalar sc t)
+scalarSubQuery :: forall t par r sc ps.((forall s.Clause s sc r (TableValue sc Identity t)) -> Query sc t) -> (forall s1.Clause s1 sc r {- + par -} (Scalar sc t)) -> Clause ps sc par (Scalar sc t)
 scalarSubQuery _ _ = undefined
 
 runQueryAsList :: forall r m sc driver.
