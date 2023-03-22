@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-redundant-constraints -Wno-orphans #-}
 
-{-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP, PolyKinds, TypeFamilies, DefaultSignatures, DerivingStrategies #-}
+{-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP, PolyKinds, TypeFamilies, DefaultSignatures, DerivingStrategies, LambdaCase #-}
 module DBRecord.Internal.Expr
        ( module DBRecord.Internal.Expr
        , Expr (..), getExpr
@@ -438,14 +438,23 @@ instance ( IsString (Expr sc a)
 class EqExpr sc a where
   (.==) :: Expr sc a -> Expr sc a -> Expr sc Bool
 
-  (./=) :: Expr sc a -> Expr sc a -> Expr sc Bool
-  (./=) a b = not_ (a .== b)
-
   default (.==) :: (Generic a, GEqExpr sc (TypeMappings sc a) (Rep a) a) => Expr sc a -> Expr sc a -> Expr sc Bool
   (.==) = geqExpr (Proxy :: Proxy '(Rep a, TypeMappings sc a))
 
+(./=) :: EqExpr sc a => Expr sc a -> Expr sc a -> Expr sc Bool
+(./=) a b = case (a .== b) of
+  PQ.Expr (PQ.BinExpr PQ.OpEq x y) -> PQ.Expr (PQ.BinExpr PQ.OpNotEq x y)
+  e -> not_ e
+
 infix 4 .==
 infix 4 ./=
+
+pattern TRUE :: Expr sc Bool
+pattern TRUE = Expr (PQ.ConstExpr (PQ.Bool True))
+
+pattern FALSE :: Expr sc Bool
+pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
+  
 
 class GEqExpr sc (ud :: UDTypeMappings) rep a where
   geqExpr :: Proxy '(rep, ud) -> Expr sc a -> Expr sc a -> Expr sc Bool
@@ -503,6 +512,9 @@ instance (EqExpr sc t) => EqExpr sc (fld ::: t) where
     where coerceExprTo :: Expr sc (fld ::: a) -> Expr sc a
           coerceExprTo = coerceExpr
 
+instance EqExpr sc () where
+  _ .== _ = true
+  
 instance EqExpr sc UTCTime where
   a .== b = binOp PQ.OpEq a b
 
@@ -610,7 +622,10 @@ infixr 3 .||
 (.||) a b = binOp PQ.OpOr a b
 
 not_ :: Expr sc Bool -> Expr sc Bool
-not_ = prefixOp PQ.OpNot
+not_ = \case
+  TRUE -> FALSE
+  FALSE -> TRUE
+  e -> prefixOp PQ.OpNot e
 
 isNull :: Expr sc (Maybe a) -> Expr sc Bool
 isNull = postfixOp PQ.OpIsNull
@@ -682,12 +697,6 @@ iscontainedBy a b = binOp (PQ.OpOther "<@") a b
 
 -- any :: Expr sc [a] -> Expr sc a
 -- any (Expr e) = Expr (PQ.UnExpr (PQ.UnOpOtherFun "ANY") e)
-
-pattern TRUE :: Expr sc Bool
-pattern TRUE = Expr (PQ.ConstExpr (PQ.Bool True))
-
-pattern FALSE :: Expr sc Bool
-pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
 
 jsonb ::
   forall sc a.

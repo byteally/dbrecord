@@ -50,11 +50,15 @@ data Category = Category
   } deriving (Show, Generic)
     deriving anyclass (DBRepr sc)
 
-instance (db ~ 'Postgres) => Table (DVDRentalDB db) Category where
-instance (db ~ 'Postgres) => Table (DVDRentalDB db) Customer where
-instance (db ~ 'Postgres) => Table (DVDRentalDB db) Film where
-instance (db ~ 'Postgres) => Table (DVDRentalDB db) Payment where
+data NewCategory = NewCategory
+  { name :: Text
+  } deriving (Show, Generic)
 
+instance (db ~ 'Postgres) => Table (DVDRentalDB db) Category where
+  type PrimaryKey (DVDRentalDB db) Category = '["categoryId"]
+  type HasDefault (DVDRentalDB db) Category = '["categoryId", "lastUpdate"]
+  type NewRow (DVDRentalDB db) Category = NewCategory
+    
 -- ^ stores the relationships between films and categories
 data FilmCategory = FilmCategory
   { film_id :: Int16
@@ -84,6 +88,26 @@ data Film = Film
   } deriving (Show, Generic)
     deriving anyclass (DBRepr sc)
 
+data NewFilm = NewFilm
+  { title :: Text
+  , description :: Text
+  , releaseYear :: Year
+  , languageId :: Int16
+  , rentalDuration :: Int16
+  , rentalRate :: Double -- numeric(4,2) TODO: Use Scentific
+  , length :: Int16
+  , replacementCost :: Double -- numeric(5,2) TODO: Use Scentific
+  , rating :: Text -- public.mpaa_rating
+  , lastUpdate :: LocalTime
+  , specialFeatures :: [Text]
+  , fulltext :: Text -- tsvector TODO: Handle this
+  } deriving (Show, Generic)
+
+instance (db ~ 'Postgres) => Table (DVDRentalDB db) Film where
+  type PrimaryKey (DVDRentalDB db) Film = '["filmId"]
+  type HasDefault (DVDRentalDB db) Film = '["filmId"]
+  type NewRow (DVDRentalDB db) Film = NewFilm
+
 -- ^ stores language of the film
 data Language = Language
   {
@@ -107,7 +131,18 @@ data Inventory = Inventory
   , lastUpdate :: LocalTime
   } deriving (Show, Generic)
     deriving anyclass (DBRepr sc)
+
+data NewInventory = NewInventory
+  { filmId :: Int16
+  , storeId :: Int16
+  , lastUpdate :: LocalTime
+  } deriving (Show, Generic)
+
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Inventory where
+  type PrimaryKey (DVDRentalDB db) Inventory = '["inventoryId"]
+  type HasDefault (DVDRentalDB db) Inventory = '["inventoryId"]
+  type NewRow (DVDRentalDB db) Inventory = NewInventory
+
 
 -- ^ stores rental data
 data Rental = Rental
@@ -125,6 +160,19 @@ data Payment = Payment
   } deriving (Show, Generic)
     deriving anyclass (DBRepr sc)
 
+data NewPayment = NewPayment
+  { customerId :: Int16
+  , staffId :: Int16
+  , rentalId :: Int32
+  , amount :: Double -- numeric(5,2)
+  , paymentDate :: LocalTime
+  } deriving (Show, Generic)
+
+instance (db ~ 'Postgres) => Table (DVDRentalDB db) Payment where
+  type PrimaryKey (DVDRentalDB db) Payment = '["paymentId"]
+  type HasDefault (DVDRentalDB db) Payment = '["paymentId"]
+  type NewRow (DVDRentalDB db) Payment = NewPayment
+
 -- ^ stores staff data
 data Staff = Staff
   { staffId :: Int32
@@ -140,7 +188,25 @@ data Staff = Staff
   , picture :: Text -- ByteString
   } deriving (Show, Generic)
     deriving anyclass (DBRepr sc)
+
+data NewStaff = NewStaff
+  { firstName :: Text
+  , lastName :: Text
+  , addressId :: Int16
+  , email :: Maybe Text
+  , storeId :: Int16
+  , active :: Bool
+  , username :: Text
+  , password :: Maybe Text
+  , lastUpdate :: LocalTime
+  , picture :: Text -- ByteString
+  } deriving (Show, Generic)
+
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Staff where
+  type PrimaryKey (DVDRentalDB db) Staff = '["staffId"]
+  type HasDefault (DVDRentalDB db) Staff = '["staffId"]
+  type NewRow (DVDRentalDB db) Staff = NewStaff
+
 
 -- ^ stores customer data
 data Customer = Customer
@@ -156,6 +222,24 @@ data Customer = Customer
   , active :: Maybe Int32
   } deriving (Show, Generic)
     deriving anyclass (DBRepr sc)
+
+data NewCustomer = NewCustomer
+  { storeId :: Int16
+  , firstName :: Text
+  , lastName :: Text
+  , email :: Maybe Text
+  , addressId :: Int16
+  , activebool :: Bool
+  , createDate :: Day
+  , lastUpdate :: Maybe LocalTime
+  , active :: Maybe Int32
+  } deriving (Show, Generic)
+
+instance (db ~ 'Postgres) => Table (DVDRentalDB db) Customer where
+  type PrimaryKey (DVDRentalDB db) Customer = '["customerId"]
+  type HasDefault (DVDRentalDB db) Customer = '["customerId"]
+  type NewRow (DVDRentalDB db) Customer = NewCustomer
+
 
 -- ^ stores address data for staff and customers
 data Address = Address
@@ -222,6 +306,24 @@ selectWithColumnAlias = rel @(DVDRentalDB db) @Customer $ select $ \customer ->
   .& #surname .= val customer.lastName
   .& end
 
+
+data UserInfo = UserInfo
+  { firstName :: Text
+  , surname :: Text
+  } deriving (Generic)
+  
+selectUsingEg1 :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) UserInfo
+selectUsingEg1 = rel @(DVDRentalDB db) @Customer $ selectUsing @UserInfo $ \customer ->
+  #surname .= val customer.lastName
+  .& customer.firstName
+  .& end
+
+selectNoneEg :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) ()
+selectNoneEg = rel @(DVDRentalDB db) @Customer $ selectNone
 
 -- order by
 

@@ -240,14 +240,6 @@ sort ordFn = scoped $ \(clau, inp) -> (clau {orderbys = orderbys clau <> getOrde
 restrict :: forall i sc s.(Scoped s sc i -> Expr sc Bool) -> Clause s sc i ()
 restrict filtFn = scoped $ \(clau, inp) -> (clau {criteria = criteria clau <> [PQ.getExpr (filtFn inp)]}, ())
 
-selectAll :: forall i sc s.Clause s sc i (TableValue sc Identity i)
-selectAll = scoped $ \(clau, scopes@(Scoped tabv)) -> (clau {projections = scopeToListWith getPrjs scopes}, nextStage tabv)
-
-getPrjs :: forall a f sc.(Typeable a) => ExprF sc f a -> (T.Text, PQ.PrimExpr)
-getPrjs e = (aliasedExprName e, getExpr $ getExprF e)
-
-getPrjs' :: forall a sc.(Typeable a) => PQ.Expr sc a -> (T.Text, PQ.PrimExpr)
-getPrjs' e = (aliasedExprName $ ExprF $ toIdExpr e, getExpr e)
 
 newtype SelectList sc os = SelectList (HRec (PQ.Expr sc) os)
   deriving newtype (AnonRec)
@@ -255,10 +247,10 @@ newtype SelectList sc os = SelectList (HRec (PQ.Expr sc) os)
 selectListToTable :: SelectList sc os -> TableValue sc Identity (Rec os)
 selectListToTable (SelectList selRec) = TableValue $ hoistWithKeyHK (aliasedExpr . ExprF . toIdExpr) $ hrecToHKOfRec selRec
 
-toIdExpr :: Expr sc x -> Expr sc (Identity x)
-toIdExpr (Expr x) = Expr x
-  
+selectListToType :: (ValidateRecToType os t) => SelectList sc os -> TableValue sc Identity t
+selectListToType (SelectList selRec) = TableValue $ hoistWithKeyHK (aliasedExpr . ExprF . toIdExpr) $ fromHRec selRec
 
+  
 newtype SelectScope s sc i = SelectScope (Scoped s sc i)
 
 instance (R.HasField fn i t, KnownSymbol fn, Typeable t) => R.HasField (fn :: Symbol) (SelectScope s sc i) (Field fn (PQ.Expr sc t)) where
@@ -267,12 +259,20 @@ instance (R.HasField fn i t, KnownSymbol fn, Typeable t) => R.HasField (fn :: Sy
 instance R.HasField fn (HRec (PQ.Expr sc) os) (PQ.Expr sc t) => R.HasField (fn :: Symbol) (SelectList sc os) (PQ.Expr sc t) where
   getField (SelectList r) = R.getField @fn r
   
+  
 -- * Select List
+selectAll :: forall i sc s.Clause s sc i (TableValue sc Identity i)
+selectAll = scoped $ \(clau, scopes@(Scoped tabv)) -> (clau {projections = scopeToListWith getPrjs scopes}, nextStage tabv)
+
 select :: forall i os sc s.
-  ( 
-  ) => (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (TableValue sc Identity (Rec os))
+  (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (TableValue sc Identity (Rec os))
 select selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList selRec) = selFn (SelectScope scopes)
   in (clau {projections = hrecToListWith getPrjs' selRec},selectListToTable selCols)
+
+selectUsing :: forall o i os sc s.ValidateRecToType os o => (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (TableValue sc Identity o)
+selectUsing selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList selRec) = selFn (SelectScope scopes)
+  in (clau {projections = hrecToListWith getPrjs' selRec},selectListToType selCols)
+
 
 {- Variants
 SELECT DISTINCT select_list ...
@@ -283,6 +283,9 @@ selectDistinct :: forall i os sc s.
   ( 
   ) => (Scoped s sc i -> SelectList sc os) -> Clause s sc i (SelectList sc os)
 selectDistinct = undefined
+
+selectNone :: forall i sc s.Clause s sc i (TableValue sc Identity ())
+selectNone = scoped $ \(clau, _) -> (clau, EmptyTable)
 
 -- * Grouping
 group :: () -> Query sc r -> Query' (AggQ ()) sc ()
@@ -344,6 +347,28 @@ runQueryAsList q = do
   liftIO $ dbQuery driver (execQuery q)
 
 -- MutationQ
+
+data InsertSetting
+
+class Insertable (f :: Type -> Type) where
+  insert :: forall o tab sc.(Table sc tab) => f (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> (MQuery sc o)
+
+newtype ViaTraversable f a = ViaTraversable {getTraverseable :: f a}
+
+instance Insertable [] where
+  insert = undefined
+  
+instance Insertable Identity where
+  insert = undefined
+
+insertOne :: forall o tab sc.(Table sc tab) => NewRow sc tab -> (TableValue sc Identity tab -> TableValue sc Identity o) -> (MQuery sc o)
+insertOne v ret = insert @Identity (Identity v) ret
+
+insertMany :: forall o tab f sc.(Traversable f, Table sc tab) => f (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> (MQuery sc o)
+insertMany = undefined
+
+insertFrom :: forall o tab sc.(Table sc tab) => Query sc (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> (MQuery sc o)
+insertFrom = undefined
 
 
 
