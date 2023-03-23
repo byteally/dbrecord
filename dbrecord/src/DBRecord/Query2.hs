@@ -241,14 +241,26 @@ restrict :: forall i sc s.(Scoped s sc i -> Expr sc Bool) -> Clause s sc i ()
 restrict filtFn = scoped $ \(clau, inp) -> (clau {criteria = criteria clau <> [PQ.getExpr (filtFn inp)]}, ())
 
 
-newtype SelectList sc os = SelectList (HRec (PQ.Expr sc) os)
-  deriving newtype (AnonRec)
+data SelectList sc os = SelectList FieldInvIx (HRec (PQ.Expr sc) os)
+--  deriving newtype (AnonRec)
+
+instance AnonRec (SelectList sc) where
+  type FieldKind (SelectList sc) = FieldKind (HRec (PQ.Expr sc))
+  type IsHKRec (SelectList sc) = IsHKRec (HRec (PQ.Expr sc))
+  type FieldNameConstraint (SelectList sc) = FieldNameConstraint (HRec (PQ.Expr sc))
+  type FieldConstraint (SelectList sc) = FieldConstraint (HRec (PQ.Expr sc))
+  endRec = SelectList emptyFieldInvIx endRec
+  {-# INLINE endRec #-}
+  consRec fld (SelectList fsix r) = SelectList fsix $ consRec fld r
+  {-# INLINE consRec #-}
+  unconsRec r = undefined 
+  
 
 selectListToTable :: SelectList sc os -> TableValue sc Identity (Rec os)
-selectListToTable (SelectList selRec) = TableValue $ hoistWithKeyHK (aliasedExpr . ExprF . toIdExpr) $ hrecToHKOfRec selRec
+selectListToTable (SelectList fsix selRec) = TableValue fsix $ hoistWithKeyHK (aliasedExpr . ExprF . toIdExpr) $ hrecToHKOfRec selRec
 
 selectListToType :: (ValidateRecToType os t) => SelectList sc os -> TableValue sc Identity t
-selectListToType (SelectList selRec) = TableValue $ hoistWithKeyHK (aliasedExpr . ExprF . toIdExpr) $ fromHRec selRec
+selectListToType (SelectList fsix selRec) = TableValue fsix $ hoistWithKeyHK (aliasedExpr . ExprF . toIdExpr) $ fromHRec selRec
 
   
 newtype SelectScope s sc i = SelectScope (Scoped s sc i)
@@ -257,21 +269,21 @@ instance (R.HasField fn i t, KnownSymbol fn, Typeable t) => R.HasField (fn :: Sy
   getField (SelectScope scope) = fromLabel @fn .= R.getField @fn scope
 
 instance R.HasField fn (HRec (PQ.Expr sc) os) (PQ.Expr sc t) => R.HasField (fn :: Symbol) (SelectList sc os) (PQ.Expr sc t) where
-  getField (SelectList r) = R.getField @fn r
+  getField (SelectList _ r) = R.getField @fn r
   
   
 -- * Select List
 selectAll :: forall i sc s.Clause s sc i (TableValue sc Identity i)
-selectAll = scoped $ \(clau, scopes@(Scoped tabv)) -> (clau {projections = scopeToListWith getPrjs scopes}, nextStage tabv)
+selectAll = scoped $ \(clau, scopes@(Scoped tabv)) -> (clau, tabv)
 
 select :: forall i os sc s.
   (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (TableValue sc Identity (Rec os))
-select selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList selRec) = selFn (SelectScope scopes)
-  in (clau {projections = hrecToListWith getPrjs' selRec},selectListToTable selCols)
+select selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList _ selRec) = selFn (SelectScope scopes)
+  in (clau, selectListToTable selCols)
 
 selectUsing :: forall o i os sc s.ValidateRecToType os o => (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (TableValue sc Identity o)
-selectUsing selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList selRec) = selFn (SelectScope scopes)
-  in (clau {projections = hrecToListWith getPrjs' selRec},selectListToType selCols)
+selectUsing selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList _ selRec) = selFn (SelectScope scopes)
+  in (clau, selectListToType selCols)
 
 
 {- Variants

@@ -153,6 +153,9 @@ test-suite dbrecord-postgres-simple-test
                      , tasty-hunit
                      , mtl
                      , postgresql-simple
+                     , unliftio-core
+                     , monad-control
+                     , transformers-base
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
   default-extensions:  DataKinds
                      , TypeFamilies

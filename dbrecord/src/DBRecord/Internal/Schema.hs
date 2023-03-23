@@ -25,6 +25,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiWayIf                 #-}
 
 module DBRecord.Internal.Schema
   ( module DBRecord.Internal.Schema
@@ -36,6 +37,8 @@ import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as LT
+import qualified Data.Text.Lazy.Builder as LTB
 import GHC.TypeLits
 -- import Data.Type.Equality
 import GHC.Generics
@@ -53,12 +56,13 @@ import DBRecord.Internal.DBTypes hiding (DBType (..), DBTypeName (..))
 import qualified DBRecord.Internal.DBTypes as Type
 import qualified Data.List as L
 import DBRecord.Internal.Lens ((^.), Lens', coerceL, Traversal', ixBy, view)
+import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
 import Data.Char
 import qualified GHC.Records as R
 import Record
 import Control.Monad.Trans.State.Strict
-import Type.Reflection
+import Type.Reflection (SomeTypeRep (..), typeRepKind)
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
@@ -141,23 +145,31 @@ class ( Schema sc
   checks' :: TableValue sc Identity tab -> [(Text, PQ.Expr sc Bool)]
   checks' _ = []
 
-  columnNames :: ColumnAliases sc tab
-  columnNames = mempty
-
   rel :: (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
   default rel ::
     ( GConstructHK tab (HasColumn sc tab) (TypeFields tab)
     , KnownSymbol (TableName sc tab)
+    , MkFieldInvIx (TableColumns sc tab)
     ) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
-  rel (Clause clau) = Query' (TableValue $ constructHK @(HasColumn sc tab) (ExprF . toExprId . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)))
+  rel (Clause clau) = Query' (TableValue fsix $ constructHK @(HasColumn sc tab) (ExprF . toExprId . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)))
     where tabId = PQ.TableId { PQ.database = "zb"
-                             , PQ.schema = "usfoodimports"
-                             , PQ.tableName = T.pack $ symbolVal (Proxy @(TableName sc tab))
+                             , PQ.schema = "public"
+                             , PQ.tableName = defHSNameToDBName $ T.pack $ symbolVal (Proxy @(TableName sc tab))
                              }
+          fsix = mkFieldInvIx (Proxy @(TableColumns sc tab)) emptyFieldInvIx
   -- newTable :: NewRow sc tab -> TableValue sc Identity tab
   -- default newTable :: (GConstructHK tab (HasConstColumn sc tab (HasDefault sc tab) (NewRow sc tab)) (TypeFields tab)) => NewRow sc tab -> TableValue sc Identity tab
   -- newTable r = TableValue $ constructHK @(HasConstColumn sc tab (HasDefault sc tab) (NewRow sc tab)) (ExprF . toExprId . getConstCol (Proxy @'(sc, tab, (HasDefault sc tab))) r)
 
+class MkFieldInvIx (xs :: [(Symbol, Type)]) where
+  mkFieldInvIx :: Proxy xs -> FieldInvIx -> FieldInvIx
+
+instance MkFieldInvIx '[] where
+  mkFieldInvIx _ = id
+
+instance (Typeable fn, MkFieldInvIx fs) => MkFieldInvIx ('(fn, ft) ': fs) where
+  mkFieldInvIx _ fsix = mkFieldInvIx (Proxy @fs) (indexField (typeRep (Proxy @fn)) fsix)
+  
 -- newtype 
 type family NonDefFields (fs :: [(Symbol, Type)]) (defs :: [Symbol]) :: [(Symbol, Type)] where
   NonDefFields '[] _ = '[]
@@ -171,12 +183,6 @@ type family LookupDefFlds (fn :: Symbol) (defs :: [Symbol]) :: [Symbol] where
 type family IsDefFld (odefs :: [Symbol]) (ndefs :: [Symbol]) (fs :: [(Symbol, Type)]) :: [(Symbol, Type)] where
   IsDefFld defs defs (f ': fs) = f ': NonDefFields fs defs
   IsDefFld odefs ndefs (f ': fs) = NonDefFields fs ndefs
-
-newtype TableCols sc os = TableCols (HRec (PQ.Expr sc) os)
-  deriving newtype (AnonRec)
-
---mkTable :: TableCols sc xs -> TableValue sc Identity tab
-
 
 toExprId :: PQ.Expr sc a -> PQ.Expr sc (Identity a)
 toExprId (PQ.Expr e) = PQ.Expr e
@@ -216,6 +222,10 @@ runQuery' (Query' (exprs, st, mkPQ)) =
   in (mkPQ clau, tv)
 {-# INLINE runQuery' #-}
 
+getColumnAliasMap :: forall sc tab.(Table sc tab, AllF SingE (ColumnNames sc tab), SingI (ColumnNames sc tab)) => HM.HashMap Text Text
+getColumnAliasMap = HM.fromList $ fromSing (sing :: Sing (ColumnNames sc tab))
+{-# INLINE getColumnAliasMap #-}
+
 -- Clause should be opaque
 -- o should never be `Expr`
 newtype Clause s sc i o = Clause (State (PQ.Clauses, TableValue sc Identity i) o)
@@ -243,7 +253,7 @@ scopeToListWith :: (forall g (a :: Type).Typeable a => ExprF sc g a -> r) -> Sco
 scopeToListWith fn (Scoped tab) = tableToListWith fn tab
 
 tableToListWith :: (forall g (a :: Type).Typeable a => ExprF sc g a -> r) -> TableValue sc f i -> [r]
-tableToListWith fn (TableValue hk) = hkToListWith fn hk
+tableToListWith fn (TableValue fsix hk) = fmap snd $ L.sortOn fst $ hkToListWith (\ex -> (fromMaybe (error $ "Panic: Invariant violated! " <> (show $ getExprSymTypeRep ex)) $ lookupFieldIx (getExprSymTypeRep ex) fsix, fn ex)) hk
 tableToListWith fn (CrossTable tv1 tv2) = tableToListWith fn (val tv1) ++ tableToListWith fn (val tv2)
 tableToListWith fn (LeftJoinTable tv1 tv2) = tableToListWith fn (val tv1) ++ tableToListWith fn (val tv2)
 tableToListWith fn (RightJoinTable tv1 tv2) = tableToListWith fn (val tv1) ++ tableToListWith fn (val tv2)
@@ -281,7 +291,7 @@ rjRel :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 
 rjRel q1 q2 = RightJoinTable q1 q2
 
 nextStage :: TableValue sc f i -> TableValue sc f i
-nextStage (TableValue hk) = TableValue $ hoistWithKeyHK aliasedExpr hk
+nextStage (TableValue fsix hk) = TableValue fsix $ hoistWithKeyHK aliasedExpr hk
 nextStage (CrossTable ntv1 ntv2) = CrossTable (fmap nextStage ntv1) (fmap nextStage ntv2)
 nextStage (LeftJoinTable ntv1 ntv2) = LeftJoinTable (fmap nextStage ntv1) (fmap nextStage ntv2)
 nextStage (RightJoinTable ntv1 ntv2) = RightJoinTable (fmap nextStage ntv1) (fmap nextStage ntv2)
@@ -291,7 +301,7 @@ nextStage EmptyTable = EmptyTable
 --nextStage (NestedTable tabhk) = NestedTable $ hoistWithKeyHK nextStage tabhk
 
 hoistMaybeTable :: (forall g x. ExprF sc g x -> ExprF sc Maybe x) -> TableValue sc f i -> TableValue sc Maybe i
-hoistMaybeTable fn (TableValue hk) = TableValue $ hoistHK fn hk
+hoistMaybeTable fn (TableValue fsix hk) = TableValue fsix $ hoistHK fn hk
 hoistMaybeTable fn (CrossTable ntv1 ntv2) = CrossTable (fmap (hoistMaybeTable fn) ntv1) (fmap (hoistMaybeTable fn) ntv2)
 hoistMaybeTable fn (LeftJoinTable ntv1 ntv2) = LeftJoinTable (fmap (hoistMaybeTable fn) ntv1) (fmap (hoistMaybeTable fn) ntv2)
 hoistMaybeTable fn (RightJoinTable ntv1 ntv2) = RightJoinTable (fmap (hoistMaybeTable fn) ntv1) (fmap (hoistMaybeTable fn) ntv2)
@@ -316,7 +326,7 @@ idTableToExpr :: TableValue sc Identity i -> PQ.Expr sc i
 idTableToExpr = unsafeTableToExpr
 
 unsafeTableToExpr :: TableValue sc f i -> PQ.Expr sc o
-unsafeTableToExpr (TableValue hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\e -> (aliasedExprName e, PQ.getExpr $ getExprF e)) hk
+unsafeTableToExpr (TableValue _ hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\e -> (aliasedExprName e, PQ.getExpr $ getExprF e)) hk
 -- unsafeTableToExpr (NestedTable hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\texp -> (aliasedTableName texp, PQ.getExpr $ unsafeTableToExpr texp)) hk
 unsafeTableToExpr (CrossTable tv1 tv2) = PQ.Expr $ PQ.FlatComposite $ [ (getFnName tv1, PQ.getExpr $ unsafeTableToExpr $ val tv1), (getFnName tv2, PQ.getExpr $ unsafeTableToExpr $ val tv2)]
 unsafeTableToExpr (LeftJoinTable tv1 tv2) = PQ.Expr $ PQ.FlatComposite $ [ (getFnName tv1, PQ.getExpr $ unsafeTableToExpr $ val tv1), (getFnName tv2, PQ.getExpr $ unsafeTableToExpr $ val tv2)]
@@ -333,29 +343,32 @@ getFnName :: forall n a.KnownSymbol n => Field n a -> Text
 getFnName _ = T.pack $ symbolVal (Proxy @n)
 
 aliasedExpr :: forall a f sc.(Typeable a, HasCallStack) => ExprF sc f a -> ExprF sc f a
-aliasedExpr e = ExprF $ PQ.unsafeCol [aliasedExprName e]
+aliasedExpr e@(ExprF _) = ExprF $ PQ.unsafeCol [aliasedExprName e]
 
 aliasedExprName :: forall a f sc.(Typeable a, HasCallStack) => ExprF sc f a -> Text
-aliasedExprName _ = fldN
+aliasedExprName e = symStrToText $ show $ getExprSymTypeRep e
+
+getExprSymTypeRep :: forall a f sc.(Typeable a, HasCallStack) => ExprF sc f a -> TypeRep
+getExprSymTypeRep _ = fldN
   where idargRep = Data.Typeable.typeRep (Proxy @a)
         argRep = case typeRepArgs idargRep of
           (_ : _ : []) -> idargRep
           (frep@(SomeTypeRep _srep) : _) -> frep
           [] -> error $ "Panic: Expected f (Field (sym :: Symbol) a) but got " ++ (show argRep)
         fldN = case typeRepArgs argRep of
-          (SomeTypeRep srep : _)
-            | SomeTypeRep (typeRepKind srep) == (Data.Typeable.typeRep (Proxy @Symbol)) -> symStrToText $ show srep
+          (symrep@(SomeTypeRep srep) : _)
+            | SomeTypeRep (typeRepKind srep) == (Data.Typeable.typeRep (Proxy @Symbol)) -> symrep
             | otherwise -> error $ "Panic: Expecting type of form (Field (sym :: Symbol) a) but got (" ++ (show argRep) ++ ") with it's first arg's kind instead of Symbol got " ++ (show $ typeRepKind srep)
           [] -> error $ "Panic: Expecting type of form (Field sym a) but got " ++ (show argRep)
-
-aliasedTableName :: forall a f sc.(Typeable a, HasCallStack) => TableValue sc f a -> Text
-aliasedTableName _ = fldN
-  where argRep = Data.Typeable.typeRep (Proxy @a)
-        fldN = case typeRepArgs argRep of
-          (SomeTypeRep srep : _)
-            | SomeTypeRep (typeRepKind srep) == (Data.Typeable.typeRep (Proxy @Symbol)) -> symStrToText $ show srep
-            | otherwise -> error $ "Panic: Expecting type of form (Field (sym :: Symbol) a) but got (" ++ (show argRep) ++ ") with it's first arg's kind instead of Symbol got " ++ (show $ typeRepKind srep)
-          [] -> error $ "Panic: Expecting type of form (Field sym a) but got " ++ (show argRep)
+ 
+-- aliasedTableName :: forall a f sc.(Typeable a, HasCallStack) => TableValue sc f a -> Text
+-- aliasedTableName _ = fldN
+--   where argRep = Data.Typeable.typeRep (Proxy @a)
+--         fldN = case typeRepArgs argRep of
+--           (SomeTypeRep srep : _)
+--             | SomeTypeRep (typeRepKind srep) == (Data.Typeable.typeRep (Proxy @Symbol)) -> symStrToText $ show srep
+--             | otherwise -> error $ "Panic: Expecting type of form (Field (sym :: Symbol) a) but got (" ++ (show argRep) ++ ") with it's first arg's kind instead of Symbol got " ++ (show $ typeRepKind srep)
+--           [] -> error $ "Panic: Expecting type of form (Field sym a) but got " ++ (show argRep)
 
 symStrToText :: String -> Text
 symStrToText [] = ""
@@ -374,8 +387,21 @@ getExprF (ExprF e) = e
 distExprF :: ExprF sc Maybe t -> ExprF sc Identity (Maybe t)
 distExprF = undefined
 
+data FieldInvIx = FieldInvIx !Int !(Map.Map Data.Typeable.TypeRep Int)
+
+emptyFieldInvIx :: FieldInvIx
+emptyFieldInvIx = FieldInvIx 0 mempty
+
+indexField :: TypeRep -> FieldInvIx -> FieldInvIx
+indexField trep (FieldInvIx prev ixMap) =
+  let newIx = prev + 1
+  in FieldInvIx newIx (Map.insert trep newIx ixMap)
+
+lookupFieldIx :: TypeRep -> FieldInvIx -> Maybe Int
+lookupFieldIx trep (FieldInvIx _ ixMap) = Map.lookup trep ixMap
+
 data TableValue sc f t where
-  TableValue :: (HK (ExprF sc f) t) -> TableValue sc f t
+  TableValue :: FieldInvIx -> (HK (ExprF sc f) t) -> TableValue sc f t
 --  NestedTable :: (HK (TableValue sc f) t) -> TableValue sc f t
   CrossTable :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, r2)])
   LeftJoinTable :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc Maybe r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, Maybe r2)])
@@ -400,7 +426,7 @@ instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbo
   getField (Scoped hk) = PQ.Expr $ PQ.getExpr $ R.getField @f hk
 
 instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (TableValue sc Identity i) (PQ.Expr sc t) where
-  getField (TableValue hk) = PQ.Expr $ PQ.getExpr $ getExprF $ R.getField @f hk
+  getField (TableValue _ hk) = PQ.Expr $ PQ.getExpr $ getExprF $ R.getField @f hk
 --  getField (NestedTable hk) = undefined -- idTableToExpr $ R.getField @f hk
   getField (CrossTable tv1 tv2) = idTableToExpr $ getMat tv1 tv2
     where getMat :: forall n1 n2 r1 r2.(Typeable r1, Typeable r2) => Field n1 (TableValue sc Identity r1) -> Field n2 (TableValue sc Identity r2) -> TableValue sc Identity t
@@ -450,6 +476,8 @@ instance {-# OVERLAPPING #-}
   , R.HasField col tab a
   , KnownSymbol col
   , UDType sc a
+  , AllF SingE (ColumnNames sc tab)
+  , SingI (ColumnNames sc tab)
   ) => HasColumnByDBType sc tab col a ('DBCustomType scn a tn) where
   getColByDBTypeRep _ = getColumnName @sc @tab @col
 
@@ -458,6 +486,8 @@ instance {-# OVERLAPPING #-}
   , R.HasField col tab a
   , KnownSymbol col
   , UDType sc a
+  , AllF SingE (ColumnNames sc tab)
+  , SingI (ColumnNames sc tab)
   ) => HasColumnByDBType sc tab col a (f ('DBCustomType scn a tn)) where
   getColByDBTypeRep _ = getColumnName @sc @tab @col  
 
@@ -465,6 +495,8 @@ instance {-# OVERLAPPABLE #-}
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
+  , AllF SingE (ColumnNames sc tab)
+  , SingI (ColumnNames sc tab)
   ) => HasColumnByDBType sc tab col a atrep where
   getColByDBTypeRep _ = getColumnName @sc @tab @col  
 
@@ -849,21 +881,19 @@ data Chk (sc :: Type) (tab :: k) (chk :: CheckCT) = forall val.(ApCheckOnExpr ch
 
 data DBChecks (sc :: Type) tab = forall chks. (All CheckExpr chks) => DBChecks (HList (Chk sc tab) chks)
 
-newtype ColumnAliases sc tab = ColumnAliases
-  { getColumnAliases :: HM.HashMap Text Text }
-  deriving newtype (Show, Eq, Semigroup, Monoid)
-
 getColumnName :: forall sc tab (fn :: Symbol) a.
   ( Table sc tab
+  , AllF SingE (ColumnNames sc tab)
+  , SingI (ColumnNames sc tab)
   , R.HasField fn tab a
   , KnownSymbol fn
   ) => PQ.Expr sc a
 getColumnName =
   let
-    ColumnAliases caliases = columnNames @sc @tab
+    caliases = getColumnAliasMap @sc @tab
     fname = T.pack $ symbolVal (Proxy @fn)
-    cname = maybe fname id $ HM.lookup fname caliases
-    cexpr = PQ.BaseTableAttrExpr cname
+    cname = maybe (defHSNameToDBName fname) id $ HM.lookup fname caliases
+    cexpr = PQ.BaseTableAttrExpr $ cname
   in PQ.Expr cexpr
 {-# INLINE getColumnName #-}
                     
@@ -2126,7 +2156,16 @@ pascalCase = digitAppend . mconcat . map capitalizeHead . splitName
                        | isDigit (T.head xs) = "T" <> xs
                        | otherwise = xs
 
-
+defHSNameToDBName :: Text -> Text
+defHSNameToDBName = LT.toStrict . LTB.toLazyText .  T.foldl'
+  (\b c ->
+     if
+       | c == '\'' -> b <> LTB.singleton '_' <> LTB.singleton c
+       | isUpper c -> if b == mempty
+                      then LTB.singleton (toLower c)
+                      else b <> LTB.singleton '_' <> LTB.singleton (toLower c)
+       | otherwise -> b <> LTB.singleton c
+  ) mempty  
 
 splitName :: Text -> [Text]
 splitName = filter (\a -> a /= "") . T.split (\x -> x == ' ')
