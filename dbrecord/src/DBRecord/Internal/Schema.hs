@@ -80,8 +80,8 @@ class ( Schema sc
       , ValidateTableProps sc tab    
       , Generic tab
       , Break0 (NoSchema sc) (SchemaDB sc)
-      , DBRepr sc tab
-      , ToDBType sc tab ~ 'TableObj
+      , DBRepr (DB (SchemaDB sc)) tab
+      , ToDBType (DB (SchemaDB sc)) tab ~ 'TableObj
       ) => Table (sc :: Type) (tab :: Type) where
   type PrimaryKey sc tab :: [Symbol]
   type PrimaryKey sc tab = '[]
@@ -277,6 +277,11 @@ getPrjs' e = (aliasedExprName $ ExprF $ toIdExpr e, PQ.getExpr e)
 
 toIdExpr :: PQ.Expr sc x -> PQ.Expr sc (Identity x)
 toIdExpr (PQ.Expr x) = PQ.Expr x
+{-# INLINE toIdExpr #-}
+
+fromIdExpr :: PQ.Expr sc (Identity x) -> PQ.Expr sc x
+fromIdExpr (PQ.Expr x) = PQ.Expr x
+{-# INLINE fromIdExpr #-}
 
 
 crossRel :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, r2)])
@@ -400,6 +405,9 @@ indexField trep (FieldInvIx prev ixMap) =
 lookupFieldIx :: TypeRep -> FieldInvIx -> Maybe Int
 lookupFieldIx trep (FieldInvIx _ ixMap) = Map.lookup trep ixMap
 
+deleteFieldIx :: TypeRep -> FieldInvIx -> FieldInvIx
+deleteFieldIx trep (FieldInvIx prev ixMap) = FieldInvIx prev $ Map.delete trep ixMap
+
 data TableValue sc f t where
   TableValue :: FieldInvIx -> (HK (ExprF sc f) t) -> TableValue sc f t
 --  NestedTable :: (HK (TableValue sc f) t) -> TableValue sc f t
@@ -423,10 +431,10 @@ data MutatingQ
 data AsQ (n :: Symbol) q
 
 instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (Scoped s sc i) (PQ.Expr sc t) where
-  getField (Scoped hk) = PQ.Expr $ PQ.getExpr $ R.getField @f hk
+  getField (Scoped hk) = R.getField @f hk
 
 instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (TableValue sc Identity i) (PQ.Expr sc t) where
-  getField (TableValue _ hk) = PQ.Expr $ PQ.getExpr $ getExprF $ R.getField @f hk
+  getField (TableValue _ hk) = fromIdExpr $ getExprF $ R.getField @f hk
 --  getField (NestedTable hk) = undefined -- idTableToExpr $ R.getField @f hk
   getField (CrossTable tv1 tv2) = idTableToExpr $ getMat tv1 tv2
     where getMat :: forall n1 n2 r1 r2.(Typeable r1, Typeable r2) => Field n1 (TableValue sc Identity r1) -> Field n2 (TableValue sc Identity r2) -> TableValue sc Identity t

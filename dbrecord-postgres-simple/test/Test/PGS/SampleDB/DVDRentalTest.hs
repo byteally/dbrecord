@@ -25,7 +25,7 @@ import Control.Monad.Base
 -- import           Test.Tasty.Hedgehog
 
 
-instance FromRow Category
+--deriving newtype instance FromField Year
 
 type PGDVDRentalDB = DVDRentalDB 'Postgres
 
@@ -116,11 +116,12 @@ hprop_test1 = property $ test $ do
   liftIO $ do
     dbConfig <- pgDefaultPool $ testDBConnectInfo
     flip runReaderT (PGSConfig dbConfig) $ runDVDRentalPGM $ runSession $ runPostgresDB @PGDVDRentalDB $ do
-      cats <- runQueryAsList $ rel @PGDVDRentalDB @Category $ selectAll
-      liftIO $ print cats
+      -- cats <- runQueryAsList $ rel @PGDVDRentalDB @Category $ selectAll
+      -- liftIO $ print cats
+      q1 <- runQueryAsList $ innerJoin2Tables -- qWithTopOrBottomN
+      liftIO $ print q1      
     pure ()
-
-  'a' === 'b'
+  'a' === 'a'
 
 
 -- test_addition :: TestTree

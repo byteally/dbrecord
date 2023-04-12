@@ -251,16 +251,25 @@ instance AnonRec (SelectList sc) where
   type FieldConstraint (SelectList sc) = FieldConstraint (HRec (PQ.Expr sc))
   endRec = SelectList emptyFieldInvIx endRec
   {-# INLINE endRec #-}
-  consRec fld (SelectList fsix r) = SelectList fsix $ consRec fld r
+  consRec fld (SelectList fsix r) =
+    let nfsix = indexField (fldTyTRep fld) fsix
+        fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
+        fldTyTRep _ = typeRep (Proxy @fn)
+    in SelectList nfsix $ consRec fld r
   {-# INLINE consRec #-}
-  unconsRec r = undefined 
+  unconsRec (SelectList fsix r) =
+    let (fld, r') = unconsRec r
+        fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
+        fldTyTRep _ = typeRep (Proxy @fn)
+    in (fld, SelectList (deleteFieldIx (fldTyTRep fld) fsix) r')
   
 
 selectListToTable :: SelectList sc os -> TableValue sc Identity (Rec os)
-selectListToTable (SelectList fsix selRec) = TableValue fsix $ hoistWithKeyHK (aliasedExpr . ExprF . toIdExpr) $ hrecToHKOfRec selRec
+selectListToTable (SelectList fsix selRec) = TableValue fsix $ hoistWithKeyHK (ExprF . toIdExpr) $ hrecToHKOfRec selRec
 
+-- TODO: Bugy. Fix the FieldIxs w.r.t target type
 selectListToType :: (ValidateRecToType os t) => SelectList sc os -> TableValue sc Identity t
-selectListToType (SelectList fsix selRec) = TableValue fsix $ hoistWithKeyHK (aliasedExpr . ExprF . toIdExpr) $ fromHRec selRec
+selectListToType (SelectList fsix selRec) = TableValue fsix $ hoistWithKeyHK (ExprF . toIdExpr) $ fromHRec selRec
 
   
 newtype SelectScope s sc i = SelectScope (Scoped s sc i)

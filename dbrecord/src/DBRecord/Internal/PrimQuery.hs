@@ -24,7 +24,7 @@ import GHC.TypeLits
 -- import qualified Data.ByteString.Base64 as B64
 import Data.Generics.Uniplate.Direct
 import DBRecord.Internal.Types (DBTypeK (..), DBTypeNameK(..), UDTypeMappings(..))
-import DBRecord.Internal.DBTypes  (DBRepr (..), DBObjK(..), GetDBTypeRep, DBType, UDType(..), _lookupTyFieldAliases)
+import DBRecord.Internal.DBTypes  (SchemaDB, DB, DBRepr (..), DBObjK(..), GetDBTypeRep, DBType, UDType(..), _lookupTyFieldAliases)
 import Data.String
 import Data.Kind
 import Data.Proxy
@@ -490,8 +490,8 @@ getExpr :: Expr (sc :: Type) (t :: Type) -> PrimExpr
 getExpr (Expr e) = e
 
 
-instance (DBRepr sc t, HasField '(fn, ToDBType sc t) (Expr sc t) a) => HasField (fn :: Symbol) (Expr sc t) a where
-  getField e = getField @'(fn, ToDBType sc t) e
+instance (DBRepr (DB (SchemaDB sc)) t, HasField '(fn, ToDBType (DB (SchemaDB sc)) t) (Expr sc t) a) => HasField (fn :: Symbol) (Expr sc t) a where
+  getField e = getField @'(fn, ToDBType (DB (SchemaDB sc)) t) e
 
 instance (HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'TableObj) (Expr sc t) (Expr sc a) where
   getField (Expr (FlatComposite es)) =

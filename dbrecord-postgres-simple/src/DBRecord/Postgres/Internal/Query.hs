@@ -20,12 +20,14 @@ module DBRecord.Postgres.Internal.Query
        , module DBRecord.Postgres.Internal.RegClass
        ) where
 
+import           Control.Applicative
 import           Control.Monad.Base
 import           Control.Monad.Catch
 import           Control.Monad.Reader
 import qualified Control.Monad.Trans.Control as U
 import qualified DBRecord.Internal.Sql.SqlGen as PG
 import           DBRecord.Internal.Types
+import           DBRecord.Internal.DBTypes
 import           DBRecord.Postgres.Internal.RegClass
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
 import           DBRecord.Old.Query
@@ -55,10 +57,51 @@ type PostgresDB db = PostgresDBT db IO
 
 instance DBDecoder PGS where
   type FromDBRowParser PGS = RowParser
-  type FromDBRow PGS       = FromRow
-  dbDecoder _ _ = fromRow
+  type FromDBRow PGS       = FromRowGen
+  dbDecoder _ _ = fromRowGen
 
 type instance ToDBRow PGS a = ToRow a
+
+newtype AnnEntity (dbobj :: DBObjK) (isAuto :: Bool) a = AnnEntity {getEntity :: a}
+
+class FromRowGen a where
+  fromRowGen :: RowParser a
+
+instance FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a) => FromRowGen a where
+  fromRowGen = getEntity <$> fromRow @(AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a)
+
+instance (FromField a) => FromRow (AnnEntity 'NativeTypeObj auto a) where
+  fromRow = AnnEntity <$> field
+  {-# INLINE fromRow #-}
+
+instance (FromField a) => FromRow (AnnEntity ('NullableObjOf 'NativeTypeObj) auto a) where
+  fromRow = AnnEntity <$> field
+  {-# INLINE fromRow #-}  
+  
+instance (Generic a, GFromRow (Rep a)) => FromRow (AnnEntity 'TableObj 'True a) where
+  fromRow = (AnnEntity . to) <$> gfromRow @(Rep a)
+  {-# INLINE fromRow #-}
+
+instance (FromRow a) => FromRow (AnnEntity 'TableObj 'False a) where
+  fromRow = AnnEntity <$> fromRow @a
+  {-# INLINE fromRow #-}  
+
+-- Type class for default implementation of FromRow using generics
+class GFromRow f where
+    gfromRow :: RowParser (f p)
+
+instance GFromRow f => GFromRow (M1 c i f) where
+    gfromRow = M1 <$> gfromRow
+
+instance (GFromRow f, GFromRow g) => GFromRow (f :*: g) where
+    gfromRow = liftA2 (:*:) gfromRow gfromRow
+
+instance (FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a)) => GFromRow (K1 R a) where
+    gfromRow = (K1 . getEntity) <$> fromRow @(AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a)
+
+instance GFromRow U1 where
+    gfromRow = pure U1  
+  
 
 data PGS where
   PGS :: PGS.Connection -> PGS

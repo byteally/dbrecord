@@ -239,6 +239,7 @@ instance (db ~ 'Postgres) => Table (DVDRentalDB db) Customer where
   type PrimaryKey (DVDRentalDB db) Customer = '["customerId"]
   type HasDefault (DVDRentalDB db) Customer = '["customerId"]
   type NewRow (DVDRentalDB db) Customer = NewCustomer
+  type ColumnNames (DVDRentalDB db) Customer = '[ '("firstName", "first_name")]
 
 
 -- ^ stores address data for staff and customers
@@ -263,6 +264,8 @@ data Store = Store
 
 
 -- select
+{-# ANN queryOneColumn ("foo" :: Text)
+  #-}
 queryOneColumn :: forall db.
   (db ~ 'Postgres) =>
   Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
@@ -308,16 +311,16 @@ selectWithColumnAlias = rel @(DVDRentalDB db) @Customer $ select $ \customer ->
 
 
 data UserInfo = UserInfo
-  { firstName :: Text
-  , surname :: Text
-  } deriving (Generic)
+  { surname :: Text
+  , custId :: Int32
+  } deriving (Show, Generic)
   
 selectUsingEg1 :: forall db.
   (db ~ 'Postgres) =>
   Query (DVDRentalDB db) UserInfo
 selectUsingEg1 = rel @(DVDRentalDB db) @Customer $ selectUsing @UserInfo $ \customer ->
   #surname .= val customer.lastName
-  .& customer.firstName
+  .& #custId .= val customer.customerId
   .& end
 
 selectNoneEg :: forall db.
@@ -371,7 +374,7 @@ orderByExpr :: forall db.
 orderByExpr = rel @(DVDRentalDB db) @Customer $ do
   res <- select $ \customer ->
     customer.firstName
-    .& #len .= len (val customer.firstName)
+    .& #len .= 1 -- len (val customer.firstName)
     .& end
   sort $ \_ -> desc res.len
   pure res
@@ -683,4 +686,4 @@ rightJoinEg2 =
 -- TODO:
 
 len :: Expr sc Text -> Expr sc Int 
-len = undefined
+len = const 1

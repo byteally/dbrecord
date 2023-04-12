@@ -413,38 +413,66 @@ data DBObjK
   | UDTypeObj
   | NullableObjOf DBObjK
 
-class DBRepr (sc :: Type) (t :: Type) where
-  type ToDBType sc t :: DBObjK
-  type ToDBType sc t = 'TableObj
+class DBRepr (dbk :: DbK) (t :: Type) where
+  type ToDBType dbk t :: DBObjK
+  type ToDBType dbk t = 'TableObj
+  type AutoCodec dbk t :: Bool
+  type AutoCodec dbk t = 'True
 
-instance DBRepr sc Int where
-  type ToDBType sc Int = 'NativeTypeObj
+instance DBRepr dbk Int where
+  type ToDBType dbk Int = 'NativeTypeObj
 
-instance DBRepr sc Int64 where
-  type ToDBType sc Int64 = 'NativeTypeObj
+instance DBRepr dbk Int64 where
+  type ToDBType dbk Int64 = 'NativeTypeObj
 
-instance DBRepr sc Int32 where
-  type ToDBType sc Int32 = 'NativeTypeObj
+instance DBRepr dbk Int32 where
+  type ToDBType dbk Int32 = 'NativeTypeObj
 
-instance DBRepr sc a => DBRepr sc (Maybe a) where
-  type ToDBType sc (Maybe a) = 'NullableObjOf (ToDBType sc a)
+instance DBRepr dbk Int16 where
+  type ToDBType dbk Int16 = 'NativeTypeObj  
+
+instance DBRepr dbk Text where
+  type ToDBType dbk Text = 'NativeTypeObj
+
+instance DBRepr dbk Bool where
+  type ToDBType dbk Bool = 'NativeTypeObj  
+
+instance DBRepr dbk Double where
+  type ToDBType dbk Double = 'NativeTypeObj
+
+instance DBRepr dbk Float where
+  type ToDBType dbk Float = 'NativeTypeObj  
+
+instance DBRepr dbk Day where
+  type ToDBType dbk Day = 'NativeTypeObj
+  
+instance DBRepr dbk LocalTime where
+  type ToDBType dbk LocalTime = 'NativeTypeObj
+
+instance DBRepr dbk UTCTime where
+  type ToDBType dbk UTCTime = 'NativeTypeObj  
+
+instance DBRepr dbk a => DBRepr dbk (Maybe a) where
+  type ToDBType dbk (Maybe a) = 'NullableObjOf (ToDBType dbk a)
+  type AutoCodec dbk (Maybe a) = AutoCodec dbk a
 
 -- TODO: Json is not native is all the DB
-instance DBRepr sc (Json a) where
-  type ToDBType sc (Json a) = 'NativeTypeObj
+instance DBRepr dbk (Json a) where
+  type ToDBType dbk (Json a) = 'NativeTypeObj
 
-instance DBRepr sc (Rec xs) where
-  type ToDBType sc (Rec xs) = 'TableObj
+instance DBRepr dbk (Rec xs) where
+  type ToDBType dbk (Rec xs) = 'TableObj
+  type AutoCodec dbk (Rec xs) = 'False
 
 newtype Row xs = Row (Rec xs)
 
-instance DBRepr sc (Row xs) where
-  type ToDBType sc (Row xs) = 'UDTypeObj
+instance DBRepr dbk (Row xs) where
+  type ToDBType dbk (Row xs) = 'UDTypeObj
 
 newtype AsUDType t = AsUDType t
 
-instance DBRepr sc (AsUDType t) where
-  type ToDBType sc (AsUDType t) = 'UDTypeObj
+instance DBRepr dbk (AsUDType t) where
+  type ToDBType dbk (AsUDType t) = 'UDTypeObj
 
 class ( -- Break (NoGeneric db) (Rep db)
       -- TypeCxts db (Types db)
