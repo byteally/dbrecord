@@ -118,7 +118,7 @@ hprop_test1 = property $ test $ do
     flip runReaderT (PGSConfig dbConfig) $ runDVDRentalPGM $ runSession $ runPostgresDB @PGDVDRentalDB $ do
       -- cats <- runQueryAsList $ rel @PGDVDRentalDB @Category $ selectAll
       -- liftIO $ print cats
-      q1 <- runQueryAsList $ innerJoin2Tables -- qWithTopOrBottomN
+      q1 <- runQueryAsList $ rightJoinEg1 -- qWithTopOrBottomN
       liftIO $ print q1      
     pure ()
   'a' === 'a'

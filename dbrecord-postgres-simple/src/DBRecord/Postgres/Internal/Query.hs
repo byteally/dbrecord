@@ -37,6 +37,7 @@ import           Data.Functor.Identity
 import qualified Data.Pool as P
 import           Data.String
 import           Database.PostgreSQL.Simple as PGS
+import           Database.PostgreSQL.Simple.Types (PGArray (..))
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow as PGS
 import qualified UnliftIO as U
@@ -76,6 +77,14 @@ instance (FromField a) => FromRow (AnnEntity 'NativeTypeObj auto a) where
 
 instance (FromField a) => FromRow (AnnEntity ('NullableObjOf 'NativeTypeObj) auto a) where
   fromRow = AnnEntity <$> field
+  {-# INLINE fromRow #-}
+
+instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('NullableObjOf 'TableObj) 'True (Maybe a)) where
+  fromRow = (AnnEntity . fmap to) <$> gfromRowOpt @(Rep a)
+  {-# INLINE fromRow #-}
+
+instance (FromField a, Typeable a) => FromRow (AnnEntity ('ArrayObjOf 'NativeTypeObj) auto [a]) where
+  fromRow = AnnEntity <$> (fromPGArray <$> fieldWith fromField)
   {-# INLINE fromRow #-}  
   
 instance (Generic a, GFromRow (Rep a)) => FromRow (AnnEntity 'TableObj 'True a) where
@@ -101,7 +110,22 @@ instance (FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a)) 
 
 instance GFromRow U1 where
     gfromRow = pure U1  
-  
+
+
+class GFromRowOpt f where
+    gfromRowOpt :: RowParser (Maybe (f p))
+
+instance GFromRowOpt f => GFromRowOpt (M1 c i f) where
+    gfromRowOpt = (fmap M1) <$> gfromRowOpt
+
+instance (GFromRowOpt f, GFromRowOpt g) => GFromRowOpt (f :*: g) where
+    gfromRowOpt = liftA2 (\l r -> liftA2 (:*:) l r) gfromRowOpt gfromRowOpt
+
+instance (FromRow (AnnEntity ('NullableObjOf (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) (Maybe a))) => GFromRowOpt (K1 R a) where
+    gfromRowOpt = (fmap K1 . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) (Maybe a))
+
+instance GFromRowOpt U1 where
+    gfromRowOpt = pure $ Just U1    
 
 data PGS where
   PGS :: PGS.Connection -> PGS

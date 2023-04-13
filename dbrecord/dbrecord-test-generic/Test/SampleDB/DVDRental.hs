@@ -15,6 +15,8 @@ import GHC.Generics
 import DBRecord
 import Data.Text (Text)
 import Data.Time
+import Data.ByteString (ByteString)
+import Data.Scientific
 
 data DVDRentalDB (db :: DbK)
 
@@ -67,7 +69,11 @@ data FilmCategory = FilmCategory
   } deriving (Show, Generic)
     deriving anyclass (DBRepr sc)
 
-newtype Year = Year {getYear :: Int16}
+type Year = Int32
+-- newtype Year = Year {getYear :: Int16}
+--   deriving (Show, Generic)
+
+data MPAA = G | PG | PG'13 | R | NC'17
   deriving (Show, Generic)
 
 -- ^ stores film data such as title, release year, length, rating, etc
@@ -78,10 +84,10 @@ data Film = Film
   , releaseYear :: Year
   , languageId :: Int16
   , rentalDuration :: Int16
-  , rentalRate :: Double -- numeric(4,2) TODO: Use Scentific
+  , rentalRate :: Scientific
   , length :: Int16
-  , replacementCost :: Double -- numeric(5,2) TODO: Use Scentific
-  , rating :: Text -- public.mpaa_rating
+  , replacementCost :: Scientific
+  , rating :: Text -- MPAA
   , lastUpdate :: LocalTime
   , specialFeatures :: [Text]
   , fulltext :: Text -- tsvector TODO: Handle this
@@ -94,10 +100,10 @@ data NewFilm = NewFilm
   , releaseYear :: Year
   , languageId :: Int16
   , rentalDuration :: Int16
-  , rentalRate :: Double -- numeric(4,2) TODO: Use Scentific
+  , rentalRate :: Scientific
   , length :: Int16
-  , replacementCost :: Double -- numeric(5,2) TODO: Use Scentific
-  , rating :: Text -- public.mpaa_rating
+  , replacementCost :: Scientific
+  , rating :: Text -- MPAA
   , lastUpdate :: LocalTime
   , specialFeatures :: [Text]
   , fulltext :: Text -- tsvector TODO: Handle this
@@ -155,7 +161,7 @@ data Payment = Payment
   , customerId :: Int16
   , staffId :: Int16
   , rentalId :: Int32
-  , amount :: Double -- numeric(5,2)
+  , amount :: Rational -- numeric(5,2)
   , paymentDate :: LocalTime
   } deriving (Show, Generic)
     deriving anyclass (DBRepr sc)
@@ -185,7 +191,7 @@ data Staff = Staff
   , username :: Text
   , password :: Maybe Text
   , lastUpdate :: LocalTime
-  , picture :: Text -- ByteString
+  , picture :: Maybe ByteString
   } deriving (Show, Generic)
     deriving anyclass (DBRepr sc)
 
@@ -199,7 +205,7 @@ data NewStaff = NewStaff
   , username :: Text
   , password :: Maybe Text
   , lastUpdate :: LocalTime
-  , picture :: Text -- ByteString
+  , picture :: Maybe ByteString
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Staff where
@@ -551,7 +557,7 @@ qWithTopOrBottomN :: forall db.
   (db ~ 'Postgres) =>
   Query (DVDRentalDB db) (Rec '[ '("filmId", Int32)
                                , '("title", Text)
-                               , '("rentalRate", Double)
+                               , '("rentalRate", Scientific)
                                ])
 qWithTopOrBottomN = rel @(DVDRentalDB db) @Film $ do
   limit $ Just 10

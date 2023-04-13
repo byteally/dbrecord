@@ -27,6 +27,7 @@ import qualified Data.ByteString as SB
 import qualified Data.Text.Lazy as LT
 import           Data.Time
 import           Data.Text (Text)
+import           Data.Scientific
 import           DBRecord.Internal.Types
 import           DBRecord.Internal.DBTypes hiding (toNullable)
 import           Data.UUID (UUID)
@@ -540,6 +541,9 @@ instance EqExpr sc LocalTime where
   a .== b = binOp PQ.OpEq a b
 
 instance EqExpr sc Int16 where
+  a .== b = binOp PQ.OpEq a b
+
+instance EqExpr sc Scientific where
   a .== b = binOp PQ.OpEq a b  
 
 instance OrdExpr sc Day where
@@ -611,6 +615,9 @@ instance OrdExpr sc Double where
   a .<= b = binOp PQ.OpLtEq a b
 
 instance OrdExpr sc LocalTime where
+  a .<= b = binOp PQ.OpLtEq a b
+
+instance OrdExpr sc Scientific where
   a .<= b = binOp PQ.OpLtEq a b  
 
 infixr 3 .&&

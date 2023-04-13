@@ -211,13 +211,20 @@ execQuery :: Query' qt sc t -> PQ.PrimQuery
 execQuery  = fst . runQuery'
 {-# INLINE execQuery #-}
 
+runAliasedQuery :: forall t fn sc qt.KnownSymbol fn => Field fn (Query' qt sc t) -> (PQ.PrimQuery, TableValue sc Identity t)
+runAliasedQuery = runQuery'' (Just $ T.pack $ symbolVal (Proxy @fn)) . val
+
 runQuery' :: Query' qt sc t -> (PQ.PrimQuery, TableValue sc Identity t)
-runQuery' (Query' (exprs, st, mkPQ)) =
+runQuery' = runQuery'' Nothing
+  
+runQuery'' :: Maybe Text -> Query' qt sc t -> (PQ.PrimQuery, TableValue sc Identity t)
+runQuery'' asMay (Query' (exprs, st, mkPQ)) =
   let
     (tv, (clau', _)) = runState st (PQ.clauses, exprs)
     clau = clau' { PQ.projections = case tableToProjections tv of
                      [] -> [("unit", unitExpr)]
                      ps -> ps
+                 , PQ.alias = asMay
                  }
   in (mkPQ clau, tv)
 {-# INLINE runQuery' #-}
@@ -249,18 +256,21 @@ scoped :: forall i o sc s.
   -> Clause s sc i o
 scoped fn = Clause $ state (\(c,es) -> let (c', o) = fn (c, Scoped es) in (o, (c', es)))
 
-scopeToListWith :: (forall g (a :: Type).Typeable a => ExprF sc g a -> r) -> Scoped s sc i -> [r]
-scopeToListWith fn (Scoped tab) = tableToListWith fn tab
+-- scopeToListWith :: (forall g (a :: Type).Typeable a => ExprF sc g a -> r) -> Scoped s sc i -> [r]
+-- scopeToListWith fn (Scoped tab) = tableToListWith (const fn) tab
 
-tableToListWith :: (forall g (a :: Type).Typeable a => ExprF sc g a -> r) -> TableValue sc f i -> [r]
-tableToListWith fn (TableValue fsix hk) = fmap snd $ L.sortOn fst $ hkToListWith (\ex -> (fromMaybe (error $ "Panic: Invariant violated! " <> (show $ getExprSymTypeRep ex)) $ lookupFieldIx (getExprSymTypeRep ex) fsix, fn ex)) hk
-tableToListWith fn (CrossTable tv1 tv2) = tableToListWith fn (val tv1) ++ tableToListWith fn (val tv2)
-tableToListWith fn (LeftJoinTable tv1 tv2) = tableToListWith fn (val tv1) ++ tableToListWith fn (val tv2)
-tableToListWith fn (RightJoinTable tv1 tv2) = tableToListWith fn (val tv1) ++ tableToListWith fn (val tv2)
-tableToListWith _ (ConsTable _ _) = undefined
-tableToListWith _ (ConsOptTable _ _ _) = undefined
-tableToListWith _ EmptyTable = []
---tableToListWith fn (NestedTable hk) = concat $ hkToListWith (tableToListWith fn) hk
+tableToListWith :: (forall g (a :: Type).Typeable a => [Text] -> ExprF sc g a -> r) -> TableValue sc f i -> [r]
+tableToListWith = tableToListWith' []
+
+tableToListWith' :: [Text] -> (forall g (a :: Type).Typeable a => [Text] -> ExprF sc g a -> r) -> TableValue sc f i -> [r]
+tableToListWith' pfxs fn (TableValue fsix hk) = fmap snd $ L.sortOn fst $ hkToListWith (\ex -> (fromMaybe (error $ "Panic: Invariant violated! " <> (show $ getExprSymTypeRep ex)) $ lookupFieldIx (getExprSymTypeRep ex) fsix, fn pfxs ex)) hk
+tableToListWith' pfxs fn (CrossTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
+tableToListWith' pfxs fn (LeftJoinTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
+tableToListWith' pfxs fn (RightJoinTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
+tableToListWith' _pfxs _ (ConsTable _ _) = undefined
+tableToListWith' _pfxs _ (ConsOptTable _ _ _) = undefined
+tableToListWith' _pfxs _ EmptyTable = []
+--tableToListWith' pfxs fn (NestedTable hk) = concat $ hkToListWith (tableToListWith' pfxs fn) hk
 
 -- mapScope :: (forall a.Typeable a => PQ.Expr sc a -> PQ.Expr sc a) -> Scoped s sc i -> Scoped s sc i
 -- mapScope fn (Scoped hk) = Scoped $ hoistWithKeyHK fn hk
@@ -269,11 +279,11 @@ tableToProjections :: TableValue sc f a -> [PQ.Projection]
 tableToProjections = tableToListWith getPrjs
 {-# INLINE tableToProjections #-}
 
-getPrjs :: forall a f sc.(Typeable a) => ExprF sc f a -> (T.Text, PQ.PrimExpr)
-getPrjs e = (aliasedExprName e, PQ.getExpr $ getExprF e)
+getPrjs :: forall a f sc.(Typeable a) => [Text] -> ExprF sc f a -> (T.Text, PQ.PrimExpr)
+getPrjs pfxs e = (T.intercalate "_" ((reverse pfxs) ++ [aliasedExprName e]), PQ.getExpr $ getExprF e)
 
-getPrjs' :: forall a sc.(Typeable a) => PQ.Expr sc a -> (T.Text, PQ.PrimExpr)
-getPrjs' e = (aliasedExprName $ ExprF $ toIdExpr e, PQ.getExpr e)
+getPrjs' :: forall a sc.(Typeable a) => [Text] -> PQ.Expr sc a -> (T.Text, PQ.PrimExpr)
+getPrjs' pfxs e = (T.intercalate "_" ((reverse pfxs) ++ [aliasedExprName $ ExprF $ toIdExpr e]), PQ.getExpr e)
 
 toIdExpr :: PQ.Expr sc x -> PQ.Expr sc (Identity x)
 toIdExpr (PQ.Expr x) = PQ.Expr x
@@ -296,14 +306,17 @@ rjRel :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 
 rjRel q1 q2 = RightJoinTable q1 q2
 
 nextStage :: TableValue sc f i -> TableValue sc f i
-nextStage (TableValue fsix hk) = TableValue fsix $ hoistWithKeyHK aliasedExpr hk
-nextStage (CrossTable ntv1 ntv2) = CrossTable (fmap nextStage ntv1) (fmap nextStage ntv2)
-nextStage (LeftJoinTable ntv1 ntv2) = LeftJoinTable (fmap nextStage ntv1) (fmap nextStage ntv2)
-nextStage (RightJoinTable ntv1 ntv2) = RightJoinTable (fmap nextStage ntv1) (fmap nextStage ntv2)
-nextStage (ConsTable _ _) = undefined
-nextStage (ConsOptTable _ _ _) = undefined
-nextStage EmptyTable = EmptyTable
---nextStage (NestedTable tabhk) = NestedTable $ hoistWithKeyHK nextStage tabhk
+nextStage = nextStage' []
+
+nextStage' :: [Text] -> TableValue sc f i -> TableValue sc f i
+nextStage' pfxs (TableValue fsix hk) = TableValue fsix $ hoistWithKeyHK (aliasedExprWithPrefix pfxs) hk
+nextStage' pfxs (CrossTable ntv1 ntv2) = CrossTable (fmap (nextStage' (getFnName ntv1 : pfxs)) ntv1) (fmap (nextStage' (getFnName ntv2 : pfxs)) ntv2)
+nextStage' pfxs (LeftJoinTable ntv1 ntv2) = LeftJoinTable (fmap (nextStage' (getFnName ntv1 : pfxs)) ntv1) (fmap (nextStage' (getFnName ntv2 : pfxs)) ntv2)
+nextStage' pfxs (RightJoinTable ntv1 ntv2) = RightJoinTable (fmap (nextStage' (getFnName ntv1 : pfxs)) ntv1) (fmap (nextStage' (getFnName ntv2 : pfxs)) ntv2)
+nextStage' _pfxs (ConsTable _ _) = undefined
+nextStage' _pfxs (ConsOptTable _ _ _) = undefined
+nextStage' _pfxs EmptyTable = EmptyTable
+--nextStage' (NestedTable tabhk) = NestedTable $ hoistWithKeyHK nextStage' tabhk
 
 hoistMaybeTable :: (forall g x. ExprF sc g x -> ExprF sc Maybe x) -> TableValue sc f i -> TableValue sc Maybe i
 hoistMaybeTable fn (TableValue fsix hk) = TableValue fsix $ hoistHK fn hk
@@ -346,6 +359,9 @@ unitExpr = PQ.ConstExpr $ PQ.Integer 1
 
 getFnName :: forall n a.KnownSymbol n => Field n a -> Text
 getFnName _ = T.pack $ symbolVal (Proxy @n)
+
+aliasedExprWithPrefix :: forall a f sc.(Typeable a, HasCallStack) => [Text] -> ExprF sc f a -> ExprF sc f a
+aliasedExprWithPrefix pfxs e@(ExprF _) = ExprF $ PQ.unsafeCol ((reverse pfxs) ++ [aliasedExprName e])
 
 aliasedExpr :: forall a f sc.(Typeable a, HasCallStack) => ExprF sc f a -> ExprF sc f a
 aliasedExpr e@(ExprF _) = ExprF $ PQ.unsafeCol [aliasedExprName e]

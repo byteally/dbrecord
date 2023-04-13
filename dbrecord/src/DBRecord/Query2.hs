@@ -132,9 +132,9 @@ innerJoin :: forall o n1 r1 n2 r2 sc.
   -> Query sc o
 innerJoin q1 q2 on (Clause clau) =
   let
-    (q1PQ, q1Res) = runQuery' $ val q1
-    (q2PQ, q2Res) = runQuery' $ val q2
-    joinTabVal = crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
+    (q1PQ, q1Res) = runAliasedQuery q1
+    (q2PQ, q2Res) = runAliasedQuery q2
+    joinTabVal = nextStage $ crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
     onCond = getExpr $ on $ getScopeOfTable $ joinTabVal
   in Query' ( joinTabVal
             , clau
@@ -153,10 +153,10 @@ leftJoin :: forall o n1 r1 n2 r2 sc.
   -> Query sc o
 leftJoin q1 q2 on (Clause clau) =
   let
-    (q1PQ, q1Res) = runQuery' $ val q1
-    (q2PQ, q2Res) = runQuery' $ val q2
-    crossTableVal = crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
-    ljjoinTabVal = ljRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= hoistMaybeTable toNullExprF q2Res)
+    (q1PQ, q1Res) = runAliasedQuery q1
+    (q2PQ, q2Res) = runAliasedQuery q2
+    crossTableVal = nextStage $ crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
+    ljjoinTabVal = nextStage $ ljRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= hoistMaybeTable toNullExprF q2Res)
     onCond = getExpr $ on $ getScopeOfTable $ crossTableVal
   in Query' ( ljjoinTabVal
             , clau
@@ -172,10 +172,10 @@ rightJoin :: forall o n1 r1 n2 r2 sc.
   -> Query sc o
 rightJoin q1 q2 on (Clause clau) =
   let
-    (q1PQ, q1Res) = runQuery' $ val q1
-    (q2PQ, q2Res) = runQuery' $ val q2
-    crossTableVal = crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
-    rjoinTabVal = rjRel (fromLabel @n1 .= hoistMaybeTable toNullExprF q1Res) (fromLabel @n2 .= q2Res)
+    (q1PQ, q1Res) = runAliasedQuery q1
+    (q2PQ, q2Res) = runAliasedQuery q2
+    crossTableVal = nextStage $ crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
+    rjoinTabVal = nextStage $ rjRel (fromLabel @n1 .= hoistMaybeTable toNullExprF q1Res) (fromLabel @n2 .= q2Res)
     onCond = getExpr $ on $ getScopeOfTable $ crossTableVal
   in Query' ( rjoinTabVal
             , clau
@@ -435,81 +435,3 @@ cteQ1 = with usrQ id
 trecdot = R.getField @"city" $ R.getField @"address" (rel @ZB @User2) :: _
 -}
 
-{-
-Eg1.
-usrQ
- & select (\usr -> usr.foo :& usr.bar :& end)
- & filter (\usr -> usr.foo .> 2)
- & aggregate (\usr -> sum usr.foo :& count usr.bar :& end)
- & group (\usr -> usr.a)
- & sort
- & page
-
-Eg2.
-usrQ = rel @ZB @User
-addrQ = rel @ZB @Addr
-innerjoin (#user .= usrQ) (#addr .= addrQ) (\u a -> u.uid .== a.uid)
- & filter (\ua -> ua.user.age .> 21)
- & select (\ua -> ua.user.userId :& ua.addr.zipCode :& end)
- & toHask @Foo
-
-Eg3.
-(rel @ZB EdiSet)
- & select (\set -> set.ediSetSeqNo :& #setIds .= array set.ediSetId :& end)
- & group (\set -> set.ediSetSeqNo)
- & alias #setBySeqNo
- & filter $ \aggSet -> length aggSet.setIds .> 2
-
-Eg4.
-let setBySeqNoQ =
-  #setBySeqNo .= (rel @ZB EdiSet)
-    & select (\set -> set.ediSetSeqNo :& #setIds .= array set.ediSetId :& end)
-    & group (\set -> set.ediSetSeqNo)
-in setBySeqNoQ
-     & filter $ \aggSet -> length aggSet.setIds .> 2
-
-Eg5.
-rel @ZB @Addr $ do
- filter (\addr -> addr.city .== "Chennai")
- order (\addr -> asc (addr.zipCode) <> desc (1))
- r <- select (\addr -> #cities .= arr_agg (addr.city.val) :& addr.zipCode :& end)
- addrGrouping <- group (\addr -> addr.zipCode :& end)
- aggregate addrGrouping (\groupedAddr -> groupedAddr.zipCode :& groupedAddr.foo :& end)
--}
-
-
-{-
-data ZB
-
-instance Database ZB where
-  type DatabaseName ZB = "zb"
-  type DB ZB = 'Postgres
-instance Schema ZB where
-  type SchemaDB ZB = ZB
-  type Tables ZB = '[ User1
-                    , User2
-                    ]
-instance Table ZB User1 where
-
-instance Table ZB User2 where
-
-instance UDType ZB Address where  
-
-data User1 = User1
-  { name :: String
-  , age :: Int
-  } deriving (Show, Generic)
-
-data User2 = User2
-  { name :: String
-  , age :: Int
-  , isVerified :: Bool
-  , address :: Address
-  } deriving (Show, Generic)
-
-data Address = Address
-  { city :: String
-  , pincode :: String
-  } deriving (Show, Generic)
-
--}

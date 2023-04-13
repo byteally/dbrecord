@@ -11,6 +11,7 @@ import Data.Time.Clock (UTCTime)
 import Data.CaseInsensitive  (CI)
 import Data.Int
 import Data.Word
+import Data.Scientific
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
 import Data.Proxy
@@ -335,6 +336,8 @@ type family GetPGTypeRep (sc :: Type) (t :: Type) = (r :: Type.DBTypeK) where
   GetPGTypeRep _ Int64              = 'Type.DBInt8
   GetPGTypeRep _ Float              = 'Type.DBFloat 24
   GetPGTypeRep _ Double             = 'Type.DBFloat 53
+  GetPGTypeRep _ Rational           = 'Type.DBNumeric 1000 1000
+  GetPGTypeRep _ Scientific         = 'Type.DBNumeric 1000 1000
   GetPGTypeRep _ Char               = 'Type.DBChar 1
   GetPGTypeRep _ T.Text             = 'Type.DBText
   GetPGTypeRep _ (CI T.Text)        = 'Type.DBCiText
@@ -412,6 +415,7 @@ data DBObjK
   | NativeTypeObj
   | UDTypeObj
   | NullableObjOf DBObjK
+  | ArrayObjOf DBObjK
 
 class DBRepr (dbk :: DbK) (t :: Type) where
   type ToDBType dbk t :: DBObjK
@@ -441,7 +445,13 @@ instance DBRepr dbk Double where
   type ToDBType dbk Double = 'NativeTypeObj
 
 instance DBRepr dbk Float where
-  type ToDBType dbk Float = 'NativeTypeObj  
+  type ToDBType dbk Float = 'NativeTypeObj
+
+instance DBRepr dbk Rational where
+  type ToDBType dbk Rational = 'NativeTypeObj
+  
+instance DBRepr dbk Scientific where
+  type ToDBType dbk Scientific = 'NativeTypeObj  
 
 instance DBRepr dbk Day where
   type ToDBType dbk Day = 'NativeTypeObj
@@ -450,11 +460,18 @@ instance DBRepr dbk LocalTime where
   type ToDBType dbk LocalTime = 'NativeTypeObj
 
 instance DBRepr dbk UTCTime where
-  type ToDBType dbk UTCTime = 'NativeTypeObj  
+  type ToDBType dbk UTCTime = 'NativeTypeObj
+
+instance DBRepr dbk ByteString where
+  type ToDBType dbk ByteString = 'NativeTypeObj  
 
 instance DBRepr dbk a => DBRepr dbk (Maybe a) where
   type ToDBType dbk (Maybe a) = 'NullableObjOf (ToDBType dbk a)
   type AutoCodec dbk (Maybe a) = AutoCodec dbk a
+
+instance DBRepr dbk a => DBRepr dbk [a] where
+  type ToDBType dbk [a] = 'ArrayObjOf (ToDBType dbk a)
+  type AutoCodec dbk [a] = AutoCodec dbk a  
 
 -- TODO: Json is not native is all the DB
 instance DBRepr dbk (Json a) where
