@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings       #-}
 {-# LANGUAGE DerivingStrategies      #-}
 {-# LANGUAGE DeriveAnyClass          #-}
+{-# LANGUAGE RoleAnnotations         #-}
 module Test.SampleDB.DVDRental
   ( module Test.SampleDB.DVDRental
   ) where
@@ -664,12 +665,70 @@ rightJoinEg2 =
   restrict $ \r -> isNull r.inventory.filmId
   sort $ \r -> asc r.film.title
   selectAll
-  
+
+{- Uncommenting this `role` results in error like following
+• Couldn't match type ‘Film’ with ‘Field "film" Film’
+        arising from a use of ‘.&’
+This is due to usage of `coerce` to convert hk Film <=> hk (Field "film" Film) in rec pkg
+
+-}
+
+--type role Q nominal
+data Q t = Q t -- (Query' PlainQ (DVDRentalDB 'Postgres) t)
+
+t :: Q Film
+t = undefined
+
+t1 :: Q Inventory
+t1 = undefined
+
+thr1 :: HRec Q '[ '("film", Film)
+                , '("inventory", Inventory)
+                ]
+thr1 = #film .= t
+       .& #inventory .= t1
+       .& end
+
+
 -- self join
 -- full outer join
 -- cross join
 -- natural join
 -- group by
+qGroupByWithoutAgg :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("customerId", Int16)])
+qGroupByWithoutAgg = aggregate (rel @(DVDRentalDB db) @Payment) $ do
+  custIdGrp <- groupBy $ \r -> r.customerId
+  selectAgg $ \groupSel _ ->
+    #customerId .= groupSel custIdGrp
+    .& end
+
+qGroupByWithSum :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("sumAmount", Rational)
+--                               , '("customerId", Int16)
+                               ])
+qGroupByWithSum = aggregate (rel @(DVDRentalDB db) @Payment) $ do
+  _custIdGrp <- groupBy $ \r -> r.customerId
+  selectAgg $ \_groupSel r ->
+    #sumAmount .= sumOf (val r.amount)
+--    .& #customerId .= groupSel custIdGrp
+    .& end
+
+qGroupByWithMultipleCol :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("staffId", Int16)
+                               , '("customerId", Int16)
+                               ])
+qGroupByWithMultipleCol = aggregate (rel @(DVDRentalDB db) @Payment) $ do
+  staffIdGrp <- groupBy (.staffId)
+  custIdGrp <- groupBy (.customerId)
+  selectAgg $ \gsel _ ->
+    #staffId .= gsel staffIdGrp
+    .& #customerId .= gsel custIdGrp
+    .& end
+
 -- union
 -- intersect
 -- having

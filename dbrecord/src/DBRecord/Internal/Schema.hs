@@ -235,7 +235,7 @@ getColumnAliasMap = HM.fromList $ fromSing (sing :: Sing (ColumnNames sc tab))
 
 -- Clause should be opaque
 -- o should never be `Expr`
-newtype Clause s sc i o = Clause (State (PQ.Clauses, TableValue sc Identity i) o)
+newtype Clause (s :: Type) sc i o = Clause (State (PQ.Clauses, TableValue sc Identity i) o)
   deriving newtype (Functor, Applicative, Monad)
 
 instance Semigroup (Clause s sc i o) where

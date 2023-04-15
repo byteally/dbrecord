@@ -20,12 +20,12 @@ import qualified Data.Text as T
 import GHC.Generics
 import GHC.Records
 import GHC.TypeLits
+import GHC.Exts
 -- import qualified Data.HashMap.Strict as HM
 -- import qualified Data.ByteString.Base64 as B64
 import Data.Generics.Uniplate.Direct
-import DBRecord.Internal.Types (DBTypeK (..), DBTypeNameK(..), UDTypeMappings(..))
-import DBRecord.Internal.DBTypes  (SchemaDB, DB, DBRepr (..), DBObjK(..), GetDBTypeRep, DBType, UDType(..), _lookupTyFieldAliases)
-import Data.String
+import DBRecord.Internal.Types (DBTypeK (..), DBTypeNameK(..), UDTypeMappings(..), SingI(..), Sing (..), fromSing)
+import DBRecord.Internal.DBTypes  (SchemaDB, DB, DBRepr (..), DBObjK(..), GetDBTypeRep, DBType, UDType(..), _lookupTyFieldAliases, DBTypeCtx)
 import Data.Kind
 import Data.Proxy
 
@@ -488,6 +488,19 @@ newtype Expr (sc :: Type) (t :: Type) =
 
 getExpr :: Expr (sc :: Type) (t :: Type) -> PrimExpr
 getExpr (Expr e) = e
+
+unsafeCast :: DBType -> Expr sc a -> Expr sc b
+unsafeCast castTo (Expr expr) = Expr $ CastExpr castTo expr
+
+annotateType :: forall sc a.
+                 ( DBTypeCtx (GetDBTypeRep sc a)
+                 , SingI (GetDBTypeRep sc a)
+                 ) => Expr sc a -> Expr sc a
+annotateType = unsafeCast tyRep
+  where tyRep = fromSing (sing :: Sing (GetDBTypeRep sc a))
+
+unsafeCoerceExpr :: Expr sc a -> Expr sc b
+unsafeCoerceExpr (Expr e) = Expr e
 
 
 instance (DBRepr (DB (SchemaDB sc)) t, HasField '(fn, ToDBType (DB (SchemaDB sc)) t) (Expr sc t) a) => HasField (fn :: Symbol) (Expr sc t) a where

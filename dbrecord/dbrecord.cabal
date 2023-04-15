@@ -144,6 +144,8 @@ library dbrecord-test-generic
   hs-source-dirs:      dbrecord-test-generic
   build-depends:       dbrecord
                      , hedgehog
+                     , tasty
+                     , tasty-golden
   exposed-modules:     Test.Schema
                      , Test.Query
                      , Test.SampleDB.DVDRental

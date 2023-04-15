@@ -123,6 +123,19 @@ crossJoin _ _ _ = undefined
 
 -}
 
+newtype Joins sc qs = Joins (HRec (Query' PlainQ sc) qs)
+  deriving newtype (AnonRec)
+
+{-
+join $  #foo .= q1
+      .& #bar .= q2 `on`
+      
+-}
+joins :: forall o qs sc.
+  () =>
+  Joins sc qs -> ()
+joins = undefined  
+
 innerJoin :: forall o n1 r1 n2 r2 sc.
   (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) =>
     As n1 (Query sc r1)
@@ -264,8 +277,32 @@ instance AnonRec (SelectList sc) where
     in (fld, SelectList (deleteFieldIx (fldTyTRep fld) fsix) r')
   
 
+data AggSelectList sc os = AggSelectList FieldInvIx (HRec (PQ.AggExpr sc) os)
+
+instance AnonRec (AggSelectList sc) where
+  type FieldKind (AggSelectList sc) = FieldKind (HRec (PQ.AggExpr sc))
+  type IsHKRec (AggSelectList sc) = IsHKRec (HRec (PQ.AggExpr sc))
+  type FieldNameConstraint (AggSelectList sc) = FieldNameConstraint (HRec (PQ.AggExpr sc))
+  type FieldConstraint (AggSelectList sc) = FieldConstraint (HRec (PQ.AggExpr sc))
+  endRec = AggSelectList emptyFieldInvIx endRec
+  {-# INLINE endRec #-}
+  consRec fld (AggSelectList fsix r) =
+    let nfsix = indexField (fldTyTRep fld) fsix
+        fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
+        fldTyTRep _ = typeRep (Proxy @fn)
+    in AggSelectList nfsix $ consRec fld r
+  {-# INLINE consRec #-}
+  unconsRec (AggSelectList fsix r) =
+    let (fld, r') = unconsRec r
+        fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
+        fldTyTRep _ = typeRep (Proxy @fn)
+    in (fld, AggSelectList (deleteFieldIx (fldTyTRep fld) fsix) r')
+
 selectListToTable :: SelectList sc os -> TableValue sc Identity (Rec os)
 selectListToTable (SelectList fsix selRec) = TableValue fsix $ hoistWithKeyHK (ExprF . toIdExpr) $ hrecToHKOfRec selRec
+
+aggSelectListToTable :: AggSelectList sc os -> TableValue sc Aggregated (Rec os)
+aggSelectListToTable (AggSelectList fsix selRec) = TableValue fsix $ hoistWithKeyHK (ExprF . coerceExpr . getAggExpr) $ hrecToHKOfRec selRec
 
 -- TODO: Bugy. Fix the FieldIxs w.r.t target type
 selectListToType :: (ValidateRecToType os t) => SelectList sc os -> TableValue sc Identity t
@@ -290,10 +327,20 @@ select :: forall i os sc s.
 select selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList _ selRec) = selFn (SelectScope scopes)
   in (clau, selectListToTable selCols)
 
+selectAgg :: forall i os sc s.
+  ((forall a.Grouped s sc a -> AggExpr sc a) -> SelectScope s sc i -> AggSelectList sc os) -> Clause s sc i (TableValue sc Aggregated (Rec os))
+selectAgg selFn = scoped $ \(clau, scopes) -> let selCols@(AggSelectList _ selRec) = selFn unGroup (SelectScope scopes)
+  in (clau, aggSelectListToTable selCols)  
+
 selectUsing :: forall o i os sc s.ValidateRecToType os o => (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (TableValue sc Identity o)
 selectUsing selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList _ selRec) = selFn (SelectScope scopes)
   in (clau, selectListToType selCols)
 
+using :: forall o i os sc s.ValidateRecToType os o => Clause s sc i (TableValue sc Identity (Rec os)) -> Clause s sc i (TableValue sc Identity o)
+using = undefined
+
+-- TODO: Consider the alt strategy of having index representing Plain | Agg | Insert | Update | Delete  in `Clause` which will let us reuse the combinators
+newtype Aggregated a = Aggregated { unAgg :: Identity a}
 
 {- Variants
 SELECT DISTINCT select_list ...
@@ -309,11 +356,25 @@ selectNone :: forall i sc s.Clause s sc i (TableValue sc Identity ())
 selectNone = scoped $ \(clau, _) -> (clau, EmptyTable)
 
 -- * Grouping
-group :: () -> Query sc r -> Query' (AggQ ()) sc ()
-group = undefined
+aggregate :: forall o i sc.
+  ((forall s.Clause s sc i (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> (forall s1.Clause s1 sc i (TableValue sc Aggregated o))
+  -> Query' PlainQ sc o
+aggregate fn clauM = fn (go <$> clauM)
+  where
+    go :: TableValue sc Aggregated o -> TableValue sc Identity o
+    go (TableValue fsix v) = TableValue fsix $ hoistWithKeyHK (\(ExprF e) -> ExprF (coerceExpr e)) v
+    go _ = undefined
 
-having :: () -> Query' (AggQ ()) sc r -> ()
-having = undefined
+newtype Grouped s sc a = Grouped {unGroup :: AggExpr sc a}
+
+groupBy :: forall a i sc s.(Scoped s sc i -> Expr sc a) -> Clause s sc i (Grouped s sc a)
+groupBy grpFn = scoped $ \(clau, inp) ->
+  let gpVal = grpFn inp
+  in (clau {groupbys = groupbys clau <> [PQ.getExpr gpVal]}, Grouped (AggExpr gpVal))
+
+having :: forall i sc s.(Scoped s sc i -> AggExpr sc Bool) -> Clause s sc i ()
+having filtFn = scoped $ \(clau, inp) -> (clau {havings = havings clau <> [PQ.getExpr (getAggExpr (filtFn inp))]}, ())
 
 -- * LIMIT & OFFSET
 {-

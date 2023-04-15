@@ -3,10 +3,12 @@
 {-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP, PolyKinds, TypeFamilies, DefaultSignatures, DerivingStrategies, LambdaCase #-}
 module DBRecord.Internal.Expr
        ( module DBRecord.Internal.Expr
-       , Expr (..), getExpr
+       , module DBRecord.Internal.PrimQuery
        ) where
 
-import           DBRecord.Internal.PrimQuery (Expr (..), AggExpr (..), getExpr)
+import           DBRecord.Internal.PrimQuery ( Expr (..), AggExpr (..), getExpr
+                                             , unsafeCast, annotateType, unsafeCoerceExpr
+                                             )
 import qualified DBRecord.Internal.PrimQuery as PQ
 import           DBRecord.Types
 import qualified Data.Foldable as F
@@ -315,19 +317,6 @@ postfixOp op (Expr expr) = Expr (PQ.PostfixExpr op expr)
 funOp :: String -> Expr sc a -> Expr sc b
 funOp op (Expr expr) = Expr (PQ.PrefixExpr (PQ.OpOtherFun op) expr)
 
-unsafeCast :: DBType -> Expr sc a -> Expr sc b
-unsafeCast castTo (Expr expr) = Expr $ PQ.CastExpr castTo expr
-
-annotateType :: forall sc a.
-                 ( DBTypeCtx (GetDBTypeRep sc a)
-                 , SingI (GetDBTypeRep sc a)
-                 ) => Expr sc a -> Expr sc a
-annotateType = unsafeCast tyRep
-  where tyRep = fromSing (sing :: Sing (GetDBTypeRep sc a))
-
-unsafeCoerceExpr :: Expr sc a -> Expr sc b
-unsafeCoerceExpr (Expr e) = Expr e
-
 strictDecodeUtf8 :: SB.ByteString -> String
 strictDecodeUtf8 = T.unpack . STE.decodeUtf8
 
@@ -412,6 +401,12 @@ instance NumExpr Float where
 
 instance NumExpr Double where
   exprFromInteger = literalExpr . PQ.Double . fromIntegral
+
+instance NumExpr Rational where
+  exprFromInteger = literalExpr . PQ.Double . fromIntegral
+
+instance NumExpr Scientific where
+  exprFromInteger = literalExpr . PQ.Double . fromIntegral  
 
 instance FractionalExpr Float where
   exprFromRational = literalExpr . PQ.Double . fromRational
@@ -1045,8 +1040,11 @@ coerceAggExpr = unsafeCoerceAggExpr
 rawExpr :: T.Text -> Expr sc a
 rawExpr = (Expr . PQ.RawExpr)
 
-count :: Expr scs a -> AggExpr scs Int64
+count :: Expr sc a -> AggExpr sc Int64
 count = coerce . funOp "count"
+
+sumOf :: NumExpr n => Expr sc n -> AggExpr sc n
+sumOf = coerce . funOp "sum"
 
 class Alias f where
   as :: f a -> Proxy fld -> f (fld ::: a)
