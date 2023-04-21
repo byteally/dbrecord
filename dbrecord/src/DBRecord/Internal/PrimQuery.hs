@@ -80,8 +80,14 @@ data PrimQuery = Table (Maybe (TableExpr PrimQuery)) Clauses
                -- Values
                deriving (Show)
 
-data InsertQuery = InsertQuery TableId [Attribute] (NEL.NonEmpty [PrimExpr]) (Maybe Conflict) [PrimExpr]
+data InsertQuery = InsertQuery TableId [Attribute] InsertValues (Maybe Conflict) [PrimExpr]
                  deriving (Show)
+
+data InsertValues
+  = InsertValues (NEL.NonEmpty [PrimExpr])
+  | InsertSubQuery PrimQuery
+  | InsertDefaultValues
+  deriving (Show)
 
 data UpdateQuery = UpdateQuery TableId [PrimExpr] Assoc [PrimExpr]
                  deriving (Show)
@@ -324,7 +330,7 @@ fix :: (t -> t) -> t
 fix g = let x = g x in x
 
 newtype InsertQueryFold p = InsertQueryFold
-  { insertQ :: TableId -> [Attribute] -> (NEL.NonEmpty [PrimExpr]) -> Maybe Conflict -> [PrimExpr] -> p
+  { insertQ :: TableId -> [Attribute] -> InsertValues -> Maybe Conflict -> [PrimExpr] -> p
   }
 
 insertQueryFoldDefault :: InsertQueryFold InsertQuery

@@ -170,6 +170,11 @@ instance HasDelete PGS where
     let delSQL = PG.renderDelete $ PG.deleteSql $ deleteQ
     execute_ conn (fromString delSQL)
 
+instance HasDeleteRet PGS where
+  dbDeleteRetWith parser (PGS conn) deleteQ = do
+    let delSQL = PG.renderDelete $ PG.deleteSql $ deleteQ
+    queryWith_ parser conn (fromString delSQL)    
+
 runPGExpr :: Expr sc a -> String
 runPGExpr = PG.renderExpr . PG.toSqlExpr . getExpr
 

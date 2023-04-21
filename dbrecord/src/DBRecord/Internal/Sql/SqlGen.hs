@@ -169,7 +169,7 @@ data SqlGenerator = SqlGenerator
     {
      sqlUpdate      :: SqlTableName -> [PQ.PrimExpr] -> PQ.Assoc -> [PQ.PrimExpr] -> SqlUpdate,
      sqlDelete      :: SqlTableName -> [PQ.PrimExpr] -> SqlDelete,
-     sqlInsert      :: SqlTableName -> [PQ.Attribute] -> NEL.NonEmpty [PQ.PrimExpr] -> Maybe PQ.Conflict -> [PQ.PrimExpr] -> SqlInsert,
+     sqlInsert      :: SqlTableName -> [PQ.Attribute] -> PQ.InsertValues -> Maybe PQ.Conflict -> [PQ.PrimExpr] -> SqlInsert,
      sqlExpr        :: PQ.PrimExpr -> SqlExpr,
      sqlLiteral     :: PQ.Lit -> LitSql,
      -- | Turn a string into a quoted string. Quote characters
@@ -409,12 +409,13 @@ defaultSqlUpdate gen tbl criteria assigns rets
 defaultSqlInsert :: SqlGenerator
                    -> SqlTableName
                    -> [PQ.Attribute]
-                   -> NEL.NonEmpty [PQ.PrimExpr]
+                   -> PQ.InsertValues
                    -> Maybe PQ.Conflict
                    -> [PQ.PrimExpr] -- ^ Returning these expressions.
                    -> SqlInsert
-defaultSqlInsert gen tbl attrs exprs conflict rets =
+defaultSqlInsert gen tbl attrs (PQ.InsertValues exprs) conflict rets =
   SqlInsert tbl (map toSqlColumn attrs) ((fmap . map) (sqlExpr gen) exprs) (fmap toSqlConflict conflict) (map (sqlExpr gen) rets)
+defaultSqlInsert _gen _tbl _attrs _exprs _conflict _rets = error "TODO: Handle other form of inserts"  
 
 defaultSqlDelete :: SqlGenerator
                    -> SqlTableName

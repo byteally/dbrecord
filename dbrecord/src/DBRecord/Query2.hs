@@ -35,6 +35,7 @@ module DBRecord.Query2
   , Query' (..)
   , Query
   , PlainQ
+  , MQuery
   --
   ) where
 
@@ -236,12 +237,6 @@ binQ binType q1 q2 = Query'
   , const $ Binary Union ((execQuery q1)) ((execQuery q2)) Nothing
   )
 
-{- Variants
-query1 UNION [ALL] query2
-query1 INTERSECT [ALL] query2
-query1 EXCEPT [ALL] query2
--}
-
 -- * Ordering
 
 -- ORDER BY can be applied to the result of a UNION, INTERSECT, or EXCEPT combination, but in this case it is only permitted to sort by output column names or numbers, not by expressions.
@@ -319,6 +314,7 @@ instance R.HasField fn (HRec (PQ.Expr sc) os) (PQ.Expr sc t) => R.HasField (fn :
   
   
 -- * Select List
+
 selectAll :: forall i sc s.Clause s sc i (TableValue sc Identity i)
 selectAll = scoped $ \(clau, scopes@(Scoped tabv)) -> (clau, tabv)
 
@@ -367,6 +363,9 @@ aggregate fn clauM = fn (go <$> clauM)
     go _ = undefined
 
 newtype Grouped s sc a = Grouped {unGroup :: AggExpr sc a}
+
+fromGroup :: Grouped s sc a -> (AggExpr sc a -> AggSelectList sc os) -> AggSelectList sc os
+fromGroup (Grouped g) f = f g
 
 groupBy :: forall a i sc s.(Scoped s sc i -> Expr sc a) -> Clause s sc i (Grouped s sc a)
 groupBy grpFn = scoped $ \(clau, inp) ->
@@ -432,27 +431,123 @@ runQueryAsList q = do
 
 data InsertSetting
 
-class Insertable (f :: Type -> Type) where
-  insert :: forall o tab sc.(Table sc tab) => f (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> (MQuery sc o)
-
 newtype ViaTraversable f a = ViaTraversable {getTraverseable :: f a}
 
+insert' :: forall o f tab sc.(Table sc tab) => InsertValues -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
+insert' ivals retFn = getMutQ @o @tab @sc $ \tabId basetab ->
+  let attrs = fmap peToAttr $ tableToProjections basetab
+      peToAttr (_, PQ.BaseTableAttrExpr a) = a
+      peToAttr (_, e) = error $ "Panic: Invariant violated! Expected only `BaseTableAttrExpr` " <> (show e)
+  in InsertMQuery (basetab, pure $ retFn basetab, InsertQuery tabId attrs ivals Nothing)
+
+class Insertable (f :: Type -> Type) where
+  insert :: forall o tab sc.(Table sc tab) => f (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
+
+{-
 instance Insertable [] where
-  insert = undefined
+  insert :: forall o tab sc.(Table sc tab) => [NewRow sc tab] -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
+  insert [] retFn = MQueryNoOp
+  insert (v : vs) retFn = insert (v NE.:| vs) retFn
+-}
+
+ivals :: TableValue sc f i -> [PQ.PrimExpr]
+ivals tabv = fmap snd $ tableToProjections tabv
+
+instance Insertable NE.NonEmpty where
+  insert :: forall o tab sc.(Table sc tab) => NE.NonEmpty (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
+  insert vs retFn = insert' (InsertValues $ fmap (ivals . fromNewRow @sc @tab) vs) retFn
   
 instance Insertable Identity where
-  insert = undefined
+  insert :: forall o tab sc.(Table sc tab) => Identity (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
+  insert (Identity v) retFn = insert' (InsertValues (ivals (fromNewRow @sc @tab v) NE.:| [])) retFn
 
-insertOne :: forall o tab sc.(Table sc tab) => NewRow sc tab -> (TableValue sc Identity tab -> TableValue sc Identity o) -> (MQuery sc o)
+instance Insertable (Query' ct sc) where
+--  insert = insert'
+
+
+data ISubQuery sc t where
+  ISubQuery :: Query sc t -> ISubQuery sc (NewRow sc t)
+  
+insertOne :: forall o tab sc.(Table sc tab) => NewRow sc tab -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
 insertOne v ret = insert @Identity (Identity v) ret
 
-insertMany :: forall o tab f sc.(Traversable f, Table sc tab) => f (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> (MQuery sc o)
-insertMany = undefined
+insertMany :: forall o tab f sc.(Insertable f, Traversable f, Table sc tab) => f (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
+insertMany vs ret = insert @f vs ret
 
-insertFrom :: forall o tab sc.(Table sc tab) => Query sc (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> (MQuery sc o)
-insertFrom = undefined
+insertFrom :: forall o tab sc.(Table sc tab) => Query sc (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
+insertFrom qs ret = insert @(Query' PlainQ sc) qs ret
 
+-- TODO: Should be a newtype of basetable
+type UpdatingRow sc tab = TableValue sc Identity tab
+  
+updatable :: forall o tab sc.(Table sc tab) => (UpdatingRow sc tab -> UpdatingRow sc tab) -> (forall s.Clause s sc tab o) -> MQuery sc o
+updatable _ _ = undefined
 
+deletable :: forall o tab sc.(Table sc tab) => (forall s.Clause s sc tab o) -> MQuery sc o
+deletable _ = undefined
+
+runMQueryAsList :: forall r m sc driver.
+  ( MonadIO m
+  , HasInsertRet driver
+  , HasUpdateRet driver
+  , HasDeleteRet driver
+  , FromDBRow driver r
+  , MonadReader driver m
+  ) => MQuery sc r
+    -> m [r]
+runMQueryAsList q = do
+  driver <- ask
+  let
+    runInsert iq = do
+      liftIO $ dbInsertRet driver iq
+    runUpdate uq = do
+      liftIO $ dbUpdateRet driver uq
+    runDelete dq = do
+      liftIO $ dbDeleteRet driver dq
+  execMQuery runInsert runUpdate runDelete (pure []) q
+
+runMQuery_ :: forall m sc driver.
+  ( MonadIO m
+  , HasInsert driver
+  , HasUpdate driver
+  , HasDelete driver  
+  , MonadReader driver m
+  ) => MQuery sc ()
+    -> m Int64
+runMQuery_ q = do
+  driver <- ask
+  let
+    runInsert iq = do
+      liftIO $ dbInsert driver iq
+    runUpdate uq = do
+      liftIO $ dbUpdate driver uq
+    runDelete dq = do
+      liftIO $ dbDelete driver dq
+  execMQuery runInsert runUpdate runDelete (pure 0) q  
+  
+-- class Updatable (f :: Type -> Type) where
+--   updatable :: forall o tab sc.(Table sc tab) => (TableValue sc Identity tab -> TableValue sc Identity o) -> (forall s.Clause s sc tab o) -> MQuery sc o
+
+-- instance Updatable [] where
+--   updatable = undefined
+  
+-- instance Updatable Identity where
+--   updatable = undefined
+
+-- instance Updatable (Query' ct sc) where
+--   updatable = undefined  
+
+-- class Deletable (f :: Type -> Type) where
+--   deletable :: f ()
+
+-- instance Deletable [] where
+--   deletable = undefined
+  
+-- instance Deletable Identity where
+--   deletable = undefined
+
+-- instance Deletable (Query' ct sc) where
+--   deletable = undefined  
 
 -- TEST CODE
 {-

@@ -26,6 +26,7 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiWayIf                 #-}
+{-# LANGUAGE LambdaCase                 #-}
 
 module DBRecord.Internal.Schema
   ( module DBRecord.Internal.Schema
@@ -49,6 +50,7 @@ import Data.Kind
 import Data.Typeable
 import Data.Functor.Identity
 import Data.Functor.Const
+import DBRecord.Internal.Expr
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
 import qualified DBRecord.Internal.PrimQuery as PQ
@@ -157,9 +159,22 @@ class ( Schema sc
                              , PQ.tableName = defHSNameToDBName $ T.pack $ symbolVal (Proxy @(TableName sc tab))
                              }
           fsix = mkFieldInvIx (Proxy @(TableColumns sc tab)) emptyFieldInvIx
-  -- newTable :: NewRow sc tab -> TableValue sc Identity tab
-  -- default newTable :: (GConstructHK tab (HasConstColumn sc tab (HasDefault sc tab) (NewRow sc tab)) (TypeFields tab)) => NewRow sc tab -> TableValue sc Identity tab
-  -- newTable r = TableValue $ constructHK @(HasConstColumn sc tab (HasDefault sc tab) (NewRow sc tab)) (ExprF . toExprId . getConstCol (Proxy @'(sc, tab, (HasDefault sc tab))) r)
+  fromNewRow :: NewRow sc tab -> TableValue sc Identity tab
+
+  default fromNewRow :: (GConstructHK tab (HasConstColumn sc tab (HasDefault sc tab) (NewRow sc tab)) (TypeFields tab), MkFieldInvIx (TableColumns sc tab)) => NewRow sc tab -> TableValue sc Identity tab
+  fromNewRow r = TableValue fsix $ constructHK @(HasConstColumn sc tab (HasDefault sc tab) (NewRow sc tab)) (ExprF . toExprId . getConstCol (Proxy @'(sc, tab, (HasDefault sc tab))) r)
+    where fsix = mkFieldInvIx (Proxy @(TableColumns sc tab)) emptyFieldInvIx
+
+
+getMutQ :: forall o tab sc.(Table sc tab) => (PQ.TableId -> TableValue sc Identity tab -> MQuery sc o) -> MQuery sc o
+getMutQ mkMQ =
+  let
+    relq = rel @sc @tab (scoped $ \(clau, (Scoped tabv)) -> (clau, tabv))
+    (pq, tabi) = runQuery' relq
+    tabId = case pq of
+      PQ.Table (Just (PQ.TableName tabId')) _ -> tabId'
+      _ -> error "Panic: Internal invariant violated! Expected `Table` con from `rel`"
+  in mkMQ tabId tabi
 
 class MkFieldInvIx (xs :: [(Symbol, Type)]) where
   mkFieldInvIx :: Proxy xs -> FieldInvIx -> FieldInvIx
@@ -190,8 +205,23 @@ toExprId (PQ.Expr e) = PQ.Expr e
 class HasConstColumn (sc :: Type) (tab :: Type) (defs :: [Symbol]) (r :: Type) (col :: Symbol) (a :: Type) where
   getConstCol :: Proxy '(sc, tab, defs) -> r -> Proxy '(col, a) -> PQ.Expr sc (Field col a)
 
-instance (R.HasField col r a{-, ConstExpr sc a-}) => HasConstColumn sc tab defs r col a where
-  getConstCol _ _r _ = undefined --  constExpr $ R.getField @col r
+instance (HasConstOrDefCol (IsDefCol col defs) sc tab r col a) => HasConstColumn sc tab defs r col a where
+  getConstCol _ _r px = getConstOrDefCol (Proxy @'(sc, tab, (IsDefCol col defs))) _r px
+
+
+class HasConstOrDefCol (isDef :: Bool) (sc :: Type) (tab :: Type) (r :: Type) (col :: Symbol) (a :: Type) where
+  getConstOrDefCol :: Proxy '(sc, tab, isDef) -> r -> Proxy '(col, a) -> PQ.Expr sc (Field col a)
+
+instance HasConstOrDefCol 'True sc tab r col a where
+  getConstOrDefCol _ _ _ = PQ.Expr PQ.DefaultInsertExpr
+
+instance (R.HasField col r a, ConstExpr sc a) => HasConstOrDefCol 'False sc tab r col a where
+  getConstOrDefCol _ r _ = coerceExpr $ constExpr $ R.getField @col r
+
+type family IsDefCol (c :: Symbol) (defs :: [Symbol]) :: Bool where
+  IsDefCol c (c ': _) = 'True
+  IsDefCol c (_ ': ds) = IsDefCol c ds
+  IsDefCol _ '[] = 'False
   
 
 data Sequence = PGSerial Symbol   -- Column
@@ -229,6 +259,53 @@ runQuery'' asMay (Query' (exprs, st, mkPQ)) =
   in (mkPQ clau, tv)
 {-# INLINE runQuery' #-}
 
+execMQuery ::
+  (PQ.InsertQuery -> r)
+  -> (PQ.UpdateQuery -> r)
+  -> (PQ.DeleteQuery -> r)
+  -> r
+  -> MQuery sc t
+  -> r
+execMQuery i u d nop = fst . runMQuery i u d nop
+
+runMQuery ::
+  (PQ.InsertQuery -> r)
+  -> (PQ.UpdateQuery -> r)
+  -> (PQ.DeleteQuery -> r)
+  -> r
+  -> MQuery sc t
+  -> (r, TableValue sc Identity t)
+runMQuery i u d nop = \case
+  (InsertMQuery (exprs, st, mkPQ)) ->
+    let
+      (tv, (clau', _)) = runState st ([], exprs)
+      iq' = mkPQ clau'
+      setRet rets (PQ.InsertQuery tid atrs vs confMay _) = PQ.InsertQuery tid atrs vs confMay rets
+      iq = case tableToProjections tv of
+        [] -> iq'
+        ps -> setRet (fmap snd ps) iq'
+    in (i iq, tv)
+  (UpdateMQuery (exprs, st, mkPQ)) ->
+    let
+      (tv, (clau', _)) = runState st ([], exprs)
+      uq' = mkPQ clau'
+      setRet rets (PQ.UpdateQuery tid conds sets _) = PQ.UpdateQuery tid conds sets rets
+      uq = case tableToProjections tv of
+        [] -> uq'
+        ps -> setRet (fmap snd ps) uq'
+    in (u uq, tv)
+  (DeleteMQuery (exprs, st, mkPQ)) ->
+    let
+      (tv, (clau', _)) = runState st ([], exprs)
+      dq' = mkPQ clau'
+      -- TODO: ADD Delete Returning in the PQ AST
+      setRet _rets (PQ.DeleteQuery tid conds) = PQ.DeleteQuery tid conds -- rets
+      dq = case tableToProjections tv of
+        [] -> dq'
+        ps -> setRet (fmap snd ps) dq'
+    in (d dq, tv)
+  MQueryNoOp -> (nop, EmptyTable)
+
 getColumnAliasMap :: forall sc tab.(Table sc tab, AllF SingE (ColumnNames sc tab), SingI (ColumnNames sc tab)) => HM.HashMap Text Text
 getColumnAliasMap = HM.fromList $ fromSing (sing :: Sing (ColumnNames sc tab))
 {-# INLINE getColumnAliasMap #-}
@@ -241,7 +318,12 @@ newtype Clause (s :: Type) sc i o = Clause (State (PQ.Clauses, TableValue sc Ide
 instance Semigroup (Clause s sc i o) where
   clau1 <> clau2 = clau1 *> clau2
 
-data MQuery sc t
+data MQuery sc t where
+  MQueryNoOp :: MQuery sc ()
+  InsertMQuery :: (TableValue sc Identity i, State ([PQ.PrimExpr], TableValue sc Identity i) (TableValue sc Identity t), [PQ.PrimExpr] -> PQ.InsertQuery) -> MQuery sc t
+  UpdateMQuery :: (TableValue sc Identity i, State ([PQ.PrimExpr], TableValue sc Identity i) (TableValue sc Identity t), [PQ.PrimExpr] -> PQ.UpdateQuery) -> MQuery sc t
+  DeleteMQuery :: (TableValue sc Identity i, State ([PQ.PrimExpr], TableValue sc Identity i) (TableValue sc Identity t), [PQ.PrimExpr] -> PQ.DeleteQuery) -> MQuery sc t
+  
 newtype InsertClause s sc i o = InsertClause (Clause s sc i o)
   deriving newtype (Functor, Applicative, Monad, Semigroup)
 
@@ -263,7 +345,7 @@ tableToListWith :: (forall g (a :: Type).Typeable a => [Text] -> ExprF sc g a ->
 tableToListWith = tableToListWith' []
 
 tableToListWith' :: [Text] -> (forall g (a :: Type).Typeable a => [Text] -> ExprF sc g a -> r) -> TableValue sc f i -> [r]
-tableToListWith' pfxs fn (TableValue fsix hk) = fmap snd $ L.sortOn fst $ hkToListWith (\ex -> (fromMaybe (error $ "Panic: Invariant violated! " <> (show $ getExprSymTypeRep ex)) $ lookupFieldIx (getExprSymTypeRep ex) fsix, fn pfxs ex)) hk
+tableToListWith' pfxs fn (TableValue fsix hk) = fmap snd $ L.sortOn fst $ hkToListWith (\ex -> (fromMaybe (error $ "Panic: Invariant violated! " <> (show $ getExprSymTypeRep ex) <> (show $ hkToListWith (\fa -> show $ typeRep fa) hk)) $ lookupFieldIx (getExprSymTypeRep ex) fsix, fn pfxs ex)) hk
 tableToListWith' pfxs fn (CrossTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
 tableToListWith' pfxs fn (LeftJoinTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
 tableToListWith' pfxs fn (RightJoinTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
@@ -523,6 +605,8 @@ instance {-# OVERLAPPABLE #-}
   , SingI (ColumnNames sc tab)
   ) => HasColumnByDBType sc tab col a atrep where
   getColByDBTypeRep _ = getColumnName @sc @tab @col  
+
+
 
 type family GetTypeMappings (db :: Type) where
   GetTypeMappings db = GetTypeMappings' db (Types db)
@@ -2056,48 +2140,6 @@ instance (SingI ess, SingE ess) => Column_ a ('DBCustomType typ ('DBTypeName nam
 instance (UDType sc a, UDTargetType (TypeMappings sc a) x r a) => HasField x (PQ.Expr sc a) (PQ.Expr sc r) where
   hasField = udTargetType (Proxy @'(x, (TypeMappings sc a)))
 
-class UDTargetType (ud :: UDTypeMappings) fld r a | ud fld a -> r  where
-  udTargetType :: Proxy '(fld, ud) -> PQ.Expr sc a -> (PQ.Expr sc r -> PQ.Expr sc a, PQ.Expr sc r)
-
--- NOTE: if unresolved, then does not meet specifications
-type family GTarget (fld :: Symbol) (rep :: Type -> Type) :: Type where
-  GTarget fld (D1 _ c) = GTarget fld c 
-  GTarget fld (C1 _ p) = GTarget fld p
-  GTarget fld ((S1 ('MetaSel ('Just fld) _ _ _) (K1 _ t)) :*: _) = t
-  GTarget fld ((S1 ('MetaSel _ _ _ _) (K1 _ t)) :*: p) = GTarget fld p
-  GTarget fld (S1 ('MetaSel ('Just fld) _ _ _) (K1 _ t)) = t
-
-instance ( r ~ GTarget fld (Rep a)
-         , als ~ FindAlias flds fld
-         ) => UDTargetType ('Composite tyn flds) fld r a where
-  udTargetType _ (PQ.Expr _e) =
-    let get' = undefined
-        setter _a = undefined
-    in  (setter, get')
-
-instance ( r ~ GTarget fld (Rep a) 
-         , als ~ FindAlias flds fld
-         , KnownSymbol fld
-         , SingI als
-         , SingE als
-         ) => UDTargetType ('Flat flds) fld r a where
-  udTargetType _ (PQ.Expr e) =
-    let getter = case e of
-          (PQ.FlatComposite es) -> case lookup als es of
-            Just t -> PQ.Expr t
-            _      -> error "Panic: impossible case @UDTargetType. Field not found"
-          _ -> error "Panic: impossible case @UDTargetType. Found non FlatComposite"
-        setter a = case e of
-          (PQ.FlatComposite es) -> PQ.Expr (PQ.FlatComposite (map (set a) es))
-          pq                    -> PQ.Expr pq
-        set (PQ.Expr a) (fld, e0) | als == fld
-          = (fld, a)
-                                  | otherwise
-          = (fld, e0)
-        als = maybe (T.pack (symbolVal (Proxy @fld)))
-                    id
-                    (fromSing (sing :: Sing als))
-    in  (setter, getter)
 
 insert :: a -> [a] -> [a]
 insert = (:)

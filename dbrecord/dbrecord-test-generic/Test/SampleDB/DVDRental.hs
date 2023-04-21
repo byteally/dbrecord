@@ -19,6 +19,10 @@ import Data.Time
 import Data.ByteString (ByteString)
 import Data.Scientific
 
+-- TODO: Fix imports
+import Data.Functor.Identity
+import DBRecord.Internal.Schema (Clause, TableValue)
+
 data DVDRentalDB (db :: DbK)
 
 instance Database (DVDRentalDB db) where
@@ -171,7 +175,7 @@ data NewPayment = NewPayment
   { customerId :: Int16
   , staffId :: Int16
   , rentalId :: Int32
-  , amount :: Double -- numeric(5,2)
+  , amount :: Rational -- numeric(5,2)
   , paymentDate :: LocalTime
   } deriving (Show, Generic)
 
@@ -730,7 +734,33 @@ qGroupByWithMultipleCol = aggregate (rel @(DVDRentalDB db) @Payment) $ do
     .& end
 
 -- union
+type TableExpr sc tab o = (forall s. Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
+
+staffTable :: (db ~ 'Postgres) => TableExpr (DVDRentalDB db) Staff o
+staffTable = rel
+
+qUnion :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) Staff
+qUnion =
+  staffTable (restrict (.active) *> selectAll)
+  `union` staffTable (restrict (not_ . (.active)) *> selectAll)
+  
 -- intersect
+qIntersect :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) Staff
+qIntersect =
+  staffTable (restrict (.active) *> selectAll)
+  `intersect` staffTable (restrict (not_ . (.active)) *> selectAll)
+
+-- except
+qExcept :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) Staff
+qExcept =
+  staffTable (restrict (.active) *> selectAll)
+  `intersect` staffTable (restrict (not_ . (.active)) *> selectAll)  
 -- having
 -- grouping sets
 -- cube
@@ -742,6 +772,11 @@ qGroupByWithMultipleCol = aggregate (rel @(DVDRentalDB db) @Payment) $ do
 
 -- MUTATIONS
 -- insert
+qInsertEg1 :: forall db.
+  (db ~ 'Postgres) =>
+  MQuery (DVDRentalDB db) Category
+qInsertEg1 = do
+  insertOne NewCategory {name = "testc1"} id
 -- insert many
 -- update
 -- update join

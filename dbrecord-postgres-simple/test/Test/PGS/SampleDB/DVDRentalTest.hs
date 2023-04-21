@@ -118,10 +118,20 @@ hprop_test1 = property $ test $ do
     flip runReaderT (PGSConfig dbConfig) $ runDVDRentalPGM $ runSession $ runPostgresDB @PGDVDRentalDB $ do
       -- cats <- runQueryAsList $ rel @PGDVDRentalDB @Category $ selectAll
       -- liftIO $ print cats
-      q1 <- runQueryAsList $ qGroupByWithMultipleCol -- qWithTopOrBottomN
+      q1 <- runQueryAsList $ qExcept -- qWithTopOrBottomN
       liftIO $ print q1      
     pure ()
   'a' === 'a'
+
+hprop_test2 :: Property
+hprop_test2 = property $ test $ do
+  liftIO $ do
+    dbConfig <- pgDefaultPool $ testDBConnectInfo
+    flip runReaderT (PGSConfig dbConfig) $ runDVDRentalPGM $ runSession $ runPostgresDB @PGDVDRentalDB $ do
+      q1 <- runMQueryAsList $ qInsertEg1
+      liftIO $ print q1      
+    pure ()
+  'a' === 'a'  
 
 
 -- test_addition :: TestTree

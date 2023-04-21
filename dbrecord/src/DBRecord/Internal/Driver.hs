@@ -10,6 +10,7 @@ module DBRecord.Internal.Driver
   , HasUpdate (..)
   , HasUpdateRet (..)
   , HasDelete (..)
+  , HasDeleteRet (..)
   , HasSessionConfig (..)
   , Session (..)
   , HasTransaction (..)
@@ -52,6 +53,12 @@ class (DBDecoder driver) => HasUpdateRet driver where
 
 class HasDelete driver where
   dbDelete :: driver -> PQ.DeleteQuery -> IO Int64
+
+class (DBDecoder driver) => HasDeleteRet driver where
+  dbDeleteRetWith :: FromDBRowParser driver a -> driver -> PQ.DeleteQuery -> IO [a]
+  dbDeleteRet :: (FromDBRow driver a) => driver -> PQ.DeleteQuery -> IO [a]
+
+  dbDeleteRet = dbDeleteRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
 
 class (DBDecoder driver) => HasQuery driver where
   dbQueryWith :: FromDBRowParser driver a -> driver -> PQ.PrimQuery -> IO [a]

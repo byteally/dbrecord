@@ -529,7 +529,7 @@ insert row = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns reqFlds colIs)
     crets = map columnExpr (filterColumns pkFlds colIs)
     cexprs = toDBValues (Proxy @sc) values    
-    insertQ = InsertQuery tabId cnames (pure cexprs) Nothing crets
+    insertQ = InsertQuery tabId cnames (InsertValues $ pure cexprs) Nothing crets
   driver <- ask
   out <- liftIO $ dbInsertRet driver insertQ
   pure $ case out of
@@ -566,7 +566,7 @@ insertRet row rets = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)    
     cexprs = toDBValues (Proxy @sc) values
-    insertQ = InsertQuery tabId cnames (pure cexprs) Nothing (toPrimExprs $ rets (Q.Columns prjs))
+    insertQ = InsertQuery tabId cnames (InsertValues $ pure cexprs) Nothing (toPrimExprs $ rets (Q.Columns prjs))
   driver <- ask
   out <- liftIO $ dbInsertRet driver insertQ
   pure $ case out of
@@ -648,7 +648,7 @@ insertMany rows = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap (toDBValues (Proxy @sc)) values
     values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
-    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (go cexprss) Nothing []
+    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (InsertValues $ go cexprss) Nothing []
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
 
@@ -684,7 +684,7 @@ insertManyRet rows rets = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap (toDBValues (Proxy @sc)) values
     values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
-    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (go cexprss) Nothing (toPrimExprs $ rets (Q.Columns prjs))
+    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (InsertValues $ go cexprss) Nothing (toPrimExprs $ rets (Q.Columns prjs))
     prjs = Q.getTableProjections_ (Proxy @sc) (Proxy @tab)    
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
@@ -753,10 +753,10 @@ insertWithConflict_ ctgt cact row = do
       ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
       ConflictTargetAnon' -> ConflictAnon
     insertQ = case cact of
-      ConflictDoNothing' -> InsertQuery tabId cnames (pure cexprs) (Just (Conflict tgt ConflictDoNothing)) []
+      ConflictDoNothing' -> InsertQuery tabId cnames (InsertValues $ pure cexprs) (Just (Conflict tgt ConflictDoNothing)) []
       ConflictUpdate' crit updFn ->
         let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
-        in InsertQuery tabId cnames (pure cexprs) (Just (Conflict tgt (ConflictUpdate updq))) []
+        in InsertQuery tabId cnames (InsertValues $ pure cexprs) (Just (Conflict tgt (ConflictUpdate updq))) []
   driver <- ask
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
@@ -805,10 +805,10 @@ insertRetWithConflict ctgt cact row = do
       ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
       ConflictTargetAnon' -> ConflictAnon
     insertQ = case cact of
-      ConflictDoNothing' -> InsertQuery tabId cnames (pure cexprs) (Just (Conflict tgt ConflictDoNothing)) crets
+      ConflictDoNothing' -> InsertQuery tabId cnames (InsertValues $ pure cexprs) (Just (Conflict tgt ConflictDoNothing)) crets
       ConflictUpdate' crit updFn ->
         let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
-        in InsertQuery tabId cnames (pure cexprs) (Just (Conflict tgt (ConflictUpdate updq))) crets
+        in InsertQuery tabId cnames (InsertValues $ pure cexprs) (Just (Conflict tgt (ConflictUpdate updq))) crets
   driver <- ask
   out <- liftIO $ dbInsertRet driver insertQ
   pure $ case out of
@@ -841,7 +841,7 @@ insertMany_ rows = do
     cnames = map (^. columnNameInfo . dbName) (filterColumns tabFlds colIs)
     cexprss = fmap (toDBValues (Proxy @sc)) values
     values = fmap (\row -> toHList row (\v -> Identity v)) (getRows rows)
-    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (go cexprss) Nothing []
+    insertQ = InsertQuery (getTableId (Proxy @sc) (Proxy @tab)) cnames (InsertValues $ go cexprss) Nothing []
   driver <- ask
   _ <- liftIO $ dbInsert driver insertQ
   pure ()
@@ -894,10 +894,10 @@ insertManyRetWithConflict ctgt cact rows = do
       ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
       ConflictTargetAnon' -> ConflictAnon
     insertQ = case cact of
-      ConflictDoNothing' -> InsertQuery tabId cnames (go cexprss) (Just (Conflict tgt ConflictDoNothing)) crets
+      ConflictDoNothing' -> InsertQuery tabId cnames (InsertValues $ go cexprss) (Just (Conflict tgt ConflictDoNothing)) crets
       ConflictUpdate' crit updFn ->
         let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
-        in InsertQuery tabId cnames (go cexprss) (Just (Conflict tgt (ConflictUpdate updq))) crets
+        in InsertQuery tabId cnames (InsertValues $ go cexprss) (Just (Conflict tgt (ConflictUpdate updq))) crets
   driver <- ask
   liftIO $ dbInsertRet driver insertQ
 
@@ -948,10 +948,10 @@ insertManyWithConflict ctgt cact rows = do
       ConflictTargetColumns' cols -> ConflictColumn (map symFromText cols)
       ConflictTargetAnon' -> ConflictAnon
     insertQ = case cact of
-      ConflictDoNothing' -> InsertQuery tabId cnames (go cexprss) (Just (Conflict tgt ConflictDoNothing)) []
+      ConflictDoNothing' -> InsertQuery tabId cnames (InsertValues $ go cexprss) (Just (Conflict tgt ConflictDoNothing)) []
       ConflictUpdate' crit updFn ->
         let updq = UpdateQuery tabId [getExpr $ crit (Q.Columns prjs)] (HM.toList $ getUpdateMap $ updFn EmptyUpdate) []
-        in InsertQuery tabId cnames (go cexprss) (Just (Conflict tgt (ConflictUpdate updq))) []
+        in InsertQuery tabId cnames (InsertValues $ go cexprss) (Just (Conflict tgt (ConflictUpdate updq))) []
   driver <- ask
   liftIO $ dbInsert driver insertQ
   pure ()

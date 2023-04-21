@@ -37,20 +37,20 @@ import qualified Data.UUID as UUID
 import           Data.CaseInsensitive (CI, foldedCase, mk)
 import           Data.Coerce
 import           Data.Kind
-import           DBRecord.Internal.Schema (UDTargetType (..), GTarget)
+--import           DBRecord.Internal.Schema (UDTargetType (..), GTarget)
 import           DBRecord.Internal.Common (FindAlias, NewtypeRep, FromJust)
 import           GHC.Generics
 import           GHC.TypeLits
 import           GHC.OverloadedLabels
 
 class ConstExpr sc t where
-  constExpr :: t -> Expr sc t
+  constExpr :: t -> PQ.Expr sc t
 
-  default constExpr :: (Generic t, GConstExpr (TypeMappings sc t) (Rep t) sc t) => t -> Expr sc t
+  default constExpr :: (Generic t, GConstExpr (TypeMappings sc t) (Rep t) sc t) => t -> PQ.Expr sc t
   constExpr = gconstExpr (Proxy @(TypeMappings sc t)) . from
 
 class GConstExpr (udType :: UDTypeMappings) (rep :: Type -> Type) sc a where
-  gconstExpr :: Proxy udType -> rep x -> Expr sc a
+  gconstExpr :: Proxy udType -> rep x -> PQ.Expr sc a
 
 instance (GConstExpr ('EnumType al als) g sc a) => GConstExpr ('EnumType al als) (D1 m g) sc a where
   gconstExpr p (M1 rep) =
@@ -65,7 +65,7 @@ instance ( al ~ FindAlias als n
          , SingE al
          ) => GConstExpr ('EnumType nal als) (C1 ('MetaCons n f s) U1) sc a where
   gconstExpr _ (M1 _) =
-    annotateType (PQ.Expr . PQ.ConstExpr . PQ.String $ al)
+    PQ.annotateType (PQ.Expr . PQ.ConstExpr . PQ.String $ al)
 
     where al = maybe (T.pack (symbolVal (Proxy @n)))
                id
@@ -116,7 +116,7 @@ instance ( GConstExprFlat als rep sc a
   gconstExpr _ = gconstExprFlat (Proxy @als) 
 
 class GConstExprFlat als rep sc a where
-  gconstExprFlat :: Proxy als -> rep x -> Expr sc a
+  gconstExprFlat :: Proxy als -> rep x -> PQ.Expr sc a
 
 instance (GConstExprFlat als g sc a) => GConstExprFlat als (D1 m g) sc a where
   gconstExprFlat pals (M1 rep) =
@@ -130,10 +130,10 @@ instance ( GConstExprFlat als g1 sc a
          , GConstExprFlat als g2 sc a
          ) => GConstExprFlat als (g1 :*: g2) sc a where
   gconstExprFlat pals (g1 :*: g2) =
-    unsafeCoerceExpr (gconstExprFlat pals g1 `appendFlatComposite` gconstExprFlat pals g2)
+    PQ.unsafeCoerceExpr (gconstExprFlat pals g1 `appendFlatComposite` gconstExprFlat pals g2)
 
-    where appendFlatComposite :: Expr sc a -> Expr sc a -> Expr sc a
-          appendFlatComposite (Expr (PQ.FlatComposite xs)) (Expr (PQ.FlatComposite ys)) = Expr (PQ.FlatComposite (xs ++ ys))
+    where appendFlatComposite :: PQ.Expr sc a -> PQ.Expr sc a -> PQ.Expr sc a
+          appendFlatComposite (PQ.Expr (PQ.FlatComposite xs)) (PQ.Expr (PQ.FlatComposite ys)) = PQ.Expr (PQ.FlatComposite (xs ++ ys))
           appendFlatComposite a b = error $ "Panic: expecting only flatcomposite @appendFlatComposite" ++ show (a, b)
 
 instance ( al ~ FindAlias als n
@@ -143,10 +143,10 @@ instance ( al ~ FindAlias als n
          , ConstExpr sc t
          ) => GConstExprFlat als (S1 ('MetaSel ('Just n) su ss ds) (K1 i t)) sc a where
   gconstExprFlat _ (M1 (K1 v)) =
-    unsafeCoerceExpr (flatComposite (constExpr v))
+    PQ.unsafeCoerceExpr (flatComposite (constExpr v))
 
-    where flatComposite :: Expr sc t -> Expr sc t
-          flatComposite (Expr v0) = Expr (PQ.FlatComposite (pure (al, v0)))
+    where flatComposite :: PQ.Expr sc t -> PQ.Expr sc t
+          flatComposite (PQ.Expr v0) = PQ.Expr (PQ.FlatComposite (pure (al, v0)))
 
           al = maybe (T.pack (symbolVal (Proxy @n)))
                id
@@ -191,15 +191,21 @@ instance ConstExpr sc SB.ByteString where
   constExpr = bytes
 
 instance ConstExpr sc t => ConstExpr sc (fn ::: t) where
-  constExpr (Field v) = unwrap $ constExpr v
-    where unwrap :: Expr sc t -> Expr sc (fn ::: t)
-          unwrap = unsafeCoerceExpr
+  constExpr (DBRecord.Internal.Types.Field v) = unwrap $ constExpr v
+    where unwrap :: PQ.Expr sc t -> PQ.Expr sc (fn ::: t)
+          unwrap = PQ.unsafeCoerceExpr
 
 instance ConstExpr sc Double where
   constExpr = literalExpr . PQ.Double
 
 instance ConstExpr sc Float where
   constExpr = literalExpr . PQ.Double . fromRational . toRational
+
+instance ConstExpr sc Rational where
+  constExpr = literalExpr . PQ.Double . fromRational
+
+instance ConstExpr sc Scientific where
+  constExpr = literalExpr . PQ.Double . toRealFloat -- (flip toRationalRepetend 2)
 
 instance ( DBTypeCtx (GetDBTypeRep sc (CI T.Text))
          , SingI (GetDBTypeRep sc (CI T.Text))
@@ -254,6 +260,16 @@ instance (ConstExpr sc a) => ConstExpr sc (Maybe a) where
 
 instance ConstExpr sc LTree where
   constExpr = ltree
+
+ltree :: LTree -> PQ.Expr sc LTree
+ltree (LTree vs) = go vs
+    where
+      go = literalExpr . PQ.String . dotSep
+      dotSep = T.intercalate "."
+
+literalExpr :: PQ.Lit -> PQ.Expr sc a
+literalExpr = PQ.Expr . PQ.ConstExpr      
+
 
 instance (OrdExpr db v) => OrdExpr db (Key t v) where
   a .<= b = (coerceExprTo a .<= coerceExprTo b)
@@ -325,9 +341,6 @@ lazyDecodeUtf8 = LT.unpack . LTE.decodeUtf8
 
 class (Num a) => NumExpr a where
   exprFromInteger :: Integer -> Expr sc a
-
-literalExpr :: PQ.Lit -> Expr sc a
-literalExpr = Expr . PQ.ConstExpr
 
 deriving instance (NumExpr a) => NumExpr (Identity a)
 
@@ -790,11 +803,6 @@ parseInterval = do
   return undefined -- (sum ds + time*timesign)
 -}
 
-ltree :: LTree -> Expr sc LTree
-ltree (LTree vs) = go vs
-    where
-      go = literalExpr . PQ.String . dotSep
-      dotSep = T.intercalate "."
 
 pgOID :: PGOID t -> Expr sc (PGOID t)
 pgOID oid = go (getPGOID oid)
@@ -1058,3 +1066,49 @@ instance Alias (AggExpr sc) where
 instance ( lab ~ sym
          ) => IsLabel lab (Proxy sym) where
   fromLabel = Proxy
+
+
+---- from Int.Schema
+
+class UDTargetType (ud :: UDTypeMappings) fld r a | ud fld a -> r  where
+  udTargetType :: Proxy '(fld, ud) -> PQ.Expr sc a -> (PQ.Expr sc r -> PQ.Expr sc a, PQ.Expr sc r)
+
+-- NOTE: if unresolved, then does not meet specifications
+type family GTarget (fld :: Symbol) (rep :: Type -> Type) :: Type where
+  GTarget fld (D1 _ c) = GTarget fld c 
+  GTarget fld (C1 _ p) = GTarget fld p
+  GTarget fld ((S1 ('MetaSel ('Just fld) _ _ _) (K1 _ t)) :*: _) = t
+  GTarget fld ((S1 ('MetaSel _ _ _ _) (K1 _ t)) :*: p) = GTarget fld p
+  GTarget fld (S1 ('MetaSel ('Just fld) _ _ _) (K1 _ t)) = t
+
+instance ( r ~ GTarget fld (Rep a)
+         , als ~ FindAlias flds fld
+         ) => UDTargetType ('Composite tyn flds) fld r a where
+  udTargetType _ (PQ.Expr _e) =
+    let get' = undefined
+        setter _a = undefined
+    in  (setter, get')
+
+instance ( r ~ GTarget fld (Rep a) 
+         , als ~ FindAlias flds fld
+         , KnownSymbol fld
+         , SingI als
+         , SingE als
+         ) => UDTargetType ('Flat flds) fld r a where
+  udTargetType _ (PQ.Expr e) =
+    let getter = case e of
+          (PQ.FlatComposite es) -> case lookup als es of
+            Just t -> PQ.Expr t
+            _      -> error "Panic: impossible case @UDTargetType. Field not found"
+          _ -> error "Panic: impossible case @UDTargetType. Found non FlatComposite"
+        setter a = case e of
+          (PQ.FlatComposite es) -> PQ.Expr (PQ.FlatComposite (map (set a) es))
+          pq                    -> PQ.Expr pq
+        set (PQ.Expr a) (fld, e0) | als == fld
+          = (fld, a)
+                                  | otherwise
+          = (fld, e0)
+        als = maybe (T.pack (symbolVal (Proxy @fld)))
+                    id
+                    (fromSing (sing :: Sing als))
+    in  (setter, getter)
