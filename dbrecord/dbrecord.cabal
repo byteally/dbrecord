@@ -146,6 +146,7 @@ library dbrecord-test-generic
                      , hedgehog
                      , tasty
                      , tasty-golden
+                     , rec
   exposed-modules:     Test.Schema
                      , Test.Query
                      , Test.SampleDB.DVDRental

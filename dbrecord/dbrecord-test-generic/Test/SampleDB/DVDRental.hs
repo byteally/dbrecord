@@ -3,6 +3,8 @@
 {-# LANGUAGE TypeFamilies            #-}
 {-# LANGUAGE DataKinds               #-}
 {-# LANGUAGE OverloadedRecordDot     #-}
+{-# LANGUAGE OverloadedRecordUpdate  #-}
+{-# LANGUAGE RebindableSyntax        #-}
 {-# LANGUAGE OverloadedLabels        #-}
 {-# LANGUAGE OverloadedStrings       #-}
 {-# LANGUAGE DerivingStrategies      #-}
@@ -18,6 +20,13 @@ import Data.Text (Text)
 import Data.Time
 import Data.ByteString (ByteString)
 import Data.Scientific
+
+-- After rebindable syntax import
+import Prelude
+import GHC.Records
+import GHC.OverloadedLabels
+import Data.String
+import Record.Setter
 
 -- TODO: Fix imports
 import Data.Functor.Identity
@@ -779,6 +788,13 @@ qInsertEg1 = do
   insertOne NewCategory {name = "testc1"} id
 -- insert many
 -- update
+qUpdateEg1 :: forall db.
+  (db ~ 'Postgres) =>
+  MQuery (DVDRentalDB db) Category
+qUpdateEg1 = do
+  update @Category (\cat -> cat { name = "upd_" .++ cat.name }) $ do
+    restrict $ \r -> r.categoryId .== 300
+    selectAll
 -- update join
 -- delete
 -- delete join

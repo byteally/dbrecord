@@ -287,7 +287,7 @@ runMQuery i u d nop = \case
     in (i iq, tv)
   (UpdateMQuery (exprs, st, mkPQ)) ->
     let
-      (tv, (clau', _)) = runState st ([], exprs)
+      (tv, (clau', _)) = runState st (PQ.clauses, exprs)
       uq' = mkPQ clau'
       setRet rets (PQ.UpdateQuery tid conds sets _) = PQ.UpdateQuery tid conds sets rets
       uq = case tableToProjections tv of
@@ -321,7 +321,7 @@ instance Semigroup (Clause s sc i o) where
 data MQuery sc t where
   MQueryNoOp :: MQuery sc ()
   InsertMQuery :: (TableValue sc Identity i, State ([PQ.PrimExpr], TableValue sc Identity i) (TableValue sc Identity t), [PQ.PrimExpr] -> PQ.InsertQuery) -> MQuery sc t
-  UpdateMQuery :: (TableValue sc Identity i, State ([PQ.PrimExpr], TableValue sc Identity i) (TableValue sc Identity t), [PQ.PrimExpr] -> PQ.UpdateQuery) -> MQuery sc t
+  UpdateMQuery :: (TableValue sc Identity i, State (PQ.Clauses, TableValue sc Identity i) (TableValue sc Identity t), PQ.Clauses -> PQ.UpdateQuery) -> MQuery sc t
   DeleteMQuery :: (TableValue sc Identity i, State ([PQ.PrimExpr], TableValue sc Identity i) (TableValue sc Identity t), [PQ.PrimExpr] -> PQ.DeleteQuery) -> MQuery sc t
   
 newtype InsertClause s sc i o = InsertClause (Clause s sc i o)

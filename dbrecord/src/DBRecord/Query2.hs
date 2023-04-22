@@ -71,6 +71,7 @@ import DBRecord.Internal.Lens ((^.))
 import Control.Exception hiding (TypeError)
 import Data.Kind 
 import Record
+import Record.Setter
 import GHC.OverloadedLabels
 import GHC.Records as R
 -- import qualified GHC.Records.Compat as R
@@ -477,14 +478,36 @@ insertMany vs ret = insert @f vs ret
 insertFrom :: forall o tab sc.(Table sc tab) => Query sc (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
 insertFrom qs ret = insert @(Query' PlainQ sc) qs ret
 
--- TODO: Should be a newtype of basetable
-type UpdatingRow sc tab = TableValue sc Identity tab
-  
-updatable :: forall o tab sc.(Table sc tab) => (UpdatingRow sc tab -> UpdatingRow sc tab) -> (forall s.Clause s sc tab o) -> MQuery sc o
-updatable _ _ = undefined
+data UpdatingRow sc tab = UpdatingRow (TableValue sc Identity tab) (TableValue sc Identity tab -> PQ.Assoc)
 
-deletable :: forall o tab sc.(Table sc tab) => (forall s.Clause s sc tab o) -> MQuery sc o
-deletable _ = undefined
+runUpdatingRow :: UpdatingRow sc tab -> PQ.Assoc
+runUpdatingRow (UpdatingRow tv updr) = updr tv
+
+instance (R.HasField fn (TableValue sc Identity tab) t) => R.HasField (fn :: Symbol) (UpdatingRow sc tab) t where
+  getField (UpdatingRow tv _) = R.getField @fn tv
+
+instance (R.HasField fn tab a, KnownSymbol fn, Typeable a) => SetField (fn :: Symbol) (UpdatingRow sc tab) (Expr sc a) where
+  modifyField upd (UpdatingRow tv@(TableValue _ _) updr) =
+    let
+      newUpdr = \btv ->
+        let
+          colE = R.getField @fn tv
+          colN = case colE of
+            PQ.Expr (PQ.BaseTableAttrExpr a) -> a
+            PQ.Expr e -> error $ "Panic: Invariant violated! Expected only `BaseTableAttrExpr` " <> (show e)
+        in (colN, PQ.getExpr (upd colE)) : updr btv
+    in UpdatingRow tv newUpdr
+  modifyField _ (UpdatingRow _ _) = error "Panic: Invariant of UpdatingRow violated! Expected only base table"
+  
+update :: forall tab o sc.(Table sc tab) => (UpdatingRow sc tab -> UpdatingRow sc tab) -> (forall s.Clause s sc tab (TableValue sc Identity o)) -> MQuery sc o
+update updFn (Clause clau) = getMutQ @o @tab @sc $ \tabId basetab ->
+  let
+    updAssoc = runUpdatingRow $ updFn (UpdatingRow basetab (const []))
+    mkUpdatePQ PQ.Clauses {criteria} = UpdateQuery tabId criteria updAssoc []
+  in UpdateMQuery (basetab, clau, mkUpdatePQ)
+
+delete :: forall tab o sc.(Table sc tab) => (forall s.Clause s sc tab o) -> MQuery sc o
+delete _ = undefined
 
 runMQueryAsList :: forall r m sc driver.
   ( MonadIO m
