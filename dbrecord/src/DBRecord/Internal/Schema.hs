@@ -296,10 +296,9 @@ runMQuery i u d nop = \case
     in (u uq, tv)
   (DeleteMQuery (exprs, st, mkPQ)) ->
     let
-      (tv, (clau', _)) = runState st ([], exprs)
+      (tv, (clau', _)) = runState st (PQ.clauses, exprs)
       dq' = mkPQ clau'
-      -- TODO: ADD Delete Returning in the PQ AST
-      setRet _rets (PQ.DeleteQuery tid conds) = PQ.DeleteQuery tid conds -- rets
+      setRet rets (PQ.DeleteQuery tid conds _) = PQ.DeleteQuery tid conds rets
       dq = case tableToProjections tv of
         [] -> dq'
         ps -> setRet (fmap snd ps) dq'
@@ -322,7 +321,7 @@ data MQuery sc t where
   MQueryNoOp :: MQuery sc ()
   InsertMQuery :: (TableValue sc Identity i, State ([PQ.PrimExpr], TableValue sc Identity i) (TableValue sc Identity t), [PQ.PrimExpr] -> PQ.InsertQuery) -> MQuery sc t
   UpdateMQuery :: (TableValue sc Identity i, State (PQ.Clauses, TableValue sc Identity i) (TableValue sc Identity t), PQ.Clauses -> PQ.UpdateQuery) -> MQuery sc t
-  DeleteMQuery :: (TableValue sc Identity i, State ([PQ.PrimExpr], TableValue sc Identity i) (TableValue sc Identity t), [PQ.PrimExpr] -> PQ.DeleteQuery) -> MQuery sc t
+  DeleteMQuery :: (TableValue sc Identity i, State (PQ.Clauses, TableValue sc Identity i) (TableValue sc Identity t), PQ.Clauses -> PQ.DeleteQuery) -> MQuery sc t
   
 newtype InsertClause s sc i o = InsertClause (Clause s sc i o)
   deriving newtype (Functor, Applicative, Monad, Semigroup)

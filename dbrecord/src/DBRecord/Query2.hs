@@ -506,8 +506,11 @@ update updFn (Clause clau) = getMutQ @o @tab @sc $ \tabId basetab ->
     mkUpdatePQ PQ.Clauses {criteria} = UpdateQuery tabId criteria updAssoc []
   in UpdateMQuery (basetab, clau, mkUpdatePQ)
 
-delete :: forall tab o sc.(Table sc tab) => (forall s.Clause s sc tab o) -> MQuery sc o
-delete _ = undefined
+delete :: forall tab o sc.(Table sc tab) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> MQuery sc o
+delete (Clause clau) = getMutQ @o @tab @sc $ \tabId basetab ->
+  let
+    mkDeletePQ PQ.Clauses {criteria} = PQ.DeleteQuery tabId criteria []
+  in DeleteMQuery (basetab, clau, mkDeletePQ)
 
 runMQueryAsList :: forall r m sc driver.
   ( MonadIO m

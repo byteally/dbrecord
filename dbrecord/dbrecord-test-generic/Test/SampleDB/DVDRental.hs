@@ -797,6 +797,13 @@ qUpdateEg1 = do
     selectAll
 -- update join
 -- delete
+qDeleteEg1 :: forall db.
+  (db ~ 'Postgres) =>
+  MQuery (DVDRentalDB db) Category
+qDeleteEg1 = do
+  delete @Category $ do
+    restrict $ \r -> r.categoryId .== 301
+    selectAll
 -- delete join
 -- upsert
 -- TODO:

@@ -92,7 +92,7 @@ data InsertValues
 data UpdateQuery = UpdateQuery TableId [PrimExpr] Assoc [PrimExpr]
                  deriving (Show)
 
-data DeleteQuery = DeleteQuery TableId [PrimExpr]
+data DeleteQuery = DeleteQuery TableId [PrimExpr] [PrimExpr]
                  deriving (Show)
 
 data Conflict = Conflict ConflictTarget ConflictAction
@@ -352,7 +352,7 @@ foldUpdateQuery f = fix fold
   where fold _self (UpdateQuery ti cond assoc rets) = updateQ f ti cond assoc rets
 
 newtype DeleteQueryFold p = DeleteQueryFold
- { deleteQ :: TableId -> [PrimExpr] -> p
+ { deleteQ :: TableId -> [PrimExpr] -> [PrimExpr] -> p
  }
 
 deleteQueryFoldDefault :: DeleteQueryFold DeleteQuery
@@ -360,7 +360,7 @@ deleteQueryFoldDefault = DeleteQueryFold {deleteQ = DeleteQuery}
 
 foldDeleteQuery :: DeleteQueryFold p -> DeleteQuery -> p
 foldDeleteQuery f = fix fold
-  where fold _self (DeleteQuery ti cond) = deleteQ f ti cond
+  where fold _self (DeleteQuery ti cond rets) = deleteQ f ti cond rets
 
 isFieldExpr :: PrimExpr -> Bool
 isFieldExpr (AttrExpr {})          = True

@@ -455,7 +455,7 @@ delete :: forall sc tab m driver.
   , SingCtxSc sc
   ) => (Q.Columns tab -> Expr sc Bool) -> m (RowCount tab)
 delete filt = do
-  let deleteQ = DeleteQuery (getTableId (Proxy @sc) (Proxy @tab)) [getExpr $ filt (Q.Columns prjs)]
+  let deleteQ = DeleteQuery (getTableId (Proxy @sc) (Proxy @tab)) [getExpr $ filt (Q.Columns prjs)] []
   driver <- ask
   RowCount <$> (liftIO $ dbDelete driver deleteQ)
 

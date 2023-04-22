@@ -168,7 +168,7 @@ toSqlWindow = sqlWindow defaultSqlGenerator
 data SqlGenerator = SqlGenerator
     {
      sqlUpdate      :: SqlTableName -> [PQ.PrimExpr] -> PQ.Assoc -> [PQ.PrimExpr] -> SqlUpdate,
-     sqlDelete      :: SqlTableName -> [PQ.PrimExpr] -> SqlDelete,
+     sqlDelete      :: SqlTableName -> [PQ.PrimExpr] -> [PQ.PrimExpr] -> SqlDelete,
      sqlInsert      :: SqlTableName -> [PQ.Attribute] -> PQ.InsertValues -> Maybe PQ.Conflict -> [PQ.PrimExpr] -> SqlInsert,
      sqlExpr        :: PQ.PrimExpr -> SqlExpr,
      sqlLiteral     :: PQ.Lit -> LitSql,
@@ -420,9 +420,10 @@ defaultSqlInsert _gen _tbl _attrs _exprs _conflict _rets = error "TODO: Handle o
 defaultSqlDelete :: SqlGenerator
                    -> SqlTableName
                    -> [PQ.PrimExpr] -- ^ Criteria which must all be true for a row
-                                 --   to be deleted.
+                                    --   to be deleted.
+                   -> [PQ.PrimExpr]
                    -> SqlDelete
-defaultSqlDelete gen tbl criteria = SqlDelete tbl (map (sqlExpr gen) criteria)
+defaultSqlDelete gen tbl criteria rets = SqlDelete tbl (map (sqlExpr gen) criteria) (map (sqlExpr gen) rets)
 
 toSqlConflict :: PQ.Conflict -> SqlConflict
 toSqlConflict (PQ.Conflict cft act) =

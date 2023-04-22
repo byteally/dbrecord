@@ -128,7 +128,7 @@ hprop_test2 = property $ test $ do
   liftIO $ do
     dbConfig <- pgDefaultPool $ testDBConnectInfo
     flip runReaderT (PGSConfig dbConfig) $ runDVDRentalPGM $ runSession $ runPostgresDB @PGDVDRentalDB $ do
-      q1 <- runMQueryAsList $ qUpdateEg1
+      q1 <- runMQueryAsList $ qDeleteEg1
       liftIO $ print q1      
     pure ()
   'a' === 'a'  

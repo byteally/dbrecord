@@ -354,8 +354,10 @@ ppUpdate' b (SqlUpdate table assigns criteria rets)
       ppAssign (c,e) = ppColumn c <+> equals <+> ppExpr e      
 
 ppDelete :: SqlDelete -> Doc
-ppDelete (SqlDelete table criteria) =
-    text "DELETE FROM" <+> ppTableName table $$ ppWhere criteria
+ppDelete (SqlDelete table criteria rets) =
+    text "DELETE FROM" <+> ppTableName table
+    $$ ppWhere criteria
+    $$ ppReturning rets
     
 ppReturning :: [SqlExpr] -> Doc
 ppReturning []   = empty

@@ -76,7 +76,7 @@ data SqlConflictAction = SqlConflictDoNothing
 data SqlUpdate = SqlUpdate SqlTableName [(SqlColumn,SqlExpr)] [SqlExpr] [SqlExpr]
                  deriving (Show, Read, Eq)
                           
-data SqlDelete = SqlDelete SqlTableName [SqlExpr]
+data SqlDelete = SqlDelete SqlTableName [SqlExpr] [SqlExpr]
                  deriving (Show, Read, Eq)
 
 type Alias = Maybe String
