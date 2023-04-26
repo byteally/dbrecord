@@ -167,14 +167,15 @@ class ( Schema sc
 
 
 getMutQ :: forall o tab sc.(Table sc tab) => (PQ.TableId -> TableValue sc Identity tab -> MQuery sc o) -> MQuery sc o
-getMutQ mkMQ =
+getMutQ k =
   let
     relq = rel @sc @tab (scoped $ \(clau, (Scoped tabv)) -> (clau, tabv))
     (pq, tabi) = runQuery' relq
     tabId = case pq of
       PQ.Table (Just (PQ.TableName tabId')) _ -> tabId'
       _ -> error "Panic: Internal invariant violated! Expected `Table` con from `rel`"
-  in mkMQ tabId tabi
+  in k tabId tabi
+
 
 class MkFieldInvIx (xs :: [(Symbol, Type)]) where
   mkFieldInvIx :: Proxy xs -> FieldInvIx -> FieldInvIx
@@ -490,23 +491,32 @@ distExprF :: ExprF sc Maybe t -> ExprF sc Identity (Maybe t)
 distExprF = undefined
 
 data FieldInvIx = FieldInvIx !Int !(Map.Map Data.Typeable.TypeRep Int)
+  deriving Show
 
 emptyFieldInvIx :: FieldInvIx
 emptyFieldInvIx = FieldInvIx 0 mempty
+{-# INLINE emptyFieldInvIx #-}
+
+fromListToFieldInvIx :: [TypeRep] -> FieldInvIx
+fromListToFieldInvIx = L.foldl' (\fsix trep -> indexField trep fsix) emptyFieldInvIx
+{-# INLINE fromListToFieldInvIx #-}
 
 indexField :: TypeRep -> FieldInvIx -> FieldInvIx
 indexField trep (FieldInvIx prev ixMap) =
   let newIx = prev + 1
   in FieldInvIx newIx (Map.insert trep newIx ixMap)
+{-# INLINE indexField #-}  
 
 lookupFieldIx :: TypeRep -> FieldInvIx -> Maybe Int
 lookupFieldIx trep (FieldInvIx _ ixMap) = Map.lookup trep ixMap
+{-# INLINE lookupFieldIx #-}
 
 deleteFieldIx :: TypeRep -> FieldInvIx -> FieldInvIx
 deleteFieldIx trep (FieldInvIx prev ixMap) = FieldInvIx prev $ Map.delete trep ixMap
+{-# INLINE deleteFieldIx #-}
 
 data TableValue sc f t where
-  TableValue :: FieldInvIx -> (HK (ExprF sc f) t) -> TableValue sc f t
+  TableValue :: !FieldInvIx -> (HK (ExprF sc f) t) -> TableValue sc f t
 --  NestedTable :: (HK (TableValue sc f) t) -> TableValue sc f t
   CrossTable :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, r2)])
   LeftJoinTable :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc Maybe r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, Maybe r2)])

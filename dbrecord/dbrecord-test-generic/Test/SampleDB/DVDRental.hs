@@ -334,13 +334,14 @@ data UserInfo = UserInfo
   { surname :: Text
   , custId :: Int32
   } deriving (Show, Generic)
+    deriving anyclass (DBRepr db)
   
 selectUsingEg1 :: forall db.
   (db ~ 'Postgres) =>
   Query (DVDRentalDB db) UserInfo
 selectUsingEg1 = rel @(DVDRentalDB db) @Customer $ selectUsing @UserInfo $ \customer ->
-  #surname .= val customer.lastName
-  .& #custId .= val customer.customerId
+  #custId .= val customer.customerId
+  .& #surname .= val customer.lastName
   .& end
 
 selectNoneEg :: forall db.
@@ -720,13 +721,13 @@ qGroupByWithoutAgg = aggregate (rel @(DVDRentalDB db) @Payment) $ do
 qGroupByWithSum :: forall db.
   (db ~ 'Postgres) =>
   Query (DVDRentalDB db) (Rec '[ '("sumAmount", Rational)
---                               , '("customerId", Int16)
+                               , '("customerId", Int16)
                                ])
 qGroupByWithSum = aggregate (rel @(DVDRentalDB db) @Payment) $ do
-  _custIdGrp <- groupBy $ \r -> r.customerId
-  selectAgg $ \_groupSel r ->
+  custIdGrp <- groupBy $ \r -> r.customerId
+  selectAgg $ \groupSel r ->
     #sumAmount .= sumOf (val r.amount)
---    .& #customerId .= groupSel custIdGrp
+    .& #customerId .= groupSel custIdGrp
     .& end
 
 qGroupByWithMultipleCol :: forall db.

@@ -57,6 +57,7 @@ import DBRecord.Internal.Types
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
+import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
 import Data.Proxy
 import Data.Int
@@ -78,6 +79,7 @@ import GHC.Records as R
 import GHC.Generics
 
 -- TODO: Clean up
+import Debug.Trace
 import DBRecord.Driver
 import GHC.Records
 
@@ -250,7 +252,7 @@ restrict :: forall i sc s.(Scoped s sc i -> Expr sc Bool) -> Clause s sc i ()
 restrict filtFn = scoped $ \(clau, inp) -> (clau {criteria = criteria clau <> [PQ.getExpr (filtFn inp)]}, ())
 
 
-data SelectList sc os = SelectList FieldInvIx (HRec (PQ.Expr sc) os)
+data SelectList sc os = SelectList [TypeRep] (HRec (PQ.Expr sc) os)
 --  deriving newtype (AnonRec)
 
 instance AnonRec (SelectList sc) where
@@ -258,10 +260,10 @@ instance AnonRec (SelectList sc) where
   type IsHKRec (SelectList sc) = IsHKRec (HRec (PQ.Expr sc))
   type FieldNameConstraint (SelectList sc) = FieldNameConstraint (HRec (PQ.Expr sc))
   type FieldConstraint (SelectList sc) = FieldConstraint (HRec (PQ.Expr sc))
-  endRec = SelectList emptyFieldInvIx endRec
+  endRec = SelectList [] endRec
   {-# INLINE endRec #-}
   consRec fld (SelectList fsix r) =
-    let nfsix = indexField (fldTyTRep fld) fsix
+    let nfsix = (fldTyTRep fld) : fsix
         fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
         fldTyTRep _ = typeRep (Proxy @fn)
     in SelectList nfsix $ consRec fld r
@@ -270,20 +272,20 @@ instance AnonRec (SelectList sc) where
     let (fld, r') = unconsRec r
         fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
         fldTyTRep _ = typeRep (Proxy @fn)
-    in (fld, SelectList (deleteFieldIx (fldTyTRep fld) fsix) r')
+    in (fld, SelectList (L.delete (fldTyTRep fld) fsix) r')
   
 
-data AggSelectList sc os = AggSelectList FieldInvIx (HRec (PQ.AggExpr sc) os)
+data AggSelectList sc os = AggSelectList [TypeRep] (HRec (PQ.AggExpr sc) os)
 
 instance AnonRec (AggSelectList sc) where
   type FieldKind (AggSelectList sc) = FieldKind (HRec (PQ.AggExpr sc))
   type IsHKRec (AggSelectList sc) = IsHKRec (HRec (PQ.AggExpr sc))
   type FieldNameConstraint (AggSelectList sc) = FieldNameConstraint (HRec (PQ.AggExpr sc))
   type FieldConstraint (AggSelectList sc) = FieldConstraint (HRec (PQ.AggExpr sc))
-  endRec = AggSelectList emptyFieldInvIx endRec
+  endRec = AggSelectList [] endRec
   {-# INLINE endRec #-}
   consRec fld (AggSelectList fsix r) =
-    let nfsix = indexField (fldTyTRep fld) fsix
+    let nfsix = (fldTyTRep fld) : fsix
         fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
         fldTyTRep _ = typeRep (Proxy @fn)
     in AggSelectList nfsix $ consRec fld r
@@ -292,17 +294,17 @@ instance AnonRec (AggSelectList sc) where
     let (fld, r') = unconsRec r
         fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
         fldTyTRep _ = typeRep (Proxy @fn)
-    in (fld, AggSelectList (deleteFieldIx (fldTyTRep fld) fsix) r')
+    in (fld, AggSelectList (L.delete (fldTyTRep fld) fsix) r')
 
 selectListToTable :: SelectList sc os -> TableValue sc Identity (Rec os)
-selectListToTable (SelectList fsix selRec) = TableValue fsix $ hoistWithKeyHK (ExprF . toIdExpr) $ hrecToHKOfRec selRec
+selectListToTable (SelectList fsix selRec) = TableValue (fromListToFieldInvIx fsix) $ hoistWithKeyHK (ExprF . toIdExpr) $ hrecToHKOfRec selRec
 
 aggSelectListToTable :: AggSelectList sc os -> TableValue sc Aggregated (Rec os)
-aggSelectListToTable (AggSelectList fsix selRec) = TableValue fsix $ hoistWithKeyHK (ExprF . coerceExpr . getAggExpr) $ hrecToHKOfRec selRec
+aggSelectListToTable (AggSelectList fsix selRec) = TableValue (fromListToFieldInvIx fsix) $ hoistWithKeyHK (ExprF . coerceExpr . getAggExpr) $ hrecToHKOfRec selRec
 
 -- TODO: Bugy. Fix the FieldIxs w.r.t target type
 selectListToType :: (ValidateRecToType os t) => SelectList sc os -> TableValue sc Identity t
-selectListToType (SelectList fsix selRec) = TableValue fsix $ hoistWithKeyHK (ExprF . toIdExpr) $ fromHRec selRec
+selectListToType (SelectList fsix selRec) = TableValue (fromListToFieldInvIx fsix) $ hoistWithKeyHK (ExprF . toIdExpr) $ fromHRec selRec
 
   
 newtype SelectScope s sc i = SelectScope (Scoped s sc i)
@@ -498,7 +500,14 @@ instance (R.HasField fn tab a, KnownSymbol fn, Typeable a) => SetField (fn :: Sy
         in (colN, PQ.getExpr (upd colE)) : updr btv
     in UpdatingRow tv newUpdr
   modifyField _ (UpdatingRow _ _) = error "Panic: Invariant of UpdatingRow violated! Expected only base table"
-  
+
+set :: forall tab sc s.(UpdatingRow sc tab -> UpdatingRow sc tab) -> Clause s sc tab ()
+set updFn = scoped $ \(clau, Scoped inp) ->
+  let
+    updAssoc = runUpdatingRow $ updFn (UpdatingRow inp (const []))
+  in (clau, ())
+
+-- TODO: Make `set` a combinator instead of HOF.
 update :: forall tab o sc.(Table sc tab) => (UpdatingRow sc tab -> UpdatingRow sc tab) -> (forall s.Clause s sc tab (TableValue sc Identity o)) -> MQuery sc o
 update updFn (Clause clau) = getMutQ @o @tab @sc $ \tabId basetab ->
   let
