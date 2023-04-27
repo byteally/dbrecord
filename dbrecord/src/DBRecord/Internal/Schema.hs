@@ -44,7 +44,7 @@ import GHC.TypeLits
 -- import Data.Type.Equality
 import GHC.Generics
 import GHC.Exts
-import GHC.Stack
+-- import GHC.Stack
 import GHC.OverloadedLabels
 import Data.Kind
 import Data.Typeable
@@ -64,7 +64,7 @@ import Data.Char
 import qualified GHC.Records as R
 import Record
 import Control.Monad.Trans.State.Strict
-import Type.Reflection (SomeTypeRep (..), typeRepKind)
+-- import Type.Reflection (SomeTypeRep (..), typeRepKind)
 
 data Col (a :: Symbol) = Col
 data DefSyms = DefSyms [Symbol]
@@ -153,7 +153,7 @@ class ( Schema sc
     , KnownSymbol (TableName sc tab)
     , MkFieldInvIx (TableColumns sc tab)
     ) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
-  rel (Clause clau) = Query' (TableValue fsix $ constructHK @(HasColumn sc tab) (ExprF . toExprId . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)))
+  rel (Clause clau) = Query' (TableValue fsix $ constructHK @(HasColumn sc tab) (ExprF . toExprId . coerceExpr . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)))
     where tabId = PQ.TableId { PQ.database = "zb"
                              , PQ.schema = "public"
                              , PQ.tableName = defHSNameToDBName $ T.pack $ symbolVal (Proxy @(TableName sc tab))
@@ -162,7 +162,7 @@ class ( Schema sc
   fromNewRow :: NewRow sc tab -> TableValue sc Identity tab
 
   default fromNewRow :: (GConstructHK tab (HasConstColumn sc tab (HasDefault sc tab) (NewRow sc tab)) (TypeFields tab), MkFieldInvIx (TableColumns sc tab)) => NewRow sc tab -> TableValue sc Identity tab
-  fromNewRow r = TableValue fsix $ constructHK @(HasConstColumn sc tab (HasDefault sc tab) (NewRow sc tab)) (ExprF . toExprId . getConstCol (Proxy @'(sc, tab, (HasDefault sc tab))) r)
+  fromNewRow r = TableValue fsix $ constructHK @(HasConstColumn sc tab (HasDefault sc tab) (NewRow sc tab)) (ExprF . toExprId . coerceExpr . getConstCol (Proxy @'(sc, tab, (HasDefault sc tab))) r)
     where fsix = mkFieldInvIx (Proxy @(TableColumns sc tab)) emptyFieldInvIx
 
 
@@ -341,11 +341,11 @@ scoped fn = Clause $ state (\(c,es) -> let (c', o) = fn (c, Scoped es) in (o, (c
 -- scopeToListWith :: (forall g (a :: Type).Typeable a => ExprF sc g a -> r) -> Scoped s sc i -> [r]
 -- scopeToListWith fn (Scoped tab) = tableToListWith (const fn) tab
 
-tableToListWith :: (forall g (a :: Type).Typeable a => [Text] -> ExprF sc g a -> r) -> TableValue sc f i -> [r]
+tableToListWith :: (forall g (a :: Type).Typeable a => [Text] -> SomeSymbol -> ExprF sc g a -> r) -> TableValue sc f i -> [r]
 tableToListWith = tableToListWith' []
 
-tableToListWith' :: [Text] -> (forall g (a :: Type).Typeable a => [Text] -> ExprF sc g a -> r) -> TableValue sc f i -> [r]
-tableToListWith' pfxs fn (TableValue fsix hk) = fmap snd $ L.sortOn fst $ hkToListWith (\ex -> (fromMaybe (error $ "Panic: Invariant violated! " <> (show $ getExprSymTypeRep ex) <> (show $ hkToListWith (\fa -> show $ typeRep fa) hk)) $ lookupFieldIx (getExprSymTypeRep ex) fsix, fn pfxs ex)) hk
+tableToListWith' :: [Text] -> (forall g (a :: Type).Typeable a => [Text] -> SomeSymbol -> ExprF sc g a -> r) -> TableValue sc f i -> [r]
+tableToListWith' pfxs fn (TableValue fsix hk) = fmap snd $ L.sortOn fst $ hkToListWithTag (\ssym ex -> (fromMaybe (error $ "Panic: Invariant violated! " <> (show $ typeRepOfSomeSym ssym) <> (show $ hkToListWith (\fa -> show $ typeRep fa) hk)) $ lookupFieldIx (typeRepOfSomeSym ssym) fsix, fn pfxs ssym ex)) hk
 tableToListWith' pfxs fn (CrossTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
 tableToListWith' pfxs fn (LeftJoinTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
 tableToListWith' pfxs fn (RightJoinTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
@@ -361,18 +361,15 @@ tableToProjections :: TableValue sc f a -> [PQ.Projection]
 tableToProjections = tableToListWith getPrjs
 {-# INLINE tableToProjections #-}
 
-getPrjs :: forall a f sc.(Typeable a) => [Text] -> ExprF sc f a -> (T.Text, PQ.PrimExpr)
-getPrjs pfxs e = (T.intercalate "_" ((reverse pfxs) ++ [aliasedExprName e]), PQ.getExpr $ getExprF e)
-
-getPrjs' :: forall a sc.(Typeable a) => [Text] -> PQ.Expr sc a -> (T.Text, PQ.PrimExpr)
-getPrjs' pfxs e = (T.intercalate "_" ((reverse pfxs) ++ [aliasedExprName $ ExprF $ toIdExpr e]), PQ.getExpr e)
+getPrjs :: forall a f sc.(Typeable a) => [Text] -> SomeSymbol -> ExprF sc f a -> (T.Text, PQ.PrimExpr)
+getPrjs pfxs ssym e = (T.intercalate "_" ((reverse pfxs) ++ [aliasedExprName ssym]), PQ.getExpr $ getExprF e)
 
 toIdExpr :: PQ.Expr sc x -> PQ.Expr sc (Identity x)
-toIdExpr (PQ.Expr x) = PQ.Expr x
+toIdExpr = coerceExpr
 {-# INLINE toIdExpr #-}
 
 fromIdExpr :: PQ.Expr sc (Identity x) -> PQ.Expr sc x
-fromIdExpr (PQ.Expr x) = PQ.Expr x
+fromIdExpr = coerceExpr
 {-# INLINE fromIdExpr #-}
 
 
@@ -391,7 +388,7 @@ nextStage :: TableValue sc f i -> TableValue sc f i
 nextStage = nextStage' []
 
 nextStage' :: [Text] -> TableValue sc f i -> TableValue sc f i
-nextStage' pfxs (TableValue fsix hk) = TableValue fsix $ hoistWithKeyHK (aliasedExprWithPrefix pfxs) hk
+nextStage' pfxs (TableValue fsix hk) = TableValue fsix $ hoistWithKeyAndTagHK (aliasedExprWithPrefix pfxs) hk
 nextStage' pfxs (CrossTable ntv1 ntv2) = CrossTable (fmap (nextStage' (getFnName ntv1 : pfxs)) ntv1) (fmap (nextStage' (getFnName ntv2 : pfxs)) ntv2)
 nextStage' pfxs (LeftJoinTable ntv1 ntv2) = LeftJoinTable (fmap (nextStage' (getFnName ntv1 : pfxs)) ntv1) (fmap (nextStage' (getFnName ntv2 : pfxs)) ntv2)
 nextStage' pfxs (RightJoinTable ntv1 ntv2) = RightJoinTable (fmap (nextStage' (getFnName ntv1 : pfxs)) ntv1) (fmap (nextStage' (getFnName ntv2 : pfxs)) ntv2)
@@ -417,7 +414,7 @@ getScopeOfTable :: TableValue sc Identity i -> Scoped s sc i
 getScopeOfTable tab = Scoped tab
 
 maybeExprsToExpr :: HK (ExprF sc Maybe) r -> PQ.Expr sc (Maybe r)
-maybeExprsToExpr hk = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\e -> (aliasedExprName e, PQ.getExpr $ getExprF e)) hk
+maybeExprsToExpr hk = PQ.Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym e -> (aliasedExprName ssym, PQ.getExpr $ getExprF e)) hk
 
 maybeTableToExpr :: TableValue sc Maybe i -> PQ.Expr sc (Maybe i)
 maybeTableToExpr = unsafeTableToExpr
@@ -426,7 +423,7 @@ idTableToExpr :: TableValue sc Identity i -> PQ.Expr sc i
 idTableToExpr = unsafeTableToExpr
 
 unsafeTableToExpr :: TableValue sc f i -> PQ.Expr sc o
-unsafeTableToExpr (TableValue _ hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\e -> (aliasedExprName e, PQ.getExpr $ getExprF e)) hk
+unsafeTableToExpr (TableValue _ hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym e -> (aliasedExprName ssym, PQ.getExpr $ getExprF e)) hk
 -- unsafeTableToExpr (NestedTable hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\texp -> (aliasedTableName texp, PQ.getExpr $ unsafeTableToExpr texp)) hk
 unsafeTableToExpr (CrossTable tv1 tv2) = PQ.Expr $ PQ.FlatComposite $ [ (getFnName tv1, PQ.getExpr $ unsafeTableToExpr $ val tv1), (getFnName tv2, PQ.getExpr $ unsafeTableToExpr $ val tv2)]
 unsafeTableToExpr (LeftJoinTable tv1 tv2) = PQ.Expr $ PQ.FlatComposite $ [ (getFnName tv1, PQ.getExpr $ unsafeTableToExpr $ val tv1), (getFnName tv2, PQ.getExpr $ unsafeTableToExpr $ val tv2)]
@@ -441,54 +438,36 @@ unitExpr = PQ.ConstExpr $ PQ.Integer 1
 
 getFnName :: forall n a.KnownSymbol n => Field n a -> Text
 getFnName _ = T.pack $ symbolVal (Proxy @n)
+{-# INLINE getFnName #-}
 
-aliasedExprWithPrefix :: forall a f sc.(Typeable a, HasCallStack) => [Text] -> ExprF sc f a -> ExprF sc f a
-aliasedExprWithPrefix pfxs e@(ExprF _) = ExprF $ PQ.unsafeCol ((reverse pfxs) ++ [aliasedExprName e])
+typeRepOfSomeSym :: SomeSymbol -> TypeRep
+typeRepOfSomeSym (SomeSymbol pxn) = typeRep pxn
+{-# INLINE typeRepOfSomeSym #-}
 
-aliasedExpr :: forall a f sc.(Typeable a, HasCallStack) => ExprF sc f a -> ExprF sc f a
-aliasedExpr e@(ExprF _) = ExprF $ PQ.unsafeCol [aliasedExprName e]
+aliasedExprWithPrefix :: forall a f sc.[Text] -> SomeSymbol -> ExprF sc f a -> ExprF sc f a
+aliasedExprWithPrefix pfxs ssym _ = ExprF $ PQ.unsafeCol ((reverse pfxs) ++ [aliasedExprName ssym])
+{-# INLINE aliasedExprWithPrefix #-}
 
-aliasedExprName :: forall a f sc.(Typeable a, HasCallStack) => ExprF sc f a -> Text
-aliasedExprName e = symStrToText $ show $ getExprSymTypeRep e
+aliasedExpr :: forall a f sc.SomeSymbol -> ExprF sc f a
+aliasedExpr ssym = ExprF $ PQ.unsafeCol [aliasedExprName ssym]
+{-# INLINE aliasedExpr #-}
 
-getExprSymTypeRep :: forall a f sc.(Typeable a, HasCallStack) => ExprF sc f a -> TypeRep
-getExprSymTypeRep _ = fldN
-  where idargRep = Data.Typeable.typeRep (Proxy @a)
-        argRep = case typeRepArgs idargRep of
-          (_ : _ : []) -> idargRep
-          (frep@(SomeTypeRep _srep) : _) -> frep
-          [] -> error $ "Panic: Expected f (Field (sym :: Symbol) a) but got " ++ (show argRep)
-        fldN = case typeRepArgs argRep of
-          (symrep@(SomeTypeRep srep) : _)
-            | SomeTypeRep (typeRepKind srep) == (Data.Typeable.typeRep (Proxy @Symbol)) -> symrep
-            | otherwise -> error $ "Panic: Expecting type of form (Field (sym :: Symbol) a) but got (" ++ (show argRep) ++ ") with it's first arg's kind instead of Symbol got " ++ (show $ typeRepKind srep)
-          [] -> error $ "Panic: Expecting type of form (Field sym a) but got " ++ (show argRep)
+aliasedExprName :: SomeSymbol -> Text
+aliasedExprName ssym = symStrToText $ show $ typeRepOfSomeSym ssym
+{-# INLINE aliasedExprName #-}
  
--- aliasedTableName :: forall a f sc.(Typeable a, HasCallStack) => TableValue sc f a -> Text
--- aliasedTableName _ = fldN
---   where argRep = Data.Typeable.typeRep (Proxy @a)
---         fldN = case typeRepArgs argRep of
---           (SomeTypeRep srep : _)
---             | SomeTypeRep (typeRepKind srep) == (Data.Typeable.typeRep (Proxy @Symbol)) -> symStrToText $ show srep
---             | otherwise -> error $ "Panic: Expecting type of form (Field (sym :: Symbol) a) but got (" ++ (show argRep) ++ ") with it's first arg's kind instead of Symbol got " ++ (show $ typeRepKind srep)
---           [] -> error $ "Panic: Expecting type of form (Field sym a) but got " ++ (show argRep)
-
 symStrToText :: String -> Text
 symStrToText [] = ""
 symStrToText s@(_ : []) = T.pack s
 symStrToText s = T.pack $ init $ tail s
 {-# INLINE symStrToText #-}
           
-
 newtype Scoped s sc t = Scoped (TableValue sc Identity t)
 
 newtype ExprF sc f t = ExprF (PQ.Expr sc (f t))
 
 getExprF :: ExprF sc f t -> PQ.Expr sc (f t)
 getExprF (ExprF e) = e
-
-distExprF :: ExprF sc Maybe t -> ExprF sc Identity (Maybe t)
-distExprF = undefined
 
 data FieldInvIx = FieldInvIx !Int !(Map.Map Data.Typeable.TypeRep Int)
   deriving Show
@@ -524,6 +503,14 @@ data TableValue sc f t where
   ConsTable :: (KnownSymbol n, Typeable r) => Field n (TableValue sc f r) -> TableValue sc f (Rec xs) -> TableValue sc f (Rec ('(n, r) ': xs))
   ConsOptTable :: (KnownSymbol n, Typeable r) => PQ.JoinType -> Field n (TableValue sc Maybe r) -> TableValue sc f (Rec xs) -> TableValue sc f (Rec ('(n, Maybe r) ': xs))
   EmptyTable :: TableValue sc f ()
+
+tableRecAsType :: ValidateRecToType os t => TableValue sc f (Rec os) -> TableValue sc f t
+tableRecAsType (TableValue fsix hk) = TableValue fsix (fromHKOfRec hk)
+tableRecAsType _tv@CrossTable{} = undefined -- coerce tv
+tableRecAsType _tv@LeftJoinTable{} = undefined -- coerce tv
+tableRecAsType _tv@RightJoinTable{} = undefined -- coerce tv
+tableRecAsType _tv@ConsTable{} = undefined -- coerce tv
+tableRecAsType _tv@ConsOptTable{} = undefined -- coerce tv
   
 --  NullableTable :: (TableValue sc Maybe x -> PQ.Expr sc (Maybe t)) -> TableValue sc f t
 --  TableExpr :: (TableValue sc g x -> PQ.Expr sc (Maybe t)) -> TableValue sc f t

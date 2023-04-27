@@ -336,7 +336,7 @@ selectUsing selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList _ selRec
   in (clau, selectListToType selCols)
 
 using :: forall o i os sc s.ValidateRecToType os o => Clause s sc i (TableValue sc Identity (Rec os)) -> Clause s sc i (TableValue sc Identity o)
-using = undefined
+using clau = clau >>= pure . tableRecAsType
 
 -- TODO: Consider the alt strategy of having index representing Plain | Agg | Insert | Update | Delete  in `Clause` which will let us reuse the combinators
 newtype Aggregated a = Aggregated { unAgg :: Identity a}

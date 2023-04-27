@@ -112,24 +112,26 @@ hprop_smt = property $ do
   executeSequential DVDRentalState actions
 
 hprop_test1 :: Property
-hprop_test1 = property $ test $ do
+hprop_test1 = withTests 1 $ property $ test $ do
   liftIO $ do
     dbConfig <- pgDefaultPool $ testDBConnectInfo
     flip runReaderT (PGSConfig dbConfig) $ runDVDRentalPGM $ runSession $ runPostgresDB @PGDVDRentalDB $ do
-      -- cats <- runQueryAsList $ rel @PGDVDRentalDB @Category $ selectAll
-      -- liftIO $ print cats
+      cats <- runQueryAsList $ rel @PGDVDRentalDB @Category $ selectAll
+      liftIO $ print cats
       q1 <- runQueryAsList $ qGroupByWithSum --selectUsingEg1
-      liftIO $ print q1      
+      liftIO $ print q1
+      pure ()
     pure ()
   'a' === 'a'
 
 hprop_test2 :: Property
-hprop_test2 = property $ test $ do
+hprop_test2 = withTests 1 $ property $ test $ do
   liftIO $ do
     dbConfig <- pgDefaultPool $ testDBConnectInfo
     flip runReaderT (PGSConfig dbConfig) $ runDVDRentalPGM $ runSession $ runPostgresDB @PGDVDRentalDB $ do
       q1 <- runMQueryAsList $ qDeleteEg1
-      liftIO $ print q1      
+      liftIO $ print q1
+      pure ()
     pure ()
   'a' === 'a'  
 
