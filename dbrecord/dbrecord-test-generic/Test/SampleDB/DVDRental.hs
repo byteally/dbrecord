@@ -680,28 +680,15 @@ rightJoinEg2 =
   sort $ \r -> asc r.film.title
   selectAll
 
-{- Uncommenting this `role` results in error like following
-• Couldn't match type ‘Film’ with ‘Field "film" Film’
-        arising from a use of ‘.&’
-This is due to usage of `coerce` to convert hk Film <=> hk (Field "film" Film) in rec pkg
 
--}
-
---type role Q nominal
-data Q t = Q t -- (Query' PlainQ (DVDRentalDB 'Postgres) t)
-
-t :: Q Film
-t = undefined
-
-t1 :: Q Inventory
-t1 = undefined
-
-thr1 :: HRec Q '[ '("film", Film)
-                , '("inventory", Inventory)
-                ]
-thr1 = #film .= t
-       .& #inventory .= t1
-       .& end
+thr1 :: forall db. (db ~ 'Postgres) =>
+  Joins (DVDRentalDB db) '[ '("film", Film)
+                          , '("inventory", Inventory)
+                          ]
+thr1 =
+  #film .= rel @(DVDRentalDB db) @Film selectAll
+  .& #inventory .= rel @(DVDRentalDB db) @Inventory selectAll
+  .& end
 
 
 -- self join

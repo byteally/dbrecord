@@ -19,6 +19,12 @@ data Join = Join
   , jCond :: Maybe SqlExpr
   } deriving (Show, Read, Eq)
 
+data InlineJoin
+  = InlineJoinBase SqlTableExpr
+  | InlineJoinL InlineJoin JoinType Lateral SqlTableExpr SqlExpr
+  | InlineJoinR SqlTableExpr JoinType Lateral InlineJoin SqlExpr
+  deriving (Show, Read, Eq)
+
 data JoinType = LeftJoin
               | RightJoin
               | FullJoin
@@ -92,6 +98,7 @@ data SqlWith = SqlWith SqlName [SqlName] SqlSelect
 data SqlSelect = SqlProduct [SqlTableExpr] SelectFrom       -- ^ product
                | SqlSelect (Maybe SqlTableExpr) SelectFrom  -- ^ base case
                | SqlJoin Join SelectFrom                -- ^ join
+               | SqlJoins InlineJoin SelectFrom         -- ^ multi joins
                | SqlBin Binary Alias                    -- ^ binary
                | SqlCTE [SqlWith] SqlSelect             -- ^ CTEs
                | SqlValues SqlValues Alias              -- ^ values

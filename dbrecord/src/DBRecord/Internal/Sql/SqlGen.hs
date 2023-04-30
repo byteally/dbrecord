@@ -36,6 +36,7 @@ sqlQueryGenerator = PQ.PrimQueryFold
   { PQ.table     = table
   , PQ.product   = product
   , PQ.join      = join
+  , PQ.joins     = joins
   , PQ.binary    = binary
   , PQ.cte       = cte
   -- , PQ.values    = values
@@ -114,12 +115,21 @@ join :: PQ.JoinType -> PQ.Lateral -> Maybe PQ.PrimExpr -> PQ.TableExpr SqlSelect
 join jt l e q1 q2 cs = SqlJoin (Join (joinType' jt) l (toSqlTable q1, toSqlTable q2) (fmap toSqlExpr e))
                                 ((baseClauses cs) { DML.alias  = (T.unpack <$> (PQ.alias cs)) })
                      
-  where joinType' :: PQ.JoinType -> JoinType
-        joinType' PQ.LeftJoin  = LeftJoin
-        joinType' PQ.RightJoin = RightJoin
-        joinType' PQ.FullJoin  = FullJoin
-        joinType' PQ.InnerJoin = InnerJoin
-        joinType' PQ.CrossJoin = CrossJoin
+joinType' :: PQ.JoinType -> JoinType
+joinType' PQ.LeftJoin  = LeftJoin
+joinType' PQ.RightJoin = RightJoin
+joinType' PQ.FullJoin  = FullJoin
+joinType' PQ.InnerJoin = InnerJoin
+joinType' PQ.CrossJoin = CrossJoin
+
+joins :: PQ.InlineJoin SqlSelect -> PQ.Clauses -> SqlSelect
+joins js cs = SqlJoins (inlineJoins js) (baseClauses cs)
+
+inlineJoins :: PQ.InlineJoin SqlSelect -> InlineJoin
+inlineJoins = \case
+  PQ.InlineJoinBase t -> InlineJoinBase (toSqlTable t)
+  PQ.InlineJoinL js' jt lat t pe -> InlineJoinL (inlineJoins js') (joinType' jt) lat (toSqlTable t) (toSqlExpr pe)
+  PQ.InlineJoinR t jt lat js' pe -> InlineJoinR (toSqlTable t) (joinType' jt) lat (inlineJoins js') (toSqlExpr pe)
 
 binary :: PQ.BinType -> SqlSelect -> SqlSelect -> Maybe T.Text -> SqlSelect
 binary bt q1 q2 =

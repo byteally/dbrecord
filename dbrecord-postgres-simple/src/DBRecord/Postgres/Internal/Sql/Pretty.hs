@@ -40,6 +40,7 @@ ppSelect select = case select of
   SqlProduct sqSels selectFrom -> ppSelectWith selectFrom (Just (ppProduct sqSels))
   SqlSelect tab selectFrom     -> ppSelectWith selectFrom (ppTableExpr <$> tab)
   SqlJoin joinSt selectFrom    -> ppSelectWith selectFrom (Just (ppJoin joinSt))
+  SqlJoins joins selectFrom    -> ppSelectWith selectFrom (Just (ppJoins joins))
   SqlBin binSt as              -> ppSelectBinary binSt as
   SqlCTE withs sql             -> ppSelectCTE withs sql  
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
@@ -119,10 +120,25 @@ ppJoin joinSt = ppJoinedTabs
                    )
                    
         (s1, s2) = jTables joinSt
-        ppOn Nothing  = empty
-        ppOn (Just e) =   text "ON"
-                      $$  ppExpr e
+
+ppOn :: Maybe SqlExpr -> Doc
+ppOn Nothing  = empty
+ppOn (Just e) =   text "ON"
+                  $$  ppExpr e
         
+ppJoins :: InlineJoin -> Doc
+ppJoins ijs = case ijs of
+  InlineJoinBase t -> ppTableExpr t
+  InlineJoinL js jt lat t on -> parens ( ppJoins js
+                                       $$ ppJoinType jt <> ppLateral lat
+                                       $$ ppTableExpr t
+                                       $$ ppOn (Just on)
+                                       )
+  InlineJoinR t jt lat js on -> parens ( ppTableExpr t
+                                       $$ ppJoinType jt <> ppLateral lat
+                                       $$ ppJoins js
+                                       $$ ppOn (Just on)
+                                       )
 
 ppLateral :: Lateral -> Doc
 ppLateral True = space <> text "LATERAL" <> space

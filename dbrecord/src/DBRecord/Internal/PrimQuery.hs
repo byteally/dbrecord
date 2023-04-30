@@ -75,10 +75,28 @@ queryExpr = PrimQuery
 data PrimQuery = Table (Maybe (TableExpr PrimQuery)) Clauses
                | Product (NEL.NonEmpty (TableExpr PrimQuery)) Clauses
                | Join JoinType Lateral (Maybe PrimExpr) (TableExpr PrimQuery) (TableExpr PrimQuery) Clauses
+               | Joins (InlineJoin PrimQuery) Clauses
                | Binary BinType PrimQuery PrimQuery (Maybe Text)
                | CTEQuery (CTE PrimQuery PrimQuery)
                -- Values
                deriving (Show)
+
+{-
+1. "a" X| "b"
+InlineJoinR "a" LJ NonLat (InlineJoinBase "b") usingRef
+
+2. ("a" X| "b") X| "c"
+InlineJoinL (InlineJoinL (InlineJoinBase "a") LJ NonLat "b") LJ NonLat "c"
+
+3. "a" X| ("b" X| "c")
+InlineJoinR "a" LJ NonLat (InlineJoinR "b" LJ NonLat (InlineJoinBase "c") usingRef) usingRef
+
+-}
+data InlineJoin p
+  = InlineJoinBase (TableExpr p)
+  | InlineJoinL (InlineJoin p) JoinType Lateral (TableExpr p) PrimExpr
+  | InlineJoinR (TableExpr p) JoinType Lateral (InlineJoin p) PrimExpr
+  deriving (Show)
 
 data InsertQuery = InsertQuery TableId [Attribute] InsertValues (Maybe Conflict) [PrimExpr]
                  deriving (Show)
@@ -277,6 +295,7 @@ data PrimQueryFold p = PrimQueryFold
   { table     :: Maybe (TableExpr p) -> Clauses -> p
   , product   :: NEL.NonEmpty (TableExpr p) -> Clauses -> p
   , join      :: JoinType -> Lateral -> Maybe PrimExpr -> TableExpr p -> TableExpr p -> Clauses -> p
+  , joins     :: InlineJoin p -> Clauses -> p 
   , binary    :: BinType -> p -> p -> Maybe Text -> p
   , cte       :: CTE p p -> p
   
@@ -300,6 +319,7 @@ primQueryFoldDefault = PrimQueryFold
   { table     = Table
   , product   = Product
   , join      = Join
+  , joins     = Joins
   , binary    = Binary
   , cte       = CTEQuery
   -- , values    = Values                
@@ -313,6 +333,7 @@ foldPrimQuery f = fix fold
           Table ti cs              -> table     f (goTExpr self <$> ti) cs
           Product qs cs            -> product   f (fmap (goTExpr self) qs) cs
           Join j lt cond q1 q2 cs  -> join      f j lt cond (goTExpr self q1) (goTExpr self q2) cs
+          Joins js cs              -> joins     f (goInlineJoins self js) cs
           CTEQuery ctev            -> cte       f (goCTE self ctev)
           Binary b q1 q2 a         -> binary    f b (self q1) (self q2) a
           -- Values ss pes             -> values    f ss pes
@@ -325,6 +346,11 @@ foldPrimQuery f = fix fold
         goTExpr self (PrimQuery p)      = PrimQuery (self p)
         goTExpr _    (TableName t)      = TableName t
         goTExpr _    (TableFun n attrs) = TableFun n attrs
+
+        goInlineJoins self js = case js of
+          InlineJoinBase texpr -> InlineJoinBase $ goTExpr self texpr
+          InlineJoinL js' jt lat texpr on -> InlineJoinL (goInlineJoins self js') jt lat (goTExpr self texpr) on
+          InlineJoinR texpr jt lat js' on -> InlineJoinR (goTExpr self texpr) jt lat (goInlineJoins self js') on
                   
 fix :: (t -> t) -> t
 fix g = let x = g x in x

@@ -131,6 +131,17 @@ newtype Joins sc qs = Joins (HRec (Query' PlainQ sc) qs)
   deriving newtype (AnonRec)
 
 {-
+select ...
+from [tabA a
+  left join tabB b on (b.aid = a.id)]
+  left join tabC c on (c.aid = a.id)
+  left join tabD d on (d.aid = a.id)
+...
+
+some => One or more.
+many => Zero or more.
+optional => One or none.
+
 join $  #foo .= q1
       .& #bar .= q2 `on`
       
@@ -138,7 +149,10 @@ join $  #foo .= q1
 joins :: forall o qs sc.
   () =>
   Joins sc qs -> ()
-joins = undefined  
+joins (DBRecord.Query2.Joins js) = undefined
+  -- where
+  --   toTabVal :: Joins sc qs -> TableValue sc Identity (Rec qs)
+  --   toTabVal js = let (fval, rst) = unconsRec js in consRec fval (toTabVal rst)
 
 innerJoin :: forall o n1 r1 n2 r2 sc.
   (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) =>
