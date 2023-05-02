@@ -15,7 +15,8 @@ import Data.Scientific
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
 import Data.Proxy
-import DBRecord.Types (Interval, Json {-, JsonStr,-} )
+import DBRecord.Types (Interval, Json {-, JsonStr,-})
+import qualified DBRecord.Types as DBR
 
 -- import Data.Vector (Vector)
 import DBRecord.Internal.Types (DbK (..), CustomType (..), _getUDTyAliases)
@@ -438,6 +439,9 @@ instance DBRepr dbk Int16 where
 instance DBRepr dbk Text where
   type ToDBType dbk Text = 'NativeTypeObj
 
+instance DBRepr dbk (CI t) where
+  type ToDBType dbk (CI t) = 'NativeTypeObj  
+
 instance DBRepr dbk Bool where
   type ToDBType dbk Bool = 'NativeTypeObj  
 
@@ -465,6 +469,9 @@ instance DBRepr dbk UTCTime where
 instance DBRepr dbk ByteString where
   type ToDBType dbk ByteString = 'NativeTypeObj  
 
+instance DBRepr dbk UUID where
+  type ToDBType dbk UUID = 'NativeTypeObj  
+
 instance DBRepr dbk a => DBRepr dbk (Maybe a) where
   type ToDBType dbk (Maybe a) = 'NullableObjOf (ToDBType dbk a)
   type AutoCodec dbk (Maybe a) = AutoCodec dbk a
@@ -490,6 +497,10 @@ newtype AsUDType t = AsUDType t
 
 instance DBRepr dbk (AsUDType t) where
   type ToDBType dbk (AsUDType t) = 'UDTypeObj
+
+instance DBRepr dbk (DBR.Key tab t) where
+  type ToDBType dbk (DBR.Key tab t) = ToDBType dbk t
+  type AutoCodec dbk (DBR.Key tab t) = AutoCodec dbk t
 
 class ( -- Break (NoGeneric db) (Rep db)
       -- TypeCxts db (Types db)
