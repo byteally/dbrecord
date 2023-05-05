@@ -10,12 +10,13 @@ import Data.Time.Calendar (Day)
 import Data.Time.Clock (UTCTime)
 import Data.CaseInsensitive  (CI)
 import Data.Int
+import Data.Functor.Identity
 import Data.Word
 import Data.Scientific
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
 import Data.Proxy
-import DBRecord.Types (Interval, Json {-, JsonStr,-})
+import DBRecord.Types (PGOID(..), PGOIDType(..), LTree, Interval, Json {-, JsonStr,-})
 import qualified DBRecord.Types as DBR
 
 -- import Data.Vector (Vector)
@@ -439,8 +440,15 @@ instance DBRepr dbk Int16 where
 instance DBRepr dbk Text where
   type ToDBType dbk Text = 'NativeTypeObj
 
+instance DBRepr dbk (Identity t) where
+  type ToDBType dbk (Identity t)  = ToDBType dbk t
+  type AutoCodec dbk (Identity t) = AutoCodec dbk t
+
 instance DBRepr dbk (CI t) where
   type ToDBType dbk (CI t) = 'NativeTypeObj  
+
+instance DBRepr dbk TimeOfDay where
+  type ToDBType dbk TimeOfDay = 'NativeTypeObj
 
 instance DBRepr dbk Bool where
   type ToDBType dbk Bool = 'NativeTypeObj  
@@ -471,7 +479,7 @@ instance DBRepr dbk ByteString where
 
 instance DBRepr dbk UUID where
   type ToDBType dbk UUID = 'NativeTypeObj  
-
+  
 instance DBRepr dbk a => DBRepr dbk (Maybe a) where
   type ToDBType dbk (Maybe a) = 'NullableObjOf (ToDBType dbk a)
   type AutoCodec dbk (Maybe a) = AutoCodec dbk a
@@ -483,6 +491,9 @@ instance DBRepr dbk a => DBRepr dbk [a] where
 -- TODO: Json is not native is all the DB
 instance DBRepr dbk (Json a) where
   type ToDBType dbk (Json a) = 'NativeTypeObj
+
+instance DBRepr dbk Value where
+  type ToDBType dbk Value = 'NativeTypeObj
 
 instance DBRepr dbk (Rec xs) where
   type ToDBType dbk (Rec xs) = 'TableObj
@@ -501,6 +512,17 @@ instance DBRepr dbk (AsUDType t) where
 instance DBRepr dbk (DBR.Key tab t) where
   type ToDBType dbk (DBR.Key tab t) = ToDBType dbk t
   type AutoCodec dbk (DBR.Key tab t) = AutoCodec dbk t
+
+instance DBRepr dbk (PGOID 'RegType) where
+  type ToDBType dbk (PGOID 'RegType) = 'NativeTypeObj  
+
+instance DBRepr dbk (a, b) where
+  type ToDBType dbk (a, b) = 'TableObj  
+
+
+instance DBRepr dbk LTree where
+  type ToDBType dbk LTree = 'NativeTypeObj  
+  
 
 class ( -- Break (NoGeneric db) (Rep db)
       -- TypeCxts db (Types db)
