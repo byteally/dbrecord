@@ -12,6 +12,7 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeOperators              #-}
 {-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE PolyKinds                  #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 
@@ -201,7 +202,7 @@ instance (FromField a) => FromField (Identity a) where
 instance (FromField a) => FromField (fld ::: a) where
   fromField f m = Field <$> fromField f m
 
-instance (FromField v) => FromField (Key t v) where
+instance (FromField v) => FromField (Key (t :: k) v) where
   fromField f m = Key <$> fromField f m
 
 instance (FromField a) => FromRow (Identity a) where
