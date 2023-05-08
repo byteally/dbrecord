@@ -681,15 +681,20 @@ rightJoinEg2 =
   selectAll
 
 
-thr1 :: forall db. (db ~ 'Postgres) =>
-  Joins (DVDRentalDB db) '[ '("film", Film)
-                          , '("inventory", Inventory)
-                          ]
-thr1 =
-  #film .= rel @(DVDRentalDB db) @Film selectAll
-  .& #inventory .= rel @(DVDRentalDB db) @Inventory selectAll
-  .& end
-
+qJoinsLEg1 :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("customer", Customer)
+                               , '("payment", Payment)
+                               , '("staff", Staff)
+                               ])
+qJoinsLEg1 =
+  joinsL           
+  ( #customer .= rel @(DVDRentalDB db) @Customer (limit (Just 1) *> selectAll)
+    .& #payment .= rel @(DVDRentalDB db) @Payment (limit (Just 1) *> selectAll)
+    .& #staff .= rel @(DVDRentalDB db) @Staff (limit (Just 1) *> selectAll)
+    .& end
+  ) (const true) $ selectAll
+             
 
 -- self join
 -- full outer join

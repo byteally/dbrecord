@@ -48,7 +48,7 @@ import DBRecord.Internal.Predicate
 import DBRecord.Internal.Common
 import DBRecord.Internal.Window
 import DBRecord.Internal.Schema hiding (insert, delete)
-import DBRecord.Internal.PrimQuery  hiding (insertQ, updateQ, deleteQ, alias, Join)
+import DBRecord.Internal.PrimQuery  hiding (insertQ, updateQ, deleteQ, alias, Join, Joins)
 import DBRecord.Internal.Query (getTableId, getTableProjections)
 import           DBRecord.Internal.DBTypes (GetDBTypeRep)
 import qualified DBRecord.Internal.Query as Q
@@ -127,8 +127,26 @@ crossJoin _ _ _ = undefined
 
 -}
 
-newtype Joins sc qs = Joins (HRec (Query' PlainQ sc) qs)
-  deriving newtype (AnonRec)
+data Joins sc qs = Joins [TypeRep] (HRec (Query' PlainQ sc) qs)
+
+instance AnonRec (Joins sc) where
+  type FieldKind (Joins sc) = FieldKind (HRec (Query' PlainQ sc))
+  type IsHKRec (Joins sc) = IsHKRec (HRec (Query' PlainQ sc))
+  type FieldNameConstraint (Joins sc) = FieldNameConstraint (HRec (Query' PlainQ sc))
+  type FieldConstraint (Joins sc) = FieldConstraint (HRec (Query' PlainQ sc))
+  endRec = Joins [] endRec
+  {-# INLINE endRec #-}
+  consRec fld (Joins fsix r) =
+    let nfsix = (fldTyTRep fld) : fsix
+        fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
+        fldTyTRep _ = typeRep (Proxy @fn)
+    in Joins nfsix $ consRec fld r
+  {-# INLINE consRec #-}
+  unconsRec (Joins fsix r) =
+    let (fld, r') = unconsRec r
+        fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
+        fldTyTRep _ = typeRep (Proxy @fn)
+    in (fld, Joins (L.delete (fldTyTRep fld) fsix) r')
 
 {-
 select ...
@@ -146,13 +164,83 @@ join $  #foo .= q1
       .& #bar .= q2 `on`
       
 -}
-joins :: forall o qs sc.
-  () =>
-  Joins sc qs -> ()
-joins (DBRecord.Query2.Joins js) = undefined
-  -- where
-  --   toTabVal :: Joins sc qs -> TableValue sc Identity (Rec qs)
-  --   toTabVal js = let (fval, rst) = unconsRec js in consRec fval (toTabVal rst)
+joinsL :: forall o qs sc.
+  Joins sc qs
+  -> (forall s.Scoped s sc (Rec qs) -> Expr sc Bool)
+  -> (forall s.Clause s sc (Rec qs) (TableValue sc Identity o))
+  -> Query sc o
+joinsL js@(Joins treps jsHRec) _ (Clause clau) = Query'
+  ( nextStage joinedTabs 
+  , clau
+  , PQ.Joins pqJoinsL
+  )
+  where
+    pqJoinsL = case joinedPQs of
+      [] -> error "Panic: Invariant violated! `Joins` list cannot be empty"
+      (hpq : rstpqs) -> L.foldl' (\acc q -> PQ.InlineJoinL acc PQ.LeftJoin False (PQ.PrimQuery q) (ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
+    joinedPQs = fmap snd $ L.sortOn fst $ hrecToListWithTag
+      (\ssym q ->
+          let
+            ssymTRep = typeRepOfSomeSym ssym
+            fnix = case lookupFieldIx ssymTRep fsix of
+              Nothing -> error $ "Panic: Invariant violated! " <> (show ssymTRep) <> (show fsix)
+              Just ix -> ix
+            pq = fst $ runQuery'' (Just $ tagToPfx ssym) q
+          in (fnix, pq)
+      ) jsHRec
+    joinedTabs = JoinedTables fsix $ hrecToHKOfRec $ hoistWithKeyAndTagHRec (\tag -> snd . runQuery'' (Just $ tagToPfx tag)) jsHRec
+    fsix = fromListToFieldInvIx treps
+    tagToPfx (SomeSymbol s) = T.pack $ symbolVal s
+
+data JoinPrec
+  = JoinPrecL
+  | JoinPrecR
+  
+class JoinOn (jp :: JoinPrec) qs r where
+  on' :: Proxy jp -> Joins sc qs -> r
+
+instance ( KnownSymbol fn1
+         , Typeable q1
+         , KnownSymbol fn2
+         , Typeable q2
+         , JoinOn 'JoinPrecL qs r
+         ) => JoinOn 'JoinPrecL ('(fn1, q1) ': '(fn2, q2) ': qs) ((Scoped s sc (Rec '[ '(f1, q1), '(f2, q2)]) -> Expr sc Bool) -> r) where
+  on' pjp js = \f ->
+    let
+      (fval1, rst') = unconsRec js
+      (fval2, rst) = unconsRec rst'
+    in on' pjp rst
+
+class JoinsToTableVal qs where
+  joinsToTableVal :: Joins sc qs -> TableValue sc Identity (Rec qs)
+
+instance (JoinsToTableVal qs, KnownSymbol fn, Typeable ft) => JoinsToTableVal ( '(fn, ft) ': qs) where
+  joinsToTableVal js =
+    let
+      (fval, rst) = unconsRec js
+      (q1PQ, q1Res) = runAliasedQuery fval
+    in ConsTable (fromLabel @fn .= q1Res) (joinsToTableVal rst)
+
+
+data Extend base ext = Extend
+  { base :: base
+  , ext  :: ext
+  } deriving (Show)
+
+{-
+
+extend (rel @Sc @Tab) $
+ #tab1 .= one rel .&
+ #tab2 .= some rel .&
+ #tab3 .= many rel .&
+ #tab4 .= optional rel .&
+ end
+-}
+
+extend :: forall o tab sc. Table sc tab =>
+  ((forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> ()
+extend _ = undefined  
 
 innerJoin :: forall o n1 r1 n2 r2 sc.
   (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) =>
@@ -267,7 +355,6 @@ restrict filtFn = scoped $ \(clau, inp) -> (clau {criteria = criteria clau <> [P
 
 
 data SelectList sc os = SelectList [TypeRep] (HRec (PQ.Expr sc) os)
---  deriving newtype (AnonRec)
 
 instance AnonRec (SelectList sc) where
   type FieldKind (SelectList sc) = FieldKind (HRec (PQ.Expr sc))

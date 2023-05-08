@@ -118,7 +118,7 @@ hprop_test1 = withTests 1 $ property $ test $ do
     flip runReaderT (PGSConfig dbConfig) $ runDVDRentalPGM $ runSession $ runPostgresDB @PGDVDRentalDB $ do
       cats <- runQueryAsList $ rel @PGDVDRentalDB @Category $ selectAll
       liftIO $ print cats
-      q1 <- runQueryAsList $ qGroupByWithSum --selectUsingEg1
+      q1 <- runQueryAsList $ qJoinsLEg1 --selectUsingEg1
       liftIO $ print q1
       pure ()
     pure ()
