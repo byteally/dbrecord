@@ -192,6 +192,34 @@ joinsL js@(Joins treps jsHRec) _ (Clause clau) = Query'
     fsix = fromListToFieldInvIx treps
     tagToPfx (SomeSymbol s) = T.pack $ symbolVal s
 
+joinsR :: forall o qs sc.
+  Joins sc qs
+  -> (forall s.Scoped s sc (Rec qs) -> Expr sc Bool)
+  -> (forall s.Clause s sc (Rec qs) (TableValue sc Identity o))
+  -> Query sc o
+joinsR js@(Joins treps jsHRec) _ (Clause clau) = Query'
+  ( nextStage joinedTabs 
+  , clau
+  , PQ.Joins pqJoinsR
+  )
+  where
+    pqJoinsR = case joinedPQs of
+      [] -> error "Panic: Invariant violated! `Joins` list cannot be empty"
+      (hpq : rstpqs) -> L.foldr (\q acc -> PQ.InlineJoinR (PQ.PrimQuery q) PQ.LeftJoin False acc (ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
+    joinedPQs = fmap snd $ L.sortOn fst $ hrecToListWithTag
+      (\ssym q ->
+          let
+            ssymTRep = typeRepOfSomeSym ssym
+            fnix = case lookupFieldIx ssymTRep fsix of
+              Nothing -> error $ "Panic: Invariant violated! " <> (show ssymTRep) <> (show fsix)
+              Just ix -> ix
+            pq = fst $ runQuery'' (Just $ tagToPfx ssym) q
+          in (fnix, pq)
+      ) jsHRec
+    joinedTabs = JoinedTables fsix $ hrecToHKOfRec $ hoistWithKeyAndTagHRec (\tag -> snd . runQuery'' (Just $ tagToPfx tag)) jsHRec
+    fsix = fromListToFieldInvIx treps
+    tagToPfx (SomeSymbol s) = T.pack $ symbolVal s
+
 data JoinPrec
   = JoinPrecL
   | JoinPrecR
@@ -210,16 +238,6 @@ instance ( KnownSymbol fn1
       (fval1, rst') = unconsRec js
       (fval2, rst) = unconsRec rst'
     in on' pjp rst
-
-class JoinsToTableVal qs where
-  joinsToTableVal :: Joins sc qs -> TableValue sc Identity (Rec qs)
-
-instance (JoinsToTableVal qs, KnownSymbol fn, Typeable ft) => JoinsToTableVal ( '(fn, ft) ': qs) where
-  joinsToTableVal js =
-    let
-      (fval, rst) = unconsRec js
-      (q1PQ, q1Res) = runAliasedQuery fval
-    in ConsTable (fromLabel @fn .= q1Res) (joinsToTableVal rst)
 
 
 data Extend base ext = Extend
@@ -275,7 +293,7 @@ leftJoin q1 q2 on (Clause clau) =
     (q1PQ, q1Res) = runAliasedQuery q1
     (q2PQ, q2Res) = runAliasedQuery q2
     crossTableVal = nextStage $ crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
-    ljjoinTabVal = nextStage $ ljRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= hoistMaybeTable toNullExprF q2Res)
+    ljjoinTabVal = nextStage $ ljRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= OptTable q2Res)
     onCond = getExpr $ on $ getScopeOfTable $ crossTableVal
   in Query' ( ljjoinTabVal
             , clau
@@ -294,7 +312,7 @@ rightJoin q1 q2 on (Clause clau) =
     (q1PQ, q1Res) = runAliasedQuery q1
     (q2PQ, q2Res) = runAliasedQuery q2
     crossTableVal = nextStage $ crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
-    rjoinTabVal = nextStage $ rjRel (fromLabel @n1 .= hoistMaybeTable toNullExprF q1Res) (fromLabel @n2 .= q2Res)
+    rjoinTabVal = nextStage $ rjRel (fromLabel @n1 .= OptTable q1Res) (fromLabel @n2 .= q2Res)
     onCond = getExpr $ on $ getScopeOfTable $ crossTableVal
   in Query' ( rjoinTabVal
             , clau

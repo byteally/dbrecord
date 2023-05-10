@@ -694,6 +694,20 @@ qJoinsLEg1 =
     .& #staff .= rel @(DVDRentalDB db) @Staff (limit (Just 1) *> selectAll)
     .& end
   ) (const true) $ selectAll
+
+qJoinsREg1 :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("customer", Customer)
+                               , '("payment", Payment)
+                               , '("staff", Staff)
+                               ])
+qJoinsREg1 =
+  joinsR           
+  ( #customer .= rel @(DVDRentalDB db) @Customer (limit (Just 1) *> selectAll)
+    .& #payment .= rel @(DVDRentalDB db) @Payment (limit (Just 1) *> selectAll)
+    .& #staff .= rel @(DVDRentalDB db) @Staff (limit (Just 1) *> selectAll)
+    .& end
+  ) (const true) $ selectAll  
              
 
 -- self join

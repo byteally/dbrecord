@@ -501,6 +501,14 @@ instance DBRepr dbk (Rec xs) where
 
 newtype Row xs = Row (Rec xs)
 
+newtype Composite t = Composite_ t
+
+getComposite :: Composite t -> t
+getComposite (Composite_ c) = c
+
+newtype TableVal t = TableVal t
+
+
 instance DBRepr dbk (Row xs) where
   type ToDBType dbk (Row xs) = 'UDTypeObj
 

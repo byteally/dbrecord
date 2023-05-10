@@ -138,6 +138,9 @@ class ( Schema sc
   type TableColumns sc tab :: [(Symbol, Type)]
   type TableColumns sc tab = GGetFields tab (Rep tab)
 
+  type Extension sc tab :: Type
+  type Extension sc tab = ()
+
   defaults :: DBDefaults sc tab
   defaults = DBDefaults Nil
 
@@ -338,9 +341,6 @@ scoped :: forall i o sc s.
   -> Clause s sc i o
 scoped fn = Clause $ state (\(c,es) -> let (c', o) = fn (c, Scoped es) in (o, (c', es)))
 
--- scopeToListWith :: (forall g (a :: Type).Typeable a => ExprF sc g a -> r) -> Scoped s sc i -> [r]
--- scopeToListWith fn (Scoped tab) = tableToListWith (const fn) tab
-
 tableToListWith :: (forall g (a :: Type).Typeable a => [Text] -> SomeSymbol -> ExprF sc g a -> r) -> TableValue sc f i -> [r]
 tableToListWith = tableToListWith' []
 
@@ -356,16 +356,8 @@ tableToListWith' pfxs fn (JoinedTables fsix tvals) = concatMap snd $ L.sortOn fs
          Just ix -> ix
      in (fnix, tableToListWith' (tagToPfx ssym:pfxs) fn tv)
   ) tvals
-tableToListWith' pfxs fn (CrossTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
-tableToListWith' pfxs fn (LeftJoinTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
-tableToListWith' pfxs fn (RightJoinTable tv1 tv2) = tableToListWith' (getFnName tv1 : pfxs) fn (val tv1) ++ tableToListWith' (getFnName tv2 : pfxs) fn (val tv2)
-tableToListWith' _pfxs _ (ConsTable _ _) = undefined
-tableToListWith' _pfxs _ (ConsOptTable _ _ _) = undefined
+tableToListWith' pfxs fn (OptTable tv) = tableToListWith' pfxs fn tv
 tableToListWith' _pfxs _ EmptyTable = []
---tableToListWith' pfxs fn (NestedTable hk) = concat $ hkToListWith (tableToListWith' pfxs fn) hk
-
--- mapScope :: (forall a.Typeable a => PQ.Expr sc a -> PQ.Expr sc a) -> Scoped s sc i -> Scoped s sc i
--- mapScope fn (Scoped hk) = Scoped $ hoistWithKeyHK fn hk
 
 tableToProjections :: TableValue sc f a -> [PQ.Projection]
 tableToProjections = tableToListWith getPrjs
@@ -383,16 +375,24 @@ fromIdExpr = coerceExpr
 {-# INLINE fromIdExpr #-}
 
 
-crossRel :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, r2)])
-crossRel q1 q2 = CrossTable q1 q2
--- crossRel q1 q2 = NestedTable $ hrecToHKOfRec $ q1 .& q2 .& Record.end
+crossRel :: forall r1 r2 n1 n2 f sc.(KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, r2)])
+crossRel q1 q2 = JoinedTables (fromListToFieldInvIx [typeRep (Proxy @n1)
+                                                    , typeRep (Proxy @n2)]
+                              ) ( hrecToHKOfRec ( fromLabel @n1 .= val q1
+                                                  .& fromLabel @n2 .= val q2
+                                                  .& Record.end))
 
-ljRel :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc Maybe r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, Maybe r2)])
-ljRel q1 q2 = LeftJoinTable q1 q2
--- ljRel q1 q2 = NestedTable $ hrecToHKOfRec $ q1 .& (R.getField <$> q2) .& Record.end
+ljRel :: forall r1 r2 n1 n2 f sc.(KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc f (Maybe r2)) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, Maybe r2)])
+ljRel q1 q2 = JoinedTables (fromListToFieldInvIx [typeRep (Proxy @n1), typeRep (Proxy @n2)]
+                           ) ( hrecToHKOfRec ( fromLabel @n1 .= val q1
+                                               .& fromLabel @n2 .= val q2
+                                               .& Record.end))
 
-rjRel :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc Maybe r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, Maybe r1), '(n2, r2)])
-rjRel q1 q2 = RightJoinTable q1 q2
+rjRel :: forall r1 r2 n1 n2 f sc.(KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f (Maybe r1)) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, Maybe r1), '(n2, r2)])
+rjRel q1 q2 = JoinedTables (fromListToFieldInvIx [typeRep (Proxy @n1), typeRep (Proxy @n2)]
+                           ) ( hrecToHKOfRec ( fromLabel @n1 .= val q1
+                                               .& fromLabel @n2 .= val q2
+                                               .& Record.end))
 
 nextStage :: TableValue sc f i -> TableValue sc f i
 nextStage = nextStage' []
@@ -400,23 +400,14 @@ nextStage = nextStage' []
 nextStage' :: [Text] -> TableValue sc f i -> TableValue sc f i
 nextStage' pfxs (TableValue fsix hk) = TableValue fsix $ hoistWithKeyAndTagHK (aliasedExprWithPrefix pfxs) hk
 nextStage' pfxs (JoinedTables fsix tvals) = JoinedTables fsix $ hoistWithKeyAndTagHK (\(SomeSymbol ssym) -> nextStage' ((T.pack $ symbolVal ssym) : pfxs)) tvals
-nextStage' pfxs (CrossTable ntv1 ntv2) = CrossTable (fmap (nextStage' (getFnName ntv1 : pfxs)) ntv1) (fmap (nextStage' (getFnName ntv2 : pfxs)) ntv2)
-nextStage' pfxs (LeftJoinTable ntv1 ntv2) = LeftJoinTable (fmap (nextStage' (getFnName ntv1 : pfxs)) ntv1) (fmap (nextStage' (getFnName ntv2 : pfxs)) ntv2)
-nextStage' pfxs (RightJoinTable ntv1 ntv2) = RightJoinTable (fmap (nextStage' (getFnName ntv1 : pfxs)) ntv1) (fmap (nextStage' (getFnName ntv2 : pfxs)) ntv2)
-nextStage' _pfxs (ConsTable _ _) = undefined
-nextStage' _pfxs (ConsOptTable _ _ _) = undefined
+nextStage' pfxs (OptTable tv) = OptTable (nextStage' pfxs tv)
 nextStage' _pfxs EmptyTable = EmptyTable
---nextStage' (NestedTable tabhk) = NestedTable $ hoistWithKeyHK nextStage' tabhk
 
 
 hoistMaybeTable :: (forall g x. ExprF sc g x -> ExprF sc Maybe x) -> TableValue sc f i -> TableValue sc Maybe i
 hoistMaybeTable fn (TableValue fsix hk) = TableValue fsix $ hoistHK fn hk
 hoistMaybeTable fn (JoinedTables fsix tvals) = JoinedTables fsix $ hoistHK (hoistMaybeTable fn) tvals
-hoistMaybeTable fn (CrossTable ntv1 ntv2) = CrossTable (fmap (hoistMaybeTable fn) ntv1) (fmap (hoistMaybeTable fn) ntv2)
-hoistMaybeTable fn (LeftJoinTable ntv1 ntv2) = LeftJoinTable (fmap (hoistMaybeTable fn) ntv1) (fmap (hoistMaybeTable fn) ntv2)
-hoistMaybeTable fn (RightJoinTable ntv1 ntv2) = RightJoinTable (fmap (hoistMaybeTable fn) ntv1) (fmap (hoistMaybeTable fn) ntv2)
-hoistMaybeTable _ (ConsTable _ _) = undefined
-hoistMaybeTable _ (ConsOptTable _ _ _) = undefined
+hoistMaybeTable fn (OptTable tv) = OptTable (hoistMaybeTable fn tv)
 hoistMaybeTable _ EmptyTable = EmptyTable
 
 toNullExprF :: ExprF sc g x -> ExprF sc Maybe x
@@ -437,13 +428,8 @@ idTableToExpr = unsafeTableToExpr
 
 unsafeTableToExpr :: TableValue sc f i -> PQ.Expr sc o
 unsafeTableToExpr (TableValue _ hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym e -> (aliasedExprName ssym, PQ.getExpr $ getExprF e)) hk
--- unsafeTableToExpr (NestedTable hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWith (\texp -> (aliasedTableName texp, PQ.getExpr $ unsafeTableToExpr texp)) hk
-unsafeTableToExpr (CrossTable tv1 tv2) = PQ.Expr $ PQ.FlatComposite $ [ (getFnName tv1, PQ.getExpr $ unsafeTableToExpr $ val tv1), (getFnName tv2, PQ.getExpr $ unsafeTableToExpr $ val tv2)]
-unsafeTableToExpr (LeftJoinTable tv1 tv2) = PQ.Expr $ PQ.FlatComposite $ [ (getFnName tv1, PQ.getExpr $ unsafeTableToExpr $ val tv1), (getFnName tv2, PQ.getExpr $ unsafeTableToExpr $ val tv2)]
-unsafeTableToExpr (RightJoinTable tv1 tv2) = PQ.Expr $ PQ.FlatComposite $ [ (getFnName tv1, PQ.getExpr $ unsafeTableToExpr $ val tv1), (getFnName tv2, PQ.getExpr $ unsafeTableToExpr $ val tv2)]
 unsafeTableToExpr (JoinedTables _ tvals) = PQ.Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym tv -> (aliasedExprName ssym, PQ.getExpr $ unsafeTableToExpr tv)) tvals
-unsafeTableToExpr (ConsTable _ _) = undefined
-unsafeTableToExpr (ConsOptTable _ _ _) = undefined
+unsafeTableToExpr (OptTable tv) = unsafeTableToExpr tv
 unsafeTableToExpr EmptyTable = PQ.Expr unitExpr
 
 unitExpr :: PQ.PrimExpr
@@ -510,26 +496,15 @@ deleteFieldIx trep (FieldInvIx prev ixMap) = FieldInvIx prev $ Map.delete trep i
 
 data TableValue sc f t where
   TableValue :: !FieldInvIx -> (HK (ExprF sc f) t) -> TableValue sc f t
---  NestedTable :: (HK (TableValue sc f) t) -> TableValue sc f t
-  CrossTable :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, r2)])
-  LeftJoinTable :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc Maybe r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, Maybe r2)])
-  RightJoinTable :: (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc Maybe r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, Maybe r1), '(n2, r2)])
-  ConsTable :: (KnownSymbol n, Typeable r) => Field n (TableValue sc f r) -> TableValue sc f (Rec xs) -> TableValue sc f (Rec ('(n, r) ': xs))
-  ConsOptTable :: (KnownSymbol n, Typeable r) => PQ.JoinType -> Field n (TableValue sc Maybe r) -> TableValue sc f (Rec xs) -> TableValue sc f (Rec ('(n, Maybe r) ': xs))
-  -- JoinedTables' :: !FieldInvIx -> HRec (TableValue sc Identity) xs -> TableValue sc f (Rec xs)
+  
   JoinedTables :: !FieldInvIx -> HK (TableValue sc f) t -> TableValue sc f t
+  OptTable :: Typeable t => TableValue sc f t -> TableValue sc f (Maybe t)
+
   EmptyTable :: TableValue sc f ()
 
 tableRecAsType :: ValidateRecToType os t => TableValue sc f (Rec os) -> TableValue sc f t
 tableRecAsType (TableValue fsix hk) = TableValue fsix (fromHKOfRec hk)
 tableRecAsType (JoinedTables fsix hk) = JoinedTables fsix (fromHKOfRec hk)
-
--- tableRecAsType (JoinedTables' fsix tvals) = JoinedTablesUsing fsix (fromHRec tvals)
-tableRecAsType _tv@CrossTable{} = undefined -- coerce tv
-tableRecAsType _tv@LeftJoinTable{} = undefined -- coerce tv
-tableRecAsType _tv@RightJoinTable{} = undefined -- coerce tv
-tableRecAsType _tv@ConsTable{} = undefined -- coerce tv
-tableRecAsType _tv@ConsOptTable{} = undefined -- coerce tv
   
 newtype Scalar sc t = Scalar (PQ.Expr sc t)
 
@@ -545,33 +520,13 @@ instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbo
 
 instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (TableValue sc Identity i) (PQ.Expr sc t) where
   getField (TableValue _ hk) = fromIdExpr $ getExprF $ R.getField @f hk
---  getField (NestedTable hk) = undefined -- idTableToExpr $ R.getField @f hk
-  getField (CrossTable tv1 tv2) = idTableToExpr $ getMat tv1 tv2
-    where getMat :: forall n1 n2 r1 r2.(Typeable r1, Typeable r2) => Field n1 (TableValue sc Identity r1) -> Field n2 (TableValue sc Identity r2) -> TableValue sc Identity t
-          getMat ntv1 ntv2 = case (eqT @t @r1, eqT @t @r2) of
-            (Just Refl, Nothing) -> val ntv1
-            (Nothing, Just Refl) -> val ntv2
-            (Nothing, Nothing) -> error "Panic"
-            (Just _, Just _) -> error "Panic"
-
-  getField (LeftJoinTable tv1 tv2) = getMat tv1 tv2
-    where getMat :: forall n1 n2 r1 r2.(Typeable r1, Typeable r2) => Field n1 (TableValue sc Identity r1) -> Field n2 (TableValue sc Maybe r2) -> PQ.Expr sc t
-          getMat ntv1 ntv2 = case (eqT @t @r1, eqT @t @(Maybe r2)) of
-            (Just Refl, Nothing) -> idTableToExpr $ val ntv1
-            (Nothing, Just Refl) -> maybeTableToExpr $ val ntv2              
-            (Nothing, Nothing) -> error "Panic"
-            (Just _, Just _) -> error "Panic"
-
-  getField (RightJoinTable tv1 tv2) = getMat tv1 tv2
-    where getMat :: forall n1 n2 r1 r2.(Typeable r1, Typeable r2) => Field n1 (TableValue sc Maybe r1) -> Field n2 (TableValue sc Identity r2) -> PQ.Expr sc t
-          getMat ntv1 ntv2 = case (eqT @t @(Maybe r1), eqT @t @r2) of
-            (Just Refl, Nothing) -> maybeTableToExpr $ val ntv1
-            (Nothing, Just Refl) -> idTableToExpr $ val ntv2              
-            (Nothing, Nothing) -> error "Panic"
-            (Just _, Just _) -> error "Panic"
-  getField (ConsTable _ _) = undefined
-  getField (ConsOptTable _ _ _) = undefined
   getField EmptyTable = PQ.Expr unitExpr
+  getField optv@(OptTable tv) = go tv optv
+    where
+      go :: forall r.(Typeable r) => TableValue sc Identity r -> TableValue sc Identity (Maybe r) -> PQ.Expr sc t
+      go tv' _ = case eqT @t @(Maybe r) of
+        Just Refl -> DBRecord.Internal.Expr.toNullable $ idTableToExpr tv'
+        Nothing -> error "Panic"
   getField (JoinedTables _ tvals) = idTableToExpr $ R.getField @f tvals
 
 class HasColumn sc tab (col :: Symbol) (a :: Type) where
