@@ -28,10 +28,6 @@ import GHC.OverloadedLabels
 import Data.String
 import Record.Setter
 
--- TODO: Fix imports
-import Data.Functor.Identity
-import DBRecord.Internal.Schema (Clause, TableValue)
-
 data DVDRentalDB (db :: DbK)
 
 instance Database (DVDRentalDB db) where
@@ -339,7 +335,7 @@ data UserInfo = UserInfo
 selectUsingEg1 :: forall db.
   (db ~ 'Postgres) =>
   Query (DVDRentalDB db) UserInfo
-selectUsingEg1 = rel @(DVDRentalDB db) @Customer $ selectUsing @UserInfo $ \customer ->
+selectUsingEg1 = rel @(DVDRentalDB db) @Customer $ using @UserInfo $ select $ \customer ->
   #custId .= val customer.customerId
   .& #surname .= val customer.lastName
   .& end
@@ -357,7 +353,7 @@ orderByOneColumn :: forall db.
                                , '("lastName", Text)
                                ])
 orderByOneColumn = rel @(DVDRentalDB db) @Customer $ do
-  sort $ \customer -> asc customer.firstName
+  order $ \customer -> asc customer.firstName
   select $ \customer ->
     customer.firstName
     .& customer.lastName
@@ -369,7 +365,7 @@ orderByOneColumnByDesc :: forall db.
                                , '("lastName", Text)
                                ])
 orderByOneColumnByDesc = rel @(DVDRentalDB db) @Customer $ do
-  sort $ \customer -> desc customer.lastName
+  order $ \customer -> desc customer.lastName
   select $ \customer ->
     customer.firstName
     .& customer.lastName
@@ -381,7 +377,7 @@ orderByMultipleColumn :: forall db.
                                , '("lastName", Text)
                                ])
 orderByMultipleColumn = rel @(DVDRentalDB db) @Customer $ do
-  sort $ \customer -> asc customer.firstName <> desc customer.lastName
+  order $ \customer -> asc customer.firstName <> desc customer.lastName
   select $ \customer ->
     customer.firstName
     .& customer.lastName
@@ -397,7 +393,7 @@ orderByExpr = rel @(DVDRentalDB db) @Customer $ do
     customer.firstName
     .& #len .= 1 -- len (val customer.firstName)
     .& end
-  sort $ \_ -> desc res.len
+  order $ \_ -> desc res.len
   pure res
 
 orderByAscNullsFirst :: forall db.
@@ -406,7 +402,7 @@ orderByAscNullsFirst :: forall db.
                                , '("email", Maybe Text)
                                ])
 orderByAscNullsFirst = rel @(DVDRentalDB db) @Customer $ do
-  sort $ \customer -> ascNullsFirst customer.email
+  order $ \customer -> ascNullsFirst customer.email
   select $ \customer ->
     customer.firstName
     .& customer.email
@@ -418,7 +414,7 @@ orderByAscNullsLast :: forall db.
                                , '("email", Maybe Text)
                                ])
 orderByAscNullsLast = rel @(DVDRentalDB db) @Customer $ do
-  sort $ \customer -> ascNullsLast customer.email
+  order $ \customer -> ascNullsLast customer.email
   select $ \customer ->
     customer.firstName
     .& customer.email
@@ -430,7 +426,7 @@ orderByDescNullsFirst :: forall db.
                                , '("email", Maybe Text)
                                ])
 orderByDescNullsFirst = rel @(DVDRentalDB db) @Customer $ do
-  sort $ \customer -> descNullsFirst customer.email
+  order $ \customer -> descNullsFirst customer.email
   select $ \customer ->
     customer.firstName
     .& customer.email
@@ -442,7 +438,7 @@ orderByDescNullsLast :: forall db.
                                , '("email", Maybe Text)
                                ])
 orderByDescNullsLast = rel @(DVDRentalDB db) @Customer $ do
-  sort $ \customer -> descNullsLast customer.email
+  order $ \customer -> descNullsLast customer.email
   select $ \customer ->
     customer.firstName
     .& customer.email
@@ -576,7 +572,7 @@ qWithTopOrBottomN :: forall db.
                                ])
 qWithTopOrBottomN = rel @(DVDRentalDB db) @Film $ do
   limit $ Just 10
-  sort $ \film -> desc film.rentalRate
+  order $ \film -> desc film.rentalRate
   select $ \film ->
     film.filmId
     .& film.title
@@ -602,7 +598,7 @@ innerJoin2Tables =
   (#customer .= rel @(DVDRentalDB db) @Customer selectAll)
   (#payment .= rel @(DVDRentalDB db) @Payment selectAll)
   (\r -> r.customer.customerId .== fromIntegralExpr r.payment.customerId) $ do
-  sort $ \r -> asc r.payment.paymentDate
+  order $ \r -> asc r.payment.paymentDate
   selectAll
 
 innerJoin3Tables :: forall db.
@@ -621,7 +617,7 @@ innerJoin3Tables =
     selectAll)
   (#staff .= rel @(DVDRentalDB db) @Staff selectAll)
   (\r -> r.customerPayment.payment.staffId .== fromIntegralExpr r.staff.staffId) $ do
-  sort $ \r -> asc r.customerPayment.payment.paymentDate
+  order $ \r -> asc r.customerPayment.payment.paymentDate
   selectAll
   
 -- left join
@@ -635,7 +631,7 @@ leftJoinEg1 =
   (#film .= rel @(DVDRentalDB db) @Film selectAll)
   (#inventory .= rel @(DVDRentalDB db) @Inventory selectAll)
   (\r -> r.inventory.filmId .== fromIntegralExpr r.film.filmId) $ do
-  sort $ \r -> asc r.film.title
+  order $ \r -> asc r.film.title
   selectAll
 
 leftJoinEg2 :: forall db.
@@ -649,7 +645,7 @@ leftJoinEg2 =
   (#inventory .= rel @(DVDRentalDB db) @Inventory selectAll)
   (\r -> r.inventory.filmId .== fromIntegralExpr r.film.filmId) $ do
   restrict $ \r -> isNull r.inventory.filmId
-  sort $ \r -> asc r.film.title
+  order $ \r -> asc r.film.title
   selectAll  
 -- right join
 
@@ -663,7 +659,7 @@ rightJoinEg1 =
   (#inventory .= rel @(DVDRentalDB db) @Inventory selectAll)
   (#film .= rel @(DVDRentalDB db) @Film selectAll)
   (\r -> r.inventory.filmId .== fromIntegralExpr r.film.filmId) $ do
-  sort $ \r -> asc r.film.title
+  order $ \r -> asc r.film.title
   selectAll
 
 rightJoinEg2 :: forall db.
@@ -677,7 +673,7 @@ rightJoinEg2 =
   (#film .= rel @(DVDRentalDB db) @Film selectAll)
   (\r -> r.inventory.filmId .== fromIntegralExpr r.film.filmId) $ do
   restrict $ \r -> isNull r.inventory.filmId
-  sort $ \r -> asc r.film.title
+  order $ \r -> asc r.film.title
   selectAll
 
 
@@ -750,8 +746,6 @@ qGroupByWithMultipleCol = aggregate (rel @(DVDRentalDB db) @Payment) $ do
     .& end
 
 -- union
-type TableExpr sc tab o = (forall s. Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
-
 staffTable :: (db ~ 'Postgres) => TableExpr (DVDRentalDB db) Staff o
 staffTable = rel
 
@@ -776,7 +770,7 @@ qExcept :: forall db.
   Query (DVDRentalDB db) Staff
 qExcept =
   staffTable (restrict (.active) *> selectAll)
-  `intersect` staffTable (restrict (not_ . (.active)) *> selectAll)  
+  `except` staffTable (restrict (not_ . (.active)) *> selectAll)  
 -- having
 -- grouping sets
 -- cube

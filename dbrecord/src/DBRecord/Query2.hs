@@ -25,30 +25,76 @@
 {-# LANGUAGE DeriveGeneric                 #-}
 
 module DBRecord.Query2
-  ( module DBRecord.Internal.Order
-  , module DBRecord.Internal.Expr
-  , module DBRecord.Internal.Window
-  , module DBRecord.Internal.Predicate
-  , module DBRecord.Query2
-  , module Record
+  ( crossJoin
+  , innerJoin
+  , leftJoin
+  , rightJoin
+  , fullJoin
+  , union
+  , unionAll
+  , intersect
+  , intersectAll
+  , except
+  , exceptAll
+  , order
+  , restrict
+  , selectAll
+  , select
+  , selectAgg -- TODO: Get rid off
+  , using
+  , selectDistinct
+  , selectNone
+  , aggregate
+  , fromGroup -- TODO: 
+  , groupBy
+  , having
+  , limit
+  , offset
+  , with
+  , with2
+  , DBRecord.Query2.from -- TODO: clashing with Generics. Revisit!
+  , extend
+  , joinsL
+  , joinsR
+  , scalarSubQuery
+  , insertOne
+  , insertMany
+  , insertFrom
+  , update
+  , set
+  , delete
+  , runQueryAsList
+  , runMQueryAsList
+  , runMQuery_
+
+  , TableExpr
+  , As
+  , Grouped
+  , SelectList
+  , Insertable (..)
+  , UpdatingRow
   -- Schema Internal Reexports
   , Query' (..)
   , Query
   , PlainQ
   , MQuery
   --
+  , module DBRecord.Internal.Order
+  , module DBRecord.Internal.Expr
+  , module DBRecord.Internal.Window
+  , module DBRecord.Internal.Predicate
+  , module Record
   ) where
 
 
 import DBRecord.Old.Schema
 
-import DBRecord.Internal.Order
+import DBRecord.Internal.Order hiding (order)
 import DBRecord.Internal.Expr hiding (Alias)
 import DBRecord.Internal.Predicate
 import DBRecord.Internal.Common
 import DBRecord.Internal.Window
 import DBRecord.Internal.Schema hiding (insert, delete)
-import DBRecord.Internal.PrimQuery  hiding (insertQ, updateQ, deleteQ, alias, Join, Joins)
 import DBRecord.Internal.Query (getTableId, getTableProjections)
 import           DBRecord.Internal.DBTypes (GetDBTypeRep)
 import qualified DBRecord.Internal.Query as Q
@@ -85,47 +131,35 @@ import GHC.Records
 
 type Query sc t = Query' PlainQ sc t
 type As = Field
+type TableExpr sc tab o = (forall s. Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
+
 
 -- * Joins
 -- FROM T1 CROSS JOIN T2 is equivalent to FROM T1 INNER JOIN T2 ON TRUE. It is also equivalent to FROM T1, T2.
 
--- newtype Rel (n :: Symbol) r = Rel (
-data Join (n1 :: Symbol) r1 (n2 :: Symbol) r2 = Join (Field n1 r1) (Field n2 r2)
-  deriving (Show, Eq)
+-- data JoinScope s sc (n1 :: Symbol) r1 (n2 :: Symbol) r2 = JoinScope (Scoped s sc r1) (Scoped s sc r2)
 
-data JoinScope s sc (n1 :: Symbol) r1 (n2 :: Symbol) r2 = JoinScope (Scoped s sc r1) (Scoped s sc r2)
+-- instance
+--   ( GHC.Records.HasField '(fn, fn == n1, fn == n2) (Join n1 r1 n2 r2) t
+--   ) => R.HasField (fn :: Symbol) (Join n1 r1 n2 r2) t where
+--   getField v = R.getField @'(fn, fn == n1, fn == n2) v
 
-instance
-  ( GHC.Records.HasField '(fn, fn == n1, fn == n2) (Join n1 r1 n2 r2) t
-  ) => R.HasField (fn :: Symbol) (Join n1 r1 n2 r2) t where
-  getField v = R.getField @'(fn, fn == n1, fn == n2) v
+-- instance (t ~ r1) => R.HasField '(fn :: Symbol, 'True, 'False) (Join n1 r1 n2 r2) (Field n1 t) where
+--   getField (Join r1 r2) = r1
 
-instance (t ~ r1) => R.HasField '(fn :: Symbol, 'True, 'False) (Join n1 r1 n2 r2) (Field n1 t) where
-  getField (Join r1 r2) = r1
+-- instance (t ~ r2) => R.HasField '(fn :: Symbol, 'False, 'True) (Join n1 r1 n2 r2) (Field n2 t) where
+--   getField (Join r1 r2) = r2
 
-instance (t ~ r2) => R.HasField '(fn :: Symbol, 'False, 'True) (Join n1 r1 n2 r2) (Field n2 t) where
-  getField (Join r1 r2) = r2
+-- instance
+--   ( GHC.Records.HasField '(fn, fn == n1, fn == n2) (JoinScope s sc n1 r1 n2 r2) t
+--   ) => R.HasField (fn :: Symbol) (JoinScope s sc n1 r1 n2 r2) t where
+--   getField v = R.getField @'(fn, fn == n1, fn == n2) v
 
-instance
-  ( GHC.Records.HasField '(fn, fn == n1, fn == n2) (JoinScope s sc n1 r1 n2 r2) t
-  ) => R.HasField (fn :: Symbol) (JoinScope s sc n1 r1 n2 r2) t where
-  getField v = R.getField @'(fn, fn == n1, fn == n2) v
+-- instance (t ~ Scoped s sc r1) => R.HasField '(fn :: Symbol, 'True, 'False) (JoinScope s sc n1 r1 n2 r2) (Field n1 t) where
+--   getField (JoinScope r1 r2) = fromLabel @n1 .= r1
 
-instance (t ~ Scoped s sc r1) => R.HasField '(fn :: Symbol, 'True, 'False) (JoinScope s sc n1 r1 n2 r2) (Field n1 t) where
-  getField (JoinScope r1 r2) = fromLabel @n1 .= r1
-
-instance (t ~ Scoped s sc r2) => R.HasField '(fn :: Symbol, 'False, 'True) (JoinScope s sc n1 r1 n2 r2) (Field n2 t) where
-  getField (JoinScope r1 r2) = fromLabel @n2 .= r2  
-
-{-
-crossJoin :: forall o1 o2 n1 r1 n2 r2 sc.
-  As n1 (Query sc r1)
-  -> As n2 (Query sc r2)
-  -> (forall s.Clause s sc (Join n1 r1 n2 r2) (Join n1 o1 n2 o2))
-  -> Query sc (Join n1 o1 n2 o2)
-crossJoin _ _ _ = undefined
-
--}
+-- instance (t ~ Scoped s sc r2) => R.HasField '(fn :: Symbol, 'False, 'True) (JoinScope s sc n1 r1 n2 r2) (Field n2 t) where
+--   getField (JoinScope r1 r2) = fromLabel @n2 .= r2  
 
 data Joins sc qs = Joins [TypeRep] (HRec (Query' PlainQ sc) qs)
 
@@ -169,7 +203,7 @@ joinsL :: forall o qs sc.
   -> (forall s.Scoped s sc (Rec qs) -> Expr sc Bool)
   -> (forall s.Clause s sc (Rec qs) (TableValue sc Identity o))
   -> Query sc o
-joinsL js@(Joins treps jsHRec) _ (Clause clau) = Query'
+joinsL (Joins treps jsHRec) _ (Clause clau) = Query'
   ( nextStage joinedTabs 
   , clau
   , PQ.Joins pqJoinsL
@@ -177,7 +211,7 @@ joinsL js@(Joins treps jsHRec) _ (Clause clau) = Query'
   where
     pqJoinsL = case joinedPQs of
       [] -> error "Panic: Invariant violated! `Joins` list cannot be empty"
-      (hpq : rstpqs) -> L.foldl' (\acc q -> PQ.InlineJoinL acc PQ.LeftJoin False (PQ.PrimQuery q) (ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
+      (hpq : rstpqs) -> L.foldl' (\acc q -> PQ.InlineJoinL acc PQ.LeftJoin False (PQ.PrimQuery q) (PQ.ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
     joinedPQs = fmap snd $ L.sortOn fst $ hrecToListWithTag
       (\ssym q ->
           let
@@ -197,7 +231,7 @@ joinsR :: forall o qs sc.
   -> (forall s.Scoped s sc (Rec qs) -> Expr sc Bool)
   -> (forall s.Clause s sc (Rec qs) (TableValue sc Identity o))
   -> Query sc o
-joinsR js@(Joins treps jsHRec) _ (Clause clau) = Query'
+joinsR (Joins treps jsHRec) _ (Clause clau) = Query'
   ( nextStage joinedTabs 
   , clau
   , PQ.Joins pqJoinsR
@@ -205,7 +239,7 @@ joinsR js@(Joins treps jsHRec) _ (Clause clau) = Query'
   where
     pqJoinsR = case joinedPQs of
       [] -> error "Panic: Invariant violated! `Joins` list cannot be empty"
-      (hpq : rstpqs) -> L.foldr (\q acc -> PQ.InlineJoinR (PQ.PrimQuery q) PQ.LeftJoin False acc (ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
+      (hpq : rstpqs) -> L.foldr (\q acc -> PQ.InlineJoinR (PQ.PrimQuery q) PQ.LeftJoin False acc (PQ.ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
     joinedPQs = fmap snd $ L.sortOn fst $ hrecToListWithTag
       (\ssym q ->
           let
@@ -222,7 +256,7 @@ joinsR js@(Joins treps jsHRec) _ (Clause clau) = Query'
 
 data JoinPrec
   = JoinPrecL
-  | JoinPrecR
+--  | JoinPrecR
   
 class JoinOn (jp :: JoinPrec) qs r where
   on' :: Proxy jp -> Joins sc qs -> r
@@ -233,10 +267,10 @@ instance ( KnownSymbol fn1
          , Typeable q2
          , JoinOn 'JoinPrecL qs r
          ) => JoinOn 'JoinPrecL ('(fn1, q1) ': '(fn2, q2) ': qs) ((Scoped s sc (Rec '[ '(f1, q1), '(f2, q2)]) -> Expr sc Bool) -> r) where
-  on' pjp js = \f ->
+  on' pjp js = \_f ->
     let
-      (fval1, rst') = unconsRec js
-      (fval2, rst) = unconsRec rst'
+      (_fval1, rst') = unconsRec js
+      (_fval2, rst) = unconsRec rst'
     in on' pjp rst
 
 
@@ -259,6 +293,22 @@ extend :: forall o tab sc. Table sc tab =>
   ((forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o)
   -> ()
 extend _ = undefined  
+
+crossJoin :: forall o n1 r1 n2 r2 sc.
+  (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) =>
+    As n1 (Query sc r1)
+  -> As n2 (Query sc r2)
+  -> (forall s.Clause s sc (Rec '[ '(n1, r1), '(n2, r2)]) (TableValue sc Identity o))
+  -> Query sc o
+crossJoin q1 q2 (Clause clau) =
+  let
+    (q1PQ, q1Res) = runAliasedQuery q1
+    (q2PQ, q2Res) = runAliasedQuery q2
+    joinTabVal = nextStage $ crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
+  in Query' ( joinTabVal
+            , clau
+            , PQ.Join PQ.CrossJoin False Nothing (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
+            )
 
 innerJoin :: forall o n1 r1 n2 r2 sc.
   (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) =>
@@ -319,10 +369,25 @@ rightJoin q1 q2 on (Clause clau) =
             , PQ.Join PQ.RightJoin False (Just onCond) (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
             )
 
-{-
-fullJoin :: () -> As n1 (Query sc r1) -> As n2 (Query sc r2) -> Query sc (Join n1 (HK Maybe r1) n2 (HK Maybe r2))
-fullJoin = undefined
--}
+fullJoin :: forall o n1 r1 n2 r2 sc.
+  (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) =>
+    As n1 (Query sc r1)
+  -> As n2 (Query sc r2)
+  -> (forall s.Scoped s sc (Rec '[ '(n1, r1), '(n2, r2)]) -> Expr sc Bool)
+  -> (forall s.Clause s sc (Rec '[ '(n1, Maybe r1), '(n2, Maybe r2)]) (TableValue sc Identity o))
+  -> Query sc o
+fullJoin q1 q2 on (Clause clau) =
+  let
+    (q1PQ, q1Res) = runAliasedQuery q1
+    (q2PQ, q2Res) = runAliasedQuery q2
+    crossTableVal = nextStage $ crossRel (fromLabel @n1 .= q1Res) (fromLabel @n2 .= q2Res)
+    fulljoinTabVal = nextStage $ rjRel (fromLabel @n1 .= OptTable q1Res) (fromLabel @n2 .= OptTable q2Res)
+    onCond = getExpr $ on $ getScopeOfTable $ crossTableVal
+  in Query' ( fulljoinTabVal
+            , clau
+            , PQ.Join PQ.FullJoin False (Just onCond) (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
+            )
+
 
 -- lateralInnerJoin :: As n1 (Query sc r1) -> As n2 (Query sc (Scoped sr2)) -> Query sc ()
 -- lateralInnerJoin = undefined
@@ -336,40 +401,43 @@ fullJoin = undefined
 -- In order to calculate the union, intersection, or difference of two queries, the two queries must be “union compatible”, which means that they return the same number of columns and the corresponding columns have compatible data types.
 -- REF: https://www.postgresql.org/docs/13/typeconv-union-case.html
 union :: Query sc r -> Query sc r -> Query sc r
-union = binQ Union
+union = binQ PQ.Union
 
 unionAll :: Query sc r -> Query sc r -> Query sc r
-unionAll = binQ UnionAll
+unionAll = binQ PQ.UnionAll
   
 intersect :: Query sc r -> Query sc r -> Query sc r
-intersect = binQ Intersection
+intersect = binQ PQ.Intersection
 
 intersectAll :: Query sc r -> Query sc r -> Query sc r
-intersectAll = binQ IntersectionAll
+intersectAll = binQ PQ.IntersectionAll
 
 except :: Query sc r -> Query sc r -> Query sc r
-except = binQ Except
+except = binQ PQ.Except
 
 exceptAll :: Query sc r -> Query sc r -> Query sc r
-exceptAll = binQ ExceptAll
+exceptAll = binQ PQ.ExceptAll
 
-binQ :: BinType -> Query sc r -> Query sc r -> Query sc r
-binQ binType q1 q2 = Query'
-  ( undefined
-  , let (Clause clau) = selectAll in clau
-  , const $ Binary Union ((execQuery q1)) ((execQuery q2)) Nothing
-  )
+binQ :: PQ.BinType -> Query sc r -> Query sc r -> Query sc r
+binQ binType q1 q2 =
+  let
+    (pq1, tv) = runQuery' q1
+    pq2 = execQuery q2
+    in Query' ( nextStage tv
+              , let (Clause clau) = selectAll in clau
+              , const $ PQ.Binary binType pq1 pq2 Nothing
+              )
 
 -- * Ordering
 
 -- ORDER BY can be applied to the result of a UNION, INTERSECT, or EXCEPT combination, but in this case it is only permitted to sort by output column names or numbers, not by expressions.
 
-sort :: forall i sc s.(Scoped s sc i -> Order sc) -> Clause s sc i ()
-sort ordFn = scoped $ \(clau, inp) -> (clau {orderbys = orderbys clau <> getOrder (ordFn inp)}, ())
+order :: forall i sc s.(Scoped s sc i -> Order sc) -> Clause s sc i ()
+order ordFn = scoped $ \(clau, inp) -> (clau {PQ.orderbys = PQ.orderbys clau <> getOrder (ordFn inp)}, ())
 
 -- * Where
 restrict :: forall i sc s.(Scoped s sc i -> Expr sc Bool) -> Clause s sc i ()
-restrict filtFn = scoped $ \(clau, inp) -> (clau {criteria = criteria clau <> [PQ.getExpr (filtFn inp)]}, ())
+restrict filtFn = scoped $ \(clau, inp) -> (clau {PQ.criteria = PQ.criteria clau <> [PQ.getExpr (filtFn inp)]}, ())
 
 
 data SelectList sc os = SelectList [TypeRep] (HRec (PQ.Expr sc) os)
@@ -421,10 +489,6 @@ selectListToTable (SelectList fsix selRec) = TableValue (fromListToFieldInvIx fs
 aggSelectListToTable :: AggSelectList sc os -> TableValue sc Aggregated (Rec os)
 aggSelectListToTable (AggSelectList fsix selRec) = TableValue (fromListToFieldInvIx fsix) $ hoistWithKeyHK (ExprF . coerceExpr . getAggExpr) $ hrecToHKOfRec selRec
 
--- TODO: Bugy. Fix the FieldIxs w.r.t target type
-selectListToType :: (ValidateRecToType os t) => SelectList sc os -> TableValue sc Identity t
-selectListToType (SelectList fsix selRec) = TableValue (fromListToFieldInvIx fsix) $ hoistWithKeyHK (ExprF . toIdExpr) $ fromHRec selRec
-
   
 newtype SelectScope s sc i = SelectScope (Scoped s sc i)
 
@@ -438,27 +502,23 @@ instance R.HasField fn (HRec (PQ.Expr sc) os) (PQ.Expr sc t) => R.HasField (fn :
 -- * Select List
 
 selectAll :: forall i sc s.Clause s sc i (TableValue sc Identity i)
-selectAll = scoped $ \(clau, scopes@(Scoped tabv)) -> (clau, tabv)
+selectAll = scoped $ \(clau, (Scoped tabv)) -> (clau, tabv)
 
 select :: forall i os sc s.
   (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (TableValue sc Identity (Rec os))
-select selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList _ selRec) = selFn (SelectScope scopes)
-  in (clau, selectListToTable selCols)
+select selFn = scoped $ \(clau, scopes) -> let selCols = selFn (SelectScope scopes)
+                                           in (clau, selectListToTable selCols)
 
 selectAgg :: forall i os sc s.
   ((forall a.Grouped s sc a -> AggExpr sc a) -> SelectScope s sc i -> AggSelectList sc os) -> Clause s sc i (TableValue sc Aggregated (Rec os))
-selectAgg selFn = scoped $ \(clau, scopes) -> let selCols@(AggSelectList _ selRec) = selFn unGroup (SelectScope scopes)
-  in (clau, aggSelectListToTable selCols)  
-
-selectUsing :: forall o i os sc s.ValidateRecToType os o => (SelectScope s sc i -> SelectList sc os) -> Clause s sc i (TableValue sc Identity o)
-selectUsing selFn = scoped $ \(clau, scopes) -> let selCols@(SelectList _ selRec) = selFn (SelectScope scopes)
-  in (clau, selectListToType selCols)
+selectAgg selFn = scoped $ \(clau, scopes) -> let selCols = selFn unGroup (SelectScope scopes)
+                                              in (clau, aggSelectListToTable selCols)
 
 using :: forall o i os sc s.ValidateRecToType os o => Clause s sc i (TableValue sc Identity (Rec os)) -> Clause s sc i (TableValue sc Identity o)
 using clau = clau >>= pure . tableRecAsType
 
 -- TODO: Consider the alt strategy of having index representing Plain | Agg | Insert | Update | Delete  in `Clause` which will let us reuse the combinators
-newtype Aggregated a = Aggregated { unAgg :: Identity a}
+newtype Aggregated a = Aggregated { _unAgg :: Identity a}
 
 {- Variants
 SELECT DISTINCT select_list ...
@@ -492,10 +552,10 @@ fromGroup (Grouped g) f = f g
 groupBy :: forall a i sc s.(Scoped s sc i -> Expr sc a) -> Clause s sc i (Grouped s sc a)
 groupBy grpFn = scoped $ \(clau, inp) ->
   let gpVal = grpFn inp
-  in (clau {groupbys = groupbys clau <> [PQ.getExpr gpVal]}, Grouped (AggExpr gpVal))
+  in (clau {PQ.groupbys = PQ.groupbys clau <> [PQ.getExpr gpVal]}, Grouped (AggExpr gpVal))
 
 having :: forall i sc s.(Scoped s sc i -> AggExpr sc Bool) -> Clause s sc i ()
-having filtFn = scoped $ \(clau, inp) -> (clau {havings = havings clau <> [PQ.getExpr (getAggExpr (filtFn inp))]}, ())
+having filtFn = scoped $ \(clau, inp) -> (clau {PQ.havings = PQ.havings clau <> [PQ.getExpr (getAggExpr (filtFn inp))]}, ())
 
 -- * LIMIT & OFFSET
 {-
@@ -506,10 +566,10 @@ SELECT select_list
 -}
 
 limit :: forall i sc s.Maybe Word -> Clause s sc i ()
-limit lmtMay = scoped $ \(clau, _) -> (clau {limit = getExpr . constExpr <$> lmtMay}, ())
+limit lmtMay = scoped $ \(clau, _) -> (clau {PQ.limit = getExpr . constExpr <$> lmtMay}, ())
 
 offset :: forall i sc s.Maybe Word -> Clause s sc i ()
-offset osMay = scoped $ \(clau, _) -> (clau {offset = getExpr . constExpr <$> osMay}, ())
+offset osMay = scoped $ \(clau, _) -> (clau {PQ.offset = getExpr . constExpr <$> osMay}, ())
 
 
 -- * CTE
@@ -551,16 +611,16 @@ runQueryAsList q = do
 
 -- MutationQ
 
-data InsertSetting
+-- data InsertSetting
 
-newtype ViaTraversable f a = ViaTraversable {getTraverseable :: f a}
+-- newtype ViaTraversable f a = ViaTraversable {getTraverseable :: f a}
 
-insert' :: forall o f tab sc.(Table sc tab) => InsertValues -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
-insert' ivals retFn = getMutQ @o @tab @sc $ \tabId basetab ->
+insert' :: forall o tab sc.(Table sc tab) => PQ.InsertValues -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
+insert' ivs retFn = getMutQ @o @tab @sc $ \tabId basetab ->
   let attrs = fmap peToAttr $ tableToProjections basetab
       peToAttr (_, PQ.BaseTableAttrExpr a) = a
       peToAttr (_, e) = error $ "Panic: Invariant violated! Expected only `BaseTableAttrExpr` " <> (show e)
-  in InsertMQuery (basetab, pure $ retFn basetab, InsertQuery tabId attrs ivals Nothing)
+  in InsertMQuery (basetab, pure $ retFn basetab, PQ.InsertQuery tabId attrs ivs Nothing)
 
 class Insertable (f :: Type -> Type) where
   insert :: forall o tab sc.(Table sc tab) => f (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
@@ -577,18 +637,17 @@ ivals tabv = fmap snd $ tableToProjections tabv
 
 instance Insertable NE.NonEmpty where
   insert :: forall o tab sc.(Table sc tab) => NE.NonEmpty (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
-  insert vs retFn = insert' (InsertValues $ fmap (ivals . fromNewRow @sc @tab) vs) retFn
+  insert vs retFn = insert' (PQ.InsertValues $ fmap (ivals . fromNewRow @sc @tab) vs) retFn
   
 instance Insertable Identity where
   insert :: forall o tab sc.(Table sc tab) => Identity (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
-  insert (Identity v) retFn = insert' (InsertValues (ivals (fromNewRow @sc @tab v) NE.:| [])) retFn
+  insert (Identity v) retFn = insert' (PQ.InsertValues (ivals (fromNewRow @sc @tab v) NE.:| [])) retFn
 
 instance Insertable (Query' ct sc) where
---  insert = insert'
+  insert = undefined
 
-
-data ISubQuery sc t where
-  ISubQuery :: Query sc t -> ISubQuery sc (NewRow sc t)
+-- data ISubQuery sc t where
+--   ISubQuery :: Query sc t -> ISubQuery sc (NewRow sc t)
   
 insertOne :: forall o tab sc.(Table sc tab) => NewRow sc tab -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
 insertOne v ret = insert @Identity (Identity v) ret
@@ -623,7 +682,7 @@ instance (R.HasField fn tab a, KnownSymbol fn, Typeable a) => SetField (fn :: Sy
 set :: forall tab sc s.(UpdatingRow sc tab -> UpdatingRow sc tab) -> Clause s sc tab ()
 set updFn = scoped $ \(clau, Scoped inp) ->
   let
-    updAssoc = runUpdatingRow $ updFn (UpdatingRow inp (const []))
+    _updAssoc = runUpdatingRow $ updFn (UpdatingRow inp (const []))
   in (clau, ())
 
 -- TODO: Make `set` a combinator instead of HOF.
@@ -631,7 +690,7 @@ update :: forall tab o sc.(Table sc tab) => (UpdatingRow sc tab -> UpdatingRow s
 update updFn (Clause clau) = getMutQ @o @tab @sc $ \tabId basetab ->
   let
     updAssoc = runUpdatingRow $ updFn (UpdatingRow basetab (const []))
-    mkUpdatePQ PQ.Clauses {criteria} = UpdateQuery tabId criteria updAssoc []
+    mkUpdatePQ PQ.Clauses {criteria} = PQ.UpdateQuery tabId criteria updAssoc []
   in UpdateMQuery (basetab, clau, mkUpdatePQ)
 
 delete :: forall tab o sc.(Table sc tab) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> MQuery sc o
@@ -679,69 +738,4 @@ runMQuery_ q = do
       liftIO $ dbDelete driver dq
   execMQuery runInsert runUpdate runDelete (pure 0) q  
   
--- class Updatable (f :: Type -> Type) where
---   updatable :: forall o tab sc.(Table sc tab) => (TableValue sc Identity tab -> TableValue sc Identity o) -> (forall s.Clause s sc tab o) -> MQuery sc o
-
--- instance Updatable [] where
---   updatable = undefined
-  
--- instance Updatable Identity where
---   updatable = undefined
-
--- instance Updatable (Query' ct sc) where
---   updatable = undefined  
-
--- class Deletable (f :: Type -> Type) where
---   deletable :: f ()
-
--- instance Deletable [] where
---   deletable = undefined
-  
--- instance Deletable Identity where
---   deletable = undefined
-
--- instance Deletable (Query' ct sc) where
---   deletable = undefined  
-
--- TEST CODE
-{-
--- testClau1 :: _ -- Clause s sc User2 User2
-testClau1 = do
-  let ce :: Scoped s ZB User2 -> Expr ZB Int
-      ce usr2 = R.getField @"age" usr2 - 1
-  restrict $ \i -> R.getField @"age" i .> (ce i)
-  testClau2
-  sort $ \i -> asc $ R.getField @"age" i
-  DBRecord.Query2.limit $ Just 10
-  DBRecord.Query2.offset $ Just 11
-  selectAll
-
--- testClau2 :: _
-testClau2 = restrict @User2 $ \i -> R.getField @"age" i .> 10
-
-testClau3 :: (R.HasField "isVerified" i Bool) => Clause s sc i ()
-testClau3 = restrict $ \i -> R.getField @"isVerified" i
-
--- testQ1 :: _
-testQ1 = rel @ZB @User2 $ testClau1
-
-testBinQ1 = testQ1 `union` testQ1
--}
-
-
-{-
-usrQ :: As "user" (Query ZB User1)
-usrQ = #user .= rel @ZB @User1
-
-usr2Q :: As "user" (Query ZB User2)
-usr2Q = #user .= rel @ZB @User2
-
-cteQ :: Query ZB User1
-cteQ = with (#user .= rel @ZB @User1) $ id
-
-cteQ1 :: Query ZB User1
-cteQ1 = with usrQ id
-
-trecdot = R.getField @"city" $ R.getField @"address" (rel @ZB @User2) :: _
--}
 
