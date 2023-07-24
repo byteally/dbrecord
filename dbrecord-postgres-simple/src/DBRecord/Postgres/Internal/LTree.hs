@@ -11,8 +11,8 @@ module DBRecord.Postgres.Internal.LTree
        , E.ltree
        ) where
 
-import           DBRecord.Types ( LTree (..) )
 import qualified DBRecord.Internal.Expr as E ( ltree )
+import           DBRecord.Types ( LTree (..), unescape )
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import           Database.PostgreSQL.Simple.FromField
@@ -40,4 +40,17 @@ instance FromField LTree where
 
      where
        splitByDot = T.split (== '.')
-       go = pure . LTree . splitByDot
+       go = pure . LTree . unescape . splitByDot  
+
+{-
+cdc_edi_message
+edi_sequence
+edi_spec
+partner -- ltree_peice
+platform_app_config
+platform_ui_config
+issue_scenario
+mft_connection
+edi_group
+edi_message
+-}
