@@ -41,16 +41,3 @@ instance FromField LTree where
      where
        splitByDot = T.split (== '.')
        go = pure . LTree . unescape . splitByDot  
-
-{-
-cdc_edi_message
-edi_sequence
-edi_spec
-partner -- ltree_peice
-platform_app_config
-platform_ui_config
-issue_scenario
-mft_connection
-edi_group
-edi_message
--}
