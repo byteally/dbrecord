@@ -37,7 +37,6 @@ common ghc2021Shim
                        , EmptyDataDeriving
                        , ExistentialQuantification
                        , ExplicitForAll
-                       , FieldSelectors
                        , FlexibleContexts
                        , FlexibleInstances
                        , ForeignFunctionInterface
