@@ -1,4 +1,4 @@
-with-compiler: ghc-9.2.4
+with-compiler: ghc-9.2.8
 index-state: 2022-08-09T04:58:03Z
 
 packages:
@@ -6,6 +6,7 @@ packages:
   ./dbrecord-types
   ./dbrecord-migration
   -- ./dbrecord-mongo
+  ./dbrecord-postgres
   ./dbrecord-postgres-simple
   ./dbrecord-sqlite-simple
   ./dbrecord-mssql-odbc
@@ -20,7 +21,7 @@ source-repository-package
 source-repository-package
   type: git
   location: git@github.com:byteally/rec
-  tag: 3266f99fe58fe33491b82c1088c4010c91b668e2
+  tag: 48a9cdd52747be98b4c79c2fada137fa0f85ecf6
   subdir: rec
 
 source-repository-package

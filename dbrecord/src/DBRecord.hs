@@ -4,7 +4,7 @@ module DBRecord
   , module Data.Int
   , module Data.Word
   , module DBRecord.Types
-  , DBRepr (..), DBObjK (..)
+  , DBRepr (..), DBObjK (..), AsUDType
   ) where
 
 import DBRecord.Old.Schema hiding (end)
@@ -13,4 +13,4 @@ import Data.Int (Int16, Int32, Int64)
 import Data.Word (Word16, Word32, Word64)
 --import Data.UUID.Types (UUID)
 import DBRecord.Types
-import DBRecord.Internal.DBTypes (DBRepr (..), DBObjK (..))
+import DBRecord.Internal.DBTypes (DBRepr (..), DBObjK (..), AsUDType)

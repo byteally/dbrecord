@@ -8,8 +8,10 @@
 {-# LANGUAGE OverloadedLabels        #-}
 {-# LANGUAGE OverloadedStrings       #-}
 {-# LANGUAGE DerivingStrategies      #-}
+{-# LANGUAGE DerivingVia             #-}
 {-# LANGUAGE DeriveAnyClass          #-}
 {-# LANGUAGE RoleAnnotations         #-}
+{-# LANGUAGE UndecidableInstances    #-}
 module Test.SampleDB.DVDRental
   ( module Test.SampleDB.DVDRental
   ) where
@@ -85,6 +87,20 @@ type Year = Int32
 
 data MPAA = G | PG | PG'13 | R | NC'17
   deriving (Show, Generic)
+  deriving (DBRepr db) via AsUDType MPAA
+
+instance UDType sc MPAA where
+  type TypeMappings sc MPAA = 'EnumType ('Just "mpaa_rating")
+                              '[ '("G", "G")
+                               , '("PG", "PG")
+                               , '("PG'13", "PG'13")
+                               , '("R", "R")
+                               , '("NC'17", "NC-17")
+                               ]
+
+
+instance ConstExpr (DVDRentalDB db) MPAA where
+  constExpr = undefined
 
 -- ^ stores film data such as title, release year, length, rating, etc
 data Film = Film
@@ -97,7 +113,7 @@ data Film = Film
   , rentalRate :: Scientific
   , length :: Int16
   , replacementCost :: Scientific
-  , rating :: Text -- MPAA
+  , rating :: MPAA
   , lastUpdate :: LocalTime
   , specialFeatures :: [Text]
   , fulltext :: Text -- tsvector TODO: Handle this
@@ -113,7 +129,7 @@ data NewFilm = NewFilm
   , rentalRate :: Scientific
   , length :: Int16
   , replacementCost :: Scientific
-  , rating :: Text -- MPAA
+  , rating :: MPAA
   , lastUpdate :: LocalTime
   , specialFeatures :: [Text]
   , fulltext :: Text -- tsvector TODO: Handle this
@@ -776,6 +792,11 @@ qExcept =
 -- cube
 -- rollup
 -- subquery
+qSubQ :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) Staff
+qSubQ = DBRecord.from (#staff .= staffTable selectAll) selectAll
+
 -- any
 -- all
 -- exits

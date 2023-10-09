@@ -11,8 +11,10 @@
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeOperators              #-}
+{-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE PolyKinds                  #-}
+{-# LANGUAGE LambdaCase                 #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 
@@ -48,6 +50,9 @@ import           Data.Proxy
 import qualified Data.List as L
 import           Data.ByteString.Char8 as ASCII
 import           Data.Typeable
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Data.HashMap.Strict as HM
 
 newtype PostgresDBT (db :: Type) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
   deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS, U.MonadUnliftIO, MonadThrow, MonadCatch)
@@ -94,7 +99,54 @@ instance (Generic a, GFromRow (Rep a)) => FromRow (AnnEntity 'TableObj 'True a) 
 
 instance (FromRow a) => FromRow (AnnEntity 'TableObj 'False a) where
   fromRow = AnnEntity <$> fromRow @a
-  {-# INLINE fromRow #-}  
+  {-# INLINE fromRow #-}
+
+-- TODO: 
+instance (UDFromField t (TypeMappings () t)) => FromRow (AnnEntity 'UDTypeObj 'True t) where
+  fromRow = AnnEntity <$> fieldWith (udFromField @t (Proxy @(TypeMappings () t)))
+
+instance (FromField t) => FromRow (AnnEntity 'UDTypeObj 'False t) where
+  fromRow = AnnEntity <$> fieldWith (fromField @t)
+
+class UDFromField (t :: Type) (udtMap :: UDTypeMappings) where
+  udFromField :: Proxy udtMap -> FieldParser t
+
+instance (SingI tyAliasM, SingE tyAliasM, SingI conAliases, SingE conAliases, Typeable t, Generic t, GFromEnum (Rep t)) => UDFromField t ('EnumType tyAliasM conAliases) where
+  udFromField _ f =
+    let
+      tyAliasM = fromSing (sing :: Sing tyAliasM)
+      conAliases = HM.fromList $ fmap (\(k,v) -> (v,k)) $ fromSing (sing :: Sing conAliases)
+      tab = T.encodeUtf8 $ maybe (T.pack $ show $ typeRep (Proxy @t)) id tyAliasM
+    in \case
+      Nothing -> returnError UnexpectedNull f ""      
+      Just val' -> case T.decodeUtf8' val' of
+        Left ex -> returnError Incompatible f (show ex)
+        Right val -> do
+          tName <- typename f
+          if tName == tab || tName == (ASCII.pack "_") `ASCII.append` tab
+            then case HM.lookup val conAliases >>= genFromEnum (Proxy @t) of
+                   Just en -> return en
+                   _       -> returnError ConversionFailed f (show val)
+            else returnError Incompatible f ("Wrong database type for " ++ (show $ (typeRep (Proxy :: Proxy t), tab)) ++ ", saw: " ++ show tName)
+
+genFromEnum :: forall t. (Generic t, GFromEnum (Rep t)) => Proxy t -> T.Text -> Maybe t
+genFromEnum _ con = to <$> gFromEnum (Proxy @(Rep t)) con
+
+class GFromEnum (f :: Type ->Type) where
+  gFromEnum :: Proxy f -> T.Text -> Maybe (f a)
+
+instance GFromEnum f => GFromEnum (D1 c f) where
+  gFromEnum _ con = M1 <$> gFromEnum (Proxy @f) con
+
+instance (GFromEnum f, GFromEnum g) => GFromEnum (f :+: g) where
+  gFromEnum _ con = (L1 <$> gFromEnum (Proxy @f) con) <|>
+                    (R1 <$> gFromEnum (Proxy @g) con)
+
+instance (Constructor c) => GFromEnum (C1 c U1) where
+  gFromEnum _ con
+    | con == (T.pack $ conName (undefined :: (C1 c f) a)) = Just (M1 U1)
+    | otherwise = Nothing
+
 
 -- Type class for default implementation of FromRow using generics
 class GFromRow f where

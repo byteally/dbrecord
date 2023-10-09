@@ -37,7 +37,6 @@ common ghc2021Shim
                        , EmptyDataDeriving
                        , ExistentialQuantification
                        , ExplicitForAll
-                       , FieldSelectors
                        , FlexibleContexts
                        , FlexibleInstances
                        , ForeignFunctionInterface
@@ -45,7 +44,6 @@ common ghc2021Shim
                        , GeneralisedNewtypeDeriving
                        , HexFloatLiterals
                        , ImplicitPrelude
-                       , ImportQualifiedPost
                        , InstanceSigs
                        , KindSignatures
                        , MonomorphismRestriction
@@ -60,7 +58,6 @@ common ghc2021Shim
                        , RelaxedPolyRec
                        , ScopedTypeVariables
                        , StandaloneDeriving
-                       , StandaloneKindSignatures
                        , StarIsType
                        , TraditionalRecordSyntax
                        , TupleSections
@@ -124,7 +121,7 @@ library
                      , base16-bytestring >= 0.1.1.6 && < 1.1
                      , binary            >= 0.8
                      , base64-bytestring >= 1.0
-                     , hashable          >= 1.2   && < 1.4
+                     , hashable          >= 1.2   && < 1.5
                      , rec               >= 0.1.0.0 && < 0.3
                      , unliftio          >= 0.2 && < 0.3
                      , path >= 0.9

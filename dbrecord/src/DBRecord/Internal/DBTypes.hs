@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
-{-# LANGUAGE TypeApplications, DataKinds, KindSignatures, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, TypeFamilyDependencies, UndecidableInstances, FlexibleInstances, OverloadedStrings, GADTs, TypeOperators, FlexibleContexts, DefaultSignatures #-}
+{-# LANGUAGE TypeApplications, DataKinds, KindSignatures, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, TypeFamilyDependencies, UndecidableInstances, FlexibleInstances, OverloadedStrings, GADTs, TypeOperators, FlexibleContexts, DefaultSignatures, DerivingStrategies #-}
 module DBRecord.Internal.DBTypes where
 
 import Data.Aeson
@@ -28,6 +28,8 @@ import qualified Data.Text as T
 import GHC.Generics
 import Data.Kind
 import GHC.TypeLits
+--import Data.Type.Equality
+--import Data.Typeable
 import qualified Path as Path
 import Record
 
@@ -418,13 +420,51 @@ data DBObjK
   | UDTypeObj
   | NullableObjOf DBObjK
   | ArrayObjOf DBObjK
+  | NewtypeObj
 
 class DBRepr (dbk :: DbK) (t :: Type) where
   type ToDBType dbk t :: DBObjK
   type ToDBType dbk t = 'TableObj
   type AutoCodec dbk t :: Bool
   type AutoCodec dbk t = 'True
+{-
+  getTableObjFields :: Proxy '(dbk, t) -> TableObjFields (ToDBType dbk t)
+  default getTableObjFields :: (MkTableObjFields t (ToDBType dbk t)) => Proxy '(dbk, t) -> TableObjFields (ToDBType dbk t)
+  getTableObjFields _ = mkTableObjFields (Proxy @'(t, ToDBType dbk t))
 
+class MkTableObjFields (t :: Type) (isTab :: DBObjK) where
+  mkTableObjFields :: Proxy '(t, isTab) -> TableObjFields isTab
+
+instance {-# Overlappable #-} MkTableObjFields t dbObjK where
+  mkTableObjFields _ = NoTableObjFields
+
+instance {-# Overlapping #-} GMkTableObjFields (Rep t) => MkTableObjFields t 'TableObj where
+  mkTableObjFields _ = TableObjFields (gMkTableObjFields (Proxy @(Rep t)))
+
+class GMkTableObjFields (f :: Type -> Type) where
+  gMkTableObjFields :: Proxy f -> [TypeRep]
+
+instance GMkTableObjFields f => GMkTableObjFields (D1 d f) where
+  gMkTableObjFields _ = gMkTableObjFields (Proxy @f)
+
+instance (TypeError ('Text "TODO: Fix error msg. Sum Type not supported by  GMkTableObjFields")) => GMkTableObjFields (f :+: g) where
+  gMkTableObjFields _ = error "Unreachable code!"
+
+instance GMkTableObjFields f => GMkTableObjFields (C1 d f) where
+  gMkTableObjFields _ = gMkTableObjFields (Proxy @f)
+
+instance (GMkTableObjFields f, GMkTableObjFields g) => GMkTableObjFields (f :*: g) where
+  gMkTableObjFields _ = gMkTableObjFields (Proxy @f) ++ gMkTableObjFields (Proxy @g)
+
+instance GMkTableObjFields (S1 d f) where
+  gMkTableObjFields _ = []
+  
+
+data TableObjFields (dbobj :: DBObjK) where
+  TableObjFields :: [TypeRep] -> TableObjFields 'TableObj
+--  HOTableObjFields :: [TypeRep] -> TableObjFields (f 'TableObj)
+  NoTableObjFields :: TableObjFields dbobj
+-}
 instance DBRepr dbk Int where
   type ToDBType dbk Int = 'NativeTypeObj
 
@@ -440,9 +480,7 @@ instance DBRepr dbk Int16 where
 instance DBRepr dbk Text where
   type ToDBType dbk Text = 'NativeTypeObj
 
-instance DBRepr dbk (Identity t) where
-  type ToDBType dbk (Identity t)  = ToDBType dbk t
-  type AutoCodec dbk (Identity t) = AutoCodec dbk t
+deriving newtype instance DBRepr dbk t => DBRepr dbk (Identity t)
 
 instance DBRepr dbk (CI t) where
   type ToDBType dbk (CI t) = 'NativeTypeObj  
@@ -563,6 +601,20 @@ class ( -- TypeCxts db (Types db)
   type Version sc = 0
 
   type SchemaDB sc :: Type
+
+class DBCatalog (db :: Type) where
+  type Schemas db :: [Type]
+  type Roles db :: [Type]
+  type Extensions db :: [Type]
+
+class SchemaCatalog (sc :: Type) where
+  type Tables' sc :: [Type]
+  type Types' sc :: [Type]
+  type Views sc :: [Type]
+  type MaterializedViews sc :: [Type]
+  type Functions sc :: [(Symbol, Type)]
+  type AggFunctions sc :: [(Symbol, Type)]
+--  type Sequences sc :: [Type]
 
 toNullable :: DBType -> DBType
 toNullable = DBNullable

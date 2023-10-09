@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wwarn -Wno-unused-imports #-}
 {-# LANGUAGE ScopedTypeVariables           #-}
 {-# LANGUAGE ExplicitForAll                #-}
 {-# LANGUAGE KindSignatures                #-}
@@ -56,6 +55,7 @@ module DBRecord.Query2
   , extend
   , joinsL
   , joinsR
+  , crossJoins
   , scalarSubQuery
   , insertOne
   , insertMany
@@ -92,42 +92,27 @@ import DBRecord.Old.Schema
 import DBRecord.Internal.Order hiding (order)
 import DBRecord.Internal.Expr hiding (Alias)
 import DBRecord.Internal.Predicate
-import DBRecord.Internal.Common
 import DBRecord.Internal.Window
 import DBRecord.Internal.Schema hiding (insert, delete)
-import DBRecord.Internal.Query (getTableId, getTableProjections)
-import           DBRecord.Internal.DBTypes (GetDBTypeRep)
-import qualified DBRecord.Internal.Query as Q
 import qualified DBRecord.Internal.PrimQuery as PQ
-import DBRecord.Internal.Types
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
 import Data.Proxy
 import Data.Int
-import GHC.Exts
 import GHC.TypeLits
 import Data.Typeable
-import Data.Type.Equality
 import Data.Functor.Identity
 import Control.Monad.IO.Class
 import Control.Monad.Reader
-import DBRecord.Internal.Lens ((^.))
-import Control.Exception hiding (TypeError)
 import Data.Kind 
 import Record
 import Record.Setter
 import GHC.OverloadedLabels
 import GHC.Records as R
--- import qualified GHC.Records.Compat as R
-import GHC.Generics
 
 -- TODO: Clean up
-import Debug.Trace
 import DBRecord.Driver
-import GHC.Records
 
 type Query sc t = Query' PlainQ sc t
 type As = Field
@@ -137,29 +122,6 @@ type TableExpr sc tab o = (forall s. Clause s sc tab (TableValue sc Identity o))
 -- * Joins
 -- FROM T1 CROSS JOIN T2 is equivalent to FROM T1 INNER JOIN T2 ON TRUE. It is also equivalent to FROM T1, T2.
 
--- data JoinScope s sc (n1 :: Symbol) r1 (n2 :: Symbol) r2 = JoinScope (Scoped s sc r1) (Scoped s sc r2)
-
--- instance
---   ( GHC.Records.HasField '(fn, fn == n1, fn == n2) (Join n1 r1 n2 r2) t
---   ) => R.HasField (fn :: Symbol) (Join n1 r1 n2 r2) t where
---   getField v = R.getField @'(fn, fn == n1, fn == n2) v
-
--- instance (t ~ r1) => R.HasField '(fn :: Symbol, 'True, 'False) (Join n1 r1 n2 r2) (Field n1 t) where
---   getField (Join r1 r2) = r1
-
--- instance (t ~ r2) => R.HasField '(fn :: Symbol, 'False, 'True) (Join n1 r1 n2 r2) (Field n2 t) where
---   getField (Join r1 r2) = r2
-
--- instance
---   ( GHC.Records.HasField '(fn, fn == n1, fn == n2) (JoinScope s sc n1 r1 n2 r2) t
---   ) => R.HasField (fn :: Symbol) (JoinScope s sc n1 r1 n2 r2) t where
---   getField v = R.getField @'(fn, fn == n1, fn == n2) v
-
--- instance (t ~ Scoped s sc r1) => R.HasField '(fn :: Symbol, 'True, 'False) (JoinScope s sc n1 r1 n2 r2) (Field n1 t) where
---   getField (JoinScope r1 r2) = fromLabel @n1 .= r1
-
--- instance (t ~ Scoped s sc r2) => R.HasField '(fn :: Symbol, 'False, 'True) (JoinScope s sc n1 r1 n2 r2) (Field n2 t) where
---   getField (JoinScope r1 r2) = fromLabel @n2 .= r2  
 
 data Joins sc qs = Joins [TypeRep] (HRec (Query' PlainQ sc) qs)
 
@@ -253,6 +215,33 @@ joinsR (Joins treps jsHRec) _ (Clause clau) = Query'
     joinedTabs = JoinedTables fsix $ hrecToHKOfRec $ hoistWithKeyAndTagHRec (\tag -> snd . runQuery'' (Just $ tagToPfx tag)) jsHRec
     fsix = fromListToFieldInvIx treps
     tagToPfx (SomeSymbol s) = T.pack $ symbolVal s
+
+crossJoins :: forall o qs sc.
+  Joins sc qs
+  -> (forall s.Clause s sc (Rec qs) (TableValue sc Identity o))
+  -> Query sc o
+crossJoins (Joins treps jsHRec) (Clause clau) = Query'
+  ( nextStage joinedTabs 
+  , clau
+  , PQ.Joins pqJoinsR
+  )
+  where
+    pqJoinsR = case joinedPQs of
+      [] -> error "Panic: Invariant violated! `Joins` list cannot be empty"
+      (hpq : rstpqs) -> L.foldr (\q acc -> PQ.InlineJoinR (PQ.PrimQuery q) PQ.CrossJoin False acc (PQ.ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
+    joinedPQs = fmap snd $ L.sortOn fst $ hrecToListWithTag
+      (\ssym q ->
+          let
+            ssymTRep = typeRepOfSomeSym ssym
+            fnix = case lookupFieldIx ssymTRep fsix of
+              Nothing -> error $ "Panic: Invariant violated! " <> (show ssymTRep) <> (show fsix)
+              Just ix -> ix
+            pq = fst $ runQuery'' (Just $ tagToPfx ssym) q
+          in (fnix, pq)
+      ) jsHRec
+    joinedTabs = JoinedTables fsix $ hrecToHKOfRec $ hoistWithKeyAndTagHRec (\tag -> snd . runQuery'' (Just $ tagToPfx tag)) jsHRec
+    fsix = fromListToFieldInvIx treps
+    tagToPfx (SomeSymbol s) = T.pack $ symbolVal s    
 
 data JoinPrec
   = JoinPrecL
@@ -586,8 +575,11 @@ with2 ::
 with2 = undefined
 
 -- Subquery
-from :: forall o r fn sc.Field fn (Query sc r) -> (forall s.Clause s sc r (TableValue sc Identity o)) -> Query' PlainQ sc o
-from _ _ = undefined
+from :: forall o r fn sc.(KnownSymbol fn) => Field fn (Query sc r) -> (forall s.Clause s sc r (TableValue sc Identity o)) -> Query' PlainQ sc o
+from q (Clause clau) =
+  let
+    (pq, tv) = runAliasedQuery q
+  in Query' (nextStage tv, clau, PQ.Table (Just (PQ.PrimQuery pq)))
 
 {-
 4.2.11. Scalar Subqueries
