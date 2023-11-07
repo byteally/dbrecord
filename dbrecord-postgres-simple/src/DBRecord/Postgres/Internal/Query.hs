@@ -172,7 +172,10 @@ instance (GEnumToMap f, GEnumToMap g) => GEnumToMap (f :+: g) where
                   in l1 ++ r1
 instance (GEnumToMap f, Constructor c) => GEnumToMap (C1 c f) where
   gEnumToMap _p = let cname = conName (undefined :: (C1 c f) a)
-                      [(con, _)] = gEnumToMap Proxy
+                      con =
+                        case gEnumToMap Proxy of
+                          [(c,_)] -> c
+                          _ -> error "Impossible case"
                   in [(M1 con, cname)]
 instance GEnumToMap U1 where
   gEnumToMap _ = [(U1, "")]
