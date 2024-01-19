@@ -175,7 +175,7 @@ instance (GEnumToMap f, Constructor c) => GEnumToMap (C1 c f) where
                       con =
                         case gEnumToMap Proxy of
                           [(c,_)] -> c
-                          _ -> error "Impossible case"
+                          _ -> error "gEnumToMap : Impossible case"
                   in [(M1 con, cname)]
 instance GEnumToMap U1 where
   gEnumToMap _ = [(U1, "")]

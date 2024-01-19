@@ -765,7 +765,7 @@ parseInterval = do
 -}
 
 ltree :: LTree -> Expr sc LTree
-ltree (LTree vs) = go vs
+ltree (LTree vs) = go (escape vs)
     where
       go = literalExpr . PQ.String . dotSep
       dotSep = T.intercalate "."
