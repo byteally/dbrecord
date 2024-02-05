@@ -106,6 +106,9 @@ class ( Schema sc
   type HasDefault sc tab :: [Symbol]
   type HasDefault sc tab = '[]
 
+  type Generated sc tab :: [(Symbol, GenerationType)]
+  type Generated sc tab = '[]
+
   type Check sc tab :: [CheckCT]
   type Check sc tab = '[]
 
@@ -151,23 +154,33 @@ class ( Schema sc
   checks' _ = []
 
   rel :: (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
+  -- (Sub tab (GetGenIdCols (Generated sc tab)))
   default rel ::
     ( GConstructHK tab (HasColumn sc tab) (TypeFields tab)
     , KnownSymbol (TableName sc tab)
+    , KnownSymbol (SchemaName sc)
     , MkFieldInvIx (TableColumns sc tab)
     ) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
   rel (Clause clau) = Query' (TableValue fsix $ constructHK @(HasColumn sc tab) (ExprF . toExprId . coerceExpr . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)))
     where tabId = PQ.TableId { PQ.database = "zb"
-                             , PQ.schema = "public"
+                             , PQ.schema = schName
                              , PQ.tableName = defHSNameToDBName $ T.pack $ symbolVal (Proxy @(TableName sc tab))
                              }
+          schName = T.pack $ symbolVal (Proxy @(SchemaName sc))
           fsix = mkFieldInvIx (Proxy @(TableColumns sc tab)) emptyFieldInvIx
-  fromNewRow :: NewRow sc tab -> TableValue sc Identity tab
 
-  default fromNewRow :: (GConstructHK tab (HasConstColumn sc tab (HasDefault sc tab) (NewRow sc tab)) (TypeFields tab), MkFieldInvIx (TableColumns sc tab)) => NewRow sc tab -> TableValue sc Identity tab
-  fromNewRow r = TableValue fsix $ constructHK @(HasConstColumn sc tab (HasDefault sc tab) (NewRow sc tab)) (ExprF . toExprId . coerceExpr . getConstCol (Proxy @'(sc, tab, (HasDefault sc tab))) r)
+  fromNewRow :: NewRow sc tab -> TableValue sc Identity tab
+  default fromNewRow ::
+    ( GConstructHK tab (HasConstColumn sc tab (HasDefault sc tab) (Generated sc tab) (NewRow sc tab)) (TypeFields tab)
+    , MkFieldInvIx (TableColumns sc tab)
+    ) => NewRow sc tab -> TableValue sc Identity tab
+  fromNewRow r = TableValue fsix $ constructHK @(HasConstColumn sc tab (HasDefault sc tab) (Generated sc tab) (NewRow sc tab)) (ExprF . toExprId . coerceExpr . getConstCol (Proxy @'(sc, tab, (HasDefault sc tab), (Generated sc tab))) r)
     where fsix = mkFieldInvIx (Proxy @(TableColumns sc tab)) emptyFieldInvIx
 
+type family GetGenIdCols (fs :: [(Symbol, GenerationType)]) :: [Symbol] where
+  GetGenIdCols ('(c, 'GenAsId 'GenAlways _) ': fs) = c ': GetGenIdCols fs
+  GetGenIdCols (_ ': fs) = GetGenIdCols fs
+  GetGenIdCols '[] = '[]
 
 getMutQ :: forall o tab sc.(Table sc tab) => (PQ.TableId -> TableValue sc Identity tab -> MQuery sc o) -> MQuery sc o
 getMutQ k =
@@ -206,26 +219,41 @@ type family IsDefFld (odefs :: [Symbol]) (ndefs :: [Symbol]) (fs :: [(Symbol, Ty
 toExprId :: PQ.Expr sc a -> PQ.Expr sc (Identity a)
 toExprId (PQ.Expr e) = PQ.Expr e
 
-class HasConstColumn (sc :: Type) (tab :: Type) (defs :: [Symbol]) (r :: Type) (col :: Symbol) (a :: Type) where
-  getConstCol :: Proxy '(sc, tab, defs) -> r -> Proxy '(col, a) -> PQ.Expr sc (Field col a)
+class HasConstColumn (sc :: Type) (tab :: Type) (defs :: [Symbol]) (gens :: [(Symbol, GenerationType)]) (r :: Type) (col :: Symbol) (a :: Type) where
+  getConstCol :: Proxy '(sc, tab, defs, gens) -> r -> Proxy '(col, a) -> PQ.Expr sc (Field col a)
 
-instance (HasConstOrDefCol (IsDefCol col defs) sc tab r col a) => HasConstColumn sc tab defs r col a where
-  getConstCol _ _r px = getConstOrDefCol (Proxy @'(sc, tab, (IsDefCol col defs))) _r px
+instance (HasConstOrDefCol (IsDefCol col defs gens) sc tab r col a) => HasConstColumn sc tab defs gens r col a where
+  getConstCol _ _r px = getConstOrDefCol (Proxy @'(sc, tab, (IsDefCol col defs gens))) _r px
 
 
-class HasConstOrDefCol (isDef :: Bool) (sc :: Type) (tab :: Type) (r :: Type) (col :: Symbol) (a :: Type) where
+class HasConstOrDefCol (isDef :: Either Bool GenerationType) (sc :: Type) (tab :: Type) (r :: Type) (col :: Symbol) (a :: Type) where
   getConstOrDefCol :: Proxy '(sc, tab, isDef) -> r -> Proxy '(col, a) -> PQ.Expr sc (Field col a)
 
-instance HasConstOrDefCol 'True sc tab r col a where
+instance HasConstOrDefCol ('Left 'True) sc tab r col a where
   getConstOrDefCol _ _ _ = PQ.Expr PQ.DefaultInsertExpr
 
-instance (R.HasField col r a, ConstExpr sc a) => HasConstOrDefCol 'False sc tab r col a where
+instance (R.HasField col r a, ConstExpr sc a) => HasConstOrDefCol ('Left 'False) sc tab r col a where
   getConstOrDefCol _ r _ = coerceExpr $ constExpr $ R.getField @col r
 
-type family IsDefCol (c :: Symbol) (defs :: [Symbol]) :: Bool where
-  IsDefCol c (c ': _) = 'True
-  IsDefCol c (_ ': ds) = IsDefCol c ds
-  IsDefCol _ '[] = 'False
+type family IsDefCol (c :: Symbol) (defs :: [Symbol]) (gens :: [(Symbol, GenerationType)]) :: Either Bool GenerationType where
+  IsDefCol c (c ': _) gs = 'Left 'True
+  IsDefCol c (_ ': ds) gs = IsDefCol c ds gs
+  IsDefCol c '[] ('(c, gt) ': _) = 'Right gt
+  IsDefCol c '[] (_ ': gs)  = IsDefCol c '[] gs
+  IsDefCol _ '[] '[] = 'Left 'False
+
+data GenerationType
+  = GenAsId GenerationClause (Maybe SequenceOption)
+  | GenAsExpr Bool
+  deriving (Show, Eq)
+
+data GenerationClause
+  = GenAlways
+  | GenByDef
+  deriving (Show, Eq)
+
+data SequenceOption = SequenceOption
+  deriving (Show, Eq)
   
 
 data Sequence = PGSerial Symbol   -- Column

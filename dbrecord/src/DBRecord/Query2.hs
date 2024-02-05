@@ -79,6 +79,12 @@ module DBRecord.Query2
   , PlainQ
   , MQuery
   --
+  , runQuery
+  , runQuery_
+  , runMQuery
+  , runSession
+  , runTransaction
+  --
   , module DBRecord.Internal.Order
   , module DBRecord.Internal.Expr
   , module DBRecord.Internal.Window
@@ -93,7 +99,7 @@ import DBRecord.Internal.Order hiding (order)
 import DBRecord.Internal.Expr hiding (Alias)
 import DBRecord.Internal.Predicate
 import DBRecord.Internal.Window
-import DBRecord.Internal.Schema hiding (insert, delete)
+import DBRecord.Internal.Schema hiding (insert, delete, runMQuery)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import qualified Data.List as L
@@ -113,6 +119,10 @@ import GHC.Records as R
 
 -- TODO: Clean up
 import DBRecord.Driver
+import qualified UnliftIO as U
+import qualified Control.Monad.Trans.Control as U
+import qualified Data.Vector as V
+import Data.Vector (Vector)
 
 type Query sc t = Query' PlainQ sc t
 type As = Field
@@ -731,3 +741,68 @@ runMQuery_ q = do
   execMQuery runInsert runUpdate runDelete (pure 0) q  
   
 
+-----
+runQuery :: forall m a env driver sc.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , Session driver
+  , U.MonadUnliftIO m
+  , U.MonadBaseControl IO m
+  , HasQuery driver
+  , FromDBRow driver a
+  ) => Query sc a -> m (Vector a)
+runQuery q = do
+  scfg <- reader getSessionConfig
+  runSession_ scfg (V.fromList <$> runQueryAsList q) (flip const)
+
+runQuery_ :: forall m env driver sc.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , Session driver
+  , U.MonadUnliftIO m
+  , U.MonadBaseControl IO m
+  , HasInsert driver
+  , HasUpdate driver
+  , HasDelete driver
+  ) => MQuery sc () -> m Int64
+runQuery_ q = do
+  scfg <- reader getSessionConfig
+  runSession_ scfg (runMQuery_ q) (flip const)  
+
+runMQuery :: forall sc m a env driver.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , Session driver
+  , U.MonadUnliftIO m
+  , U.MonadBaseControl IO m
+  , HasInsertRet driver
+  , HasUpdateRet driver
+  , HasDeleteRet driver
+  , FromDBRow driver a
+  ) => MQuery sc a -> m (Vector a)
+runMQuery q = do
+  scfg <- reader getSessionConfig
+  runSession_ scfg (V.fromList <$> runMQueryAsList q) (flip const)  
+  
+runSession :: forall m a env driver.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , Session driver
+  , U.MonadUnliftIO m
+  , U.MonadBaseControl IO m
+  ) => m a -> m a
+runSession dbQ = do
+  scfg <- reader getSessionConfig
+  runSession_ scfg (lift dbQ) (flip const)
+
+runTransaction :: forall m a env driver.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , Session driver
+  , HasTransaction driver
+  , U.MonadUnliftIO m
+  , U.MonadBaseControl IO m
+  ) => m a -> m a
+runTransaction dbQ = do
+  scfg <- reader getSessionConfig
+  runSession_ scfg (lift dbQ) withTransaction  

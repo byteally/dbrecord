@@ -35,7 +35,6 @@ import           DBRecord.Postgres.Internal.RegClass
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
 import           DBRecord.Old.Query
 import           DBRecord.Types
-import           DBRecord.Driver
 import           Data.Functor.Identity
 import qualified Data.Pool as P
 import           Data.String

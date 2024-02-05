@@ -1,7 +1,5 @@
 module DBRecord.Internal.Driver
-  ( runSession
-  , runTransaction
-  , DBM
+  ( DBM
   , Driver
   , DBDecoder (..)
   , HasQuery (..)
@@ -14,7 +12,6 @@ module DBRecord.Internal.Driver
   , HasSessionConfig (..)
   , Session (..)
   , HasTransaction (..)
-  , TransactionConfig (..)
   , ToDBRow
   ) where
 
@@ -25,8 +22,6 @@ import Data.Int
 import Data.Proxy
 import qualified DBRecord.Internal.PrimQuery as PQ
 import Control.Monad.Reader
--- TODO: Revisits the all usage of this
-import Control.Exception hiding (TypeError)
 
 type family DBM (db :: Type) = (r :: Type -> Type) | r -> db
 -- type family Driver (dbm :: Type -> Type) = (r :: Type -> Type) -- | r -> dbm
@@ -87,55 +82,3 @@ class Session driver where
 
 class HasTransaction driver where
   withTransaction :: (U.MonadUnliftIO m) => driver -> m a -> m a
-
-data TransactionConfig driver m a = TransactionConfig
-  { maxTries          :: Int
-  , beforeTransaction :: m a
-  , onRetry           :: forall e . Exception e => e -> a -> m ()
-  , afterTransaction  :: a -> m ()
-  } 
-
-runSession ::
-  ( Session driver
-  , U.MonadUnliftIO m
-  , U.MonadBaseControl IO m
-  , MonadReader e m
-  , HasSessionConfig e driver
-  ) => ReaderT driver m a -> m a
-runSession dbact = do
-  scfg <- getSessionConfig <$> ask
-  runSession_ scfg dbact (\_ io -> io)
-
-runTransaction :: forall driver m a e.
-  ( Session driver
-  , HasTransaction driver
-  , MonadReader e m
-  , HasSessionConfig e driver
-  , U.MonadUnliftIO m
-  , U.MonadBaseControl IO m  
-  ) => TransactionConfig driver m a -> ReaderT driver m a -> m a
-runTransaction cfg dbact = do 
-  scfg <- getSessionConfig <$> ask
-  c <- beforeTransaction cfg
-  res <- withRetry c 1
-    $ runSession_ scfg dbact withTransaction
-  afterTransaction cfg c
-  return res
-  where
-    withRetry :: (U.MonadUnliftIO m) => a -> Int -> m a -> m a
-    withRetry c n act = act `catchRecoverableExceptions` handler c n act
-
-    handler :: (MonadIO m) => a -> Int -> m a -> SomeException -> m a
-    handler a n act (SomeException e) =
-      if n < maxTries cfg
-        then onRetry cfg e a >> withRetry a (n + 1) act
-        else U.throwIO e
-    catchRecoverableExceptions :: (U.MonadUnliftIO m) => m a -> (SomeException -> m a) -> m a
-    catchRecoverableExceptions action h = action `U.catches`
-      [ U.Handler $ \(e :: AsyncException)            -> U.throwIO e
-      , U.Handler $ \(e :: BlockedIndefinitelyOnSTM)  -> U.throwIO e
-      , U.Handler $ \(e :: BlockedIndefinitelyOnMVar) -> U.throwIO e
-      , U.Handler $ \(e :: Deadlock)                  -> U.throwIO e
-      , U.Handler $ \(e :: SomeException)             -> h e
-      ]
-

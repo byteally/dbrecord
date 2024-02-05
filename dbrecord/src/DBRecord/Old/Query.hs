@@ -25,6 +25,7 @@ module DBRecord.Old.Query
        , module DBRecord.Internal.Expr
        , module DBRecord.Internal.Window
        , module DBRecord.Internal.Predicate
+       , module DBRecord.Internal.Driver
        , getBy, get, getAll
        , delete
        , insert, insert_, insertMany, insertMany_, insertRet, insertManyRet
