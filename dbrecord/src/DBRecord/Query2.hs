@@ -52,9 +52,18 @@ module DBRecord.Query2
   , with
   , with2
   , DBRecord.Query2.from -- TODO: clashing with Generics. Revisit!
-  , extend
-  , joinsL
-  , joinsR
+  , joins
+  -- , joinsL
+  -- , joinsR
+  , one
+  , oneOn
+  , many
+  , manyOn
+  , some
+  , someOn
+  , option
+  , optionOn
+  , lateral
   , crossJoins
   , scalarSubQuery
   , insertOne
@@ -78,6 +87,9 @@ module DBRecord.Query2
   , Query
   , PlainQ
   , MQuery
+  , JQuery
+  , Joins
+  , XJoins
   --
   , runQuery
   , runQuery_
@@ -133,26 +145,26 @@ type TableExpr sc tab o = (forall s. Clause s sc tab (TableValue sc Identity o))
 -- FROM T1 CROSS JOIN T2 is equivalent to FROM T1 INNER JOIN T2 ON TRUE. It is also equivalent to FROM T1, T2.
 
 
-data Joins sc qs = Joins [TypeRep] (HRec (Query' PlainQ sc) qs)
+data XJoins sc qs = XJoins [TypeRep] (HRec (Query' PlainQ sc) qs)
 
-instance AnonRec (Joins sc) where
-  type FieldKind (Joins sc) = FieldKind (HRec (Query' PlainQ sc))
-  type IsHKRec (Joins sc) = IsHKRec (HRec (Query' PlainQ sc))
-  type FieldNameConstraint (Joins sc) = FieldNameConstraint (HRec (Query' PlainQ sc))
-  type FieldConstraint (Joins sc) = FieldConstraint (HRec (Query' PlainQ sc))
-  endRec = Joins [] endRec
+instance AnonRec (XJoins sc) where
+  type FieldKind (XJoins sc) = FieldKind (HRec (Query' PlainQ sc))
+  type IsHKRec (XJoins sc) = IsHKRec (HRec (Query' PlainQ sc))
+  type FieldNameConstraint (XJoins sc) = FieldNameConstraint (HRec (Query' PlainQ sc))
+  type FieldConstraint (XJoins sc) = FieldConstraint (HRec (Query' PlainQ sc))
+  endRec = XJoins [] endRec
   {-# INLINE endRec #-}
-  consRec fld (Joins fsix r) =
+  consRec fld (XJoins fsix r) =
     let nfsix = (fldTyTRep fld) : fsix
         fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
         fldTyTRep _ = typeRep (Proxy @fn)
-    in Joins nfsix $ consRec fld r
+    in XJoins nfsix $ consRec fld r
   {-# INLINE consRec #-}
-  unconsRec (Joins fsix r) =
+  unconsRec (XJoins fsix r) =
     let (fld, r') = unconsRec r
         fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
         fldTyTRep _ = typeRep (Proxy @fn)
-    in (fld, Joins (L.delete (fldTyTRep fld) fsix) r')
+    in (fld, XJoins (L.delete (fldTyTRep fld) fsix) r')
 
 {-
 select ...
@@ -166,71 +178,71 @@ some => One or more.
 many => Zero or more.
 optional => One or none.
 
-join $  #foo .= q1
-      .& #bar .= q2 `on`
+-- join $  #foo .= q1
+--       .& #bar .= q2 `on`
       
--}
-joinsL :: forall o qs sc.
-  Joins sc qs
-  -> (forall s.Scoped s sc (Rec qs) -> Expr sc Bool)
-  -> (forall s.Clause s sc (Rec qs) (TableValue sc Identity o))
-  -> Query sc o
-joinsL (Joins treps jsHRec) _ (Clause clau) = Query'
-  ( nextStage joinedTabs 
-  , clau
-  , PQ.Joins pqJoinsL
-  )
-  where
-    pqJoinsL = case joinedPQs of
-      [] -> error "Panic: Invariant violated! `Joins` list cannot be empty"
-      (hpq : rstpqs) -> L.foldl' (\acc q -> PQ.InlineJoinL acc PQ.LeftJoin False (PQ.PrimQuery q) (PQ.ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
-    joinedPQs = fmap snd $ L.sortOn fst $ hrecToListWithTag
-      (\ssym q ->
-          let
-            ssymTRep = typeRepOfSomeSym ssym
-            fnix = case lookupFieldIx ssymTRep fsix of
-              Nothing -> error $ "Panic: Invariant violated! " <> (show ssymTRep) <> (show fsix)
-              Just ix -> ix
-            pq = fst $ runQuery'' (Just $ tagToPfx ssym) q
-          in (fnix, pq)
-      ) jsHRec
-    joinedTabs = JoinedTables fsix $ hrecToHKOfRec $ hoistWithKeyAndTagHRec (\tag -> snd . runQuery'' (Just $ tagToPfx tag)) jsHRec
-    fsix = fromListToFieldInvIx treps
-    tagToPfx (SomeSymbol s) = T.pack $ symbolVal s
+-- -}
+-- joinsL :: forall o qs sc.
+--   XJoins sc qs
+--   -> (forall s.Scoped s sc (Rec qs) -> Expr sc Bool)
+--   -> (forall s.Clause s sc (Rec qs) (TableValue sc Identity o))
+--   -> Query sc o
+-- joinsL (XJoins treps jsHRec) _ (Clause clau) = Query'
+--   ( nextStage joinedTabs 
+--   , clau
+--   , PQ.Joins pqJoinsL
+--   )
+--   where
+--     pqJoinsL = case joinedPQs of
+--       [] -> error "Panic: Invariant violated! `Joins` list cannot be empty"
+--       (hpq : rstpqs) -> L.foldl' (\acc q -> PQ.InlineJoinL acc PQ.LeftJoin False (PQ.PrimQuery q) (PQ.ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
+--     joinedPQs = fmap snd $ L.sortOn fst $ hrecToListWithTag
+--       (\ssym q ->
+--           let
+--             ssymTRep = typeRepOfSomeSym ssym
+--             fnix = case lookupFieldIx ssymTRep fsix of
+--               Nothing -> error $ "Panic: Invariant violated! " <> (show ssymTRep) <> (show fsix)
+--               Just ix -> ix
+--             pq = fst $ runQuery'' (Just $ tagToPfx ssym) q
+--           in (fnix, pq)
+--       ) jsHRec
+--     joinedTabs = JoinedTables fsix $ hrecToHKOfRec $ hoistWithKeyAndTagHRec (\tag -> snd . runQuery'' (Just $ tagToPfx tag)) jsHRec
+--     fsix = fromListToFieldInvIx treps
+--     tagToPfx (SomeSymbol s) = T.pack $ symbolVal s
 
-joinsR :: forall o qs sc.
-  Joins sc qs
-  -> (forall s.Scoped s sc (Rec qs) -> Expr sc Bool)
-  -> (forall s.Clause s sc (Rec qs) (TableValue sc Identity o))
-  -> Query sc o
-joinsR (Joins treps jsHRec) _ (Clause clau) = Query'
-  ( nextStage joinedTabs 
-  , clau
-  , PQ.Joins pqJoinsR
-  )
-  where
-    pqJoinsR = case joinedPQs of
-      [] -> error "Panic: Invariant violated! `Joins` list cannot be empty"
-      (hpq : rstpqs) -> L.foldr (\q acc -> PQ.InlineJoinR (PQ.PrimQuery q) PQ.LeftJoin False acc (PQ.ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
-    joinedPQs = fmap snd $ L.sortOn fst $ hrecToListWithTag
-      (\ssym q ->
-          let
-            ssymTRep = typeRepOfSomeSym ssym
-            fnix = case lookupFieldIx ssymTRep fsix of
-              Nothing -> error $ "Panic: Invariant violated! " <> (show ssymTRep) <> (show fsix)
-              Just ix -> ix
-            pq = fst $ runQuery'' (Just $ tagToPfx ssym) q
-          in (fnix, pq)
-      ) jsHRec
-    joinedTabs = JoinedTables fsix $ hrecToHKOfRec $ hoistWithKeyAndTagHRec (\tag -> snd . runQuery'' (Just $ tagToPfx tag)) jsHRec
-    fsix = fromListToFieldInvIx treps
-    tagToPfx (SomeSymbol s) = T.pack $ symbolVal s
+-- joinsR :: forall o qs sc.
+--   XJoins sc qs
+--   -> (forall s.Scoped s sc (Rec qs) -> Expr sc Bool)
+--   -> (forall s.Clause s sc (Rec qs) (TableValue sc Identity o))
+--   -> Query sc o
+-- joinsR (XJoins treps jsHRec) _ (Clause clau) = Query'
+--   ( nextStage joinedTabs 
+--   , clau
+--   , PQ.Joins pqJoinsR
+--   )
+--   where
+--     pqJoinsR = case joinedPQs of
+--       [] -> error "Panic: Invariant violated! `Joins` list cannot be empty"
+--       (hpq : rstpqs) -> L.foldr (\q acc -> PQ.InlineJoinR (PQ.PrimQuery q) PQ.LeftJoin False acc (PQ.ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
+--     joinedPQs = fmap snd $ L.sortOn fst $ hrecToListWithTag
+--       (\ssym q ->
+--           let
+--             ssymTRep = typeRepOfSomeSym ssym
+--             fnix = case lookupFieldIx ssymTRep fsix of
+--               Nothing -> error $ "Panic: Invariant violated! " <> (show ssymTRep) <> (show fsix)
+--               Just ix -> ix
+--             pq = fst $ runQuery'' (Just $ tagToPfx ssym) q
+--           in (fnix, pq)
+--       ) jsHRec
+--     joinedTabs = JoinedTables fsix $ hrecToHKOfRec $ hoistWithKeyAndTagHRec (\tag -> snd . runQuery'' (Just $ tagToPfx tag)) jsHRec
+--     fsix = fromListToFieldInvIx treps
+--     tagToPfx (SomeSymbol s) = T.pack $ symbolVal s
 
 crossJoins :: forall o qs sc.
-  Joins sc qs
+  XJoins sc qs
   -> (forall s.Clause s sc (Rec qs) (TableValue sc Identity o))
   -> Query sc o
-crossJoins (Joins treps jsHRec) (Clause clau) = Query'
+crossJoins (XJoins treps jsHRec) (Clause clau) = Query'
   ( nextStage joinedTabs 
   , clau
   , PQ.Joins pqJoinsR
@@ -253,24 +265,24 @@ crossJoins (Joins treps jsHRec) (Clause clau) = Query'
     fsix = fromListToFieldInvIx treps
     tagToPfx (SomeSymbol s) = T.pack $ symbolVal s    
 
-data JoinPrec
-  = JoinPrecL
---  | JoinPrecR
+-- data JoinPrec
+--   = JoinPrecL
+-- --  | JoinPrecR
   
-class JoinOn (jp :: JoinPrec) qs r where
-  on' :: Proxy jp -> Joins sc qs -> r
+-- class JoinOn (jp :: JoinPrec) qs r where
+--   on' :: Proxy jp -> XJoins sc qs -> r
 
-instance ( KnownSymbol fn1
-         , Typeable q1
-         , KnownSymbol fn2
-         , Typeable q2
-         , JoinOn 'JoinPrecL qs r
-         ) => JoinOn 'JoinPrecL ('(fn1, q1) ': '(fn2, q2) ': qs) ((Scoped s sc (Rec '[ '(f1, q1), '(f2, q2)]) -> Expr sc Bool) -> r) where
-  on' pjp js = \_f ->
-    let
-      (_fval1, rst') = unconsRec js
-      (_fval2, rst) = unconsRec rst'
-    in on' pjp rst
+-- instance ( KnownSymbol fn1
+--          , Typeable q1
+--          , KnownSymbol fn2
+--          , Typeable q2
+--          , JoinOn 'JoinPrecL qs r
+--          ) => JoinOn 'JoinPrecL ('(fn1, q1) ': '(fn2, q2) ': qs) ((Scoped s sc (Rec '[ '(f1, q1), '(f2, q2)]) -> Expr sc Bool) -> r) where
+--   on' pjp js = \_f ->
+--     let
+--       (_fval1, rst') = unconsRec js
+--       (_fval2, rst) = unconsRec rst'
+--     in on' pjp rst
 
 
 data Extend base ext = Extend
@@ -288,10 +300,172 @@ extend (rel @Sc @Tab) $
  end
 -}
 
-extend :: forall o tab sc. Table sc tab =>
-  ((forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o)
-  -> ()
-extend _ = undefined  
+data JQuery tab tabPrj sc o = JQuery JQueryOpt (Query sc o)
+
+data JQueryOpt = JQueryOpt
+  { joinType :: PQ.JoinType
+  , isLateral :: Bool
+  } deriving (Show)
+
+unJQuery :: JQuery tab tabPrj sc o -> Query sc o
+unJQuery (JQuery _ q) = q
+
+data Joins (tab :: Type) (tabPrj :: Type) sc qs = Joins [TypeRep] (HRec (JQuery tab tabPrj sc) qs)
+
+instance AnonRec (Joins tab tabPrj sc) where
+  type FieldKind (Joins tab tabPrj sc) = FieldKind (HRec (JQuery tab tabPrj sc))
+  type IsHKRec (Joins tab tabPrj sc) = IsHKRec (HRec (JQuery tab tabPrj sc))
+  type FieldNameConstraint (Joins tab tabPrj sc) = FieldNameConstraint (HRec (JQuery tab tabPrj sc))
+  type FieldConstraint (Joins tab tabPrj sc) = FieldConstraint (HRec (JQuery tab tabPrj sc))
+  endRec = Joins [] endRec
+  {-# INLINE endRec #-}
+  consRec fld (Joins fsix r) =
+    let nfsix = (fldTyTRep fld) : fsix
+        fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
+        fldTyTRep _ = typeRep (Proxy @fn)
+    in Joins nfsix $ consRec fld r
+  {-# INLINE consRec #-}
+  unconsRec (Joins fsix r) =
+    let (fld, r') = unconsRec r
+        fldTyTRep :: forall fn a.(KnownSymbol fn) => Field fn a -> TypeRep
+        fldTyTRep _ = typeRep (Proxy @fn)
+    in (fld, Joins (L.delete (fldTyTRep fld) fsix) r')
+
+joins :: forall o o1 tab qs sc.
+  Table sc tab
+  => ((forall s.Clause s sc tab (TableValue sc Identity o1)) -> Query' PlainQ sc o1)
+  -> (forall s.Clause s sc tab (TableValue sc Identity o1))
+  -> Joins tab o1 sc qs
+  -> (forall s.Clause s sc (Rec ('("self", o1) ': qs)) (TableValue sc Identity o))
+  -> Query sc o
+joins self selfClau js jClau = joins' @"self" self selfClau js jClau
+{-# INLINE joins #-}
+
+joins' :: forall (self :: Symbol) o o1 tab qs sc.
+  Table sc tab
+  => ((forall s.Clause s sc tab (TableValue sc Identity o1)) -> Query' PlainQ sc o1)
+  -> (forall s.Clause s sc tab (TableValue sc Identity o1))
+  -> Joins tab o1 sc qs
+  -> (forall s.Clause s sc (Rec ('(self, o1) ': qs)) (TableValue sc Identity o))
+  -> Query sc o
+joins' self selfClau (Joins treps jsHRec) (Clause _clau) = Query'
+  ( nextStage joinedTabs
+  , undefined -- _clau
+  , PQ.Joins pqJoins
+  )
+  where
+    _selfQ = self selfClau
+    joinedPQs = fmap snd $ L.sortOn fst $ hrecToListWithTag
+      (\ssym q ->
+          let
+            ssymTRep = typeRepOfSomeSym ssym
+            fnix = case lookupFieldIx ssymTRep fsix of
+              Nothing -> error $ "Panic: Invariant violated! " <> (show ssymTRep) <> (show fsix)
+              Just ix -> ix
+            pq = fst $ runQuery'' (Just $ tagToPfx ssym) $ unJQuery q
+          in (fnix, pq)
+      ) jsHRec
+    pqJoins = case joinedPQs of
+      [] -> error "Panic: Invariant violated! `Joins` list cannot be empty"
+      (hpq : rstpqs) -> L.foldl' (\acc q -> PQ.InlineJoinL acc PQ.LeftJoin False (PQ.PrimQuery q) (PQ.ConstExpr $ PQ.Bool True)) (PQ.InlineJoinBase $ PQ.PrimQuery hpq) rstpqs
+    joinedTabs = JoinedTables fsix $ hrecToHKOfRec $ hoistWithKeyAndTagHRec (\tag -> snd . runQuery'' (Just $ tagToPfx tag) . unJQuery) jsHRec
+    fsix = fromListToFieldInvIx treps
+    tagToPfx (SomeSymbol s) = T.pack $ symbolVal s
+
+{- ^ Performs inner join between tabL and tabR producing exactly one row of tabR for each tabL
+-}
+oneOn :: forall o tabR tabL tabLPrj sc.
+  (Table sc tabL, Table sc tabR)
+  => (forall s.Scoped s sc (tabL {- + tabR | o1 -}) -> Expr sc Bool) -- ^ join-on
+  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> (forall s.Clause s sc tabR (TableValue sc Identity o))
+  -> JQuery tabL tabLPrj sc o
+oneOn _ _ _ =
+  let
+    jopt = JQueryOpt { joinType = PQ.InnerJoin, isLateral = False }
+  in JQuery jopt undefined
+
+one :: forall o tabR tabL tabLPrj sc.
+  (Table sc tabL, Table sc tabR)
+  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> (forall s.Clause s sc tabR (TableValue sc Identity o))
+  -> JQuery tabL tabLPrj sc o
+one tvFn clau = oneOn (const true) tvFn clau
+
+{- ^ Performs left join between tabL and tabR producing zero or more row of tabR for each tabL
+-}
+manyOn :: forall o tabR tabL tabLPrj sc.
+  (Table sc tabL, Table sc tabR)
+  => (forall s.Scoped s sc (tabL {- + tabR | o1 -}) -> Expr sc Bool) -- ^ join-on
+  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> (forall s.Clause s sc tabR (TableValue sc Identity o))
+  -> JQuery tabL tabLPrj sc (Vector o)
+manyOn _ _ _ =
+  let
+    jopt = JQueryOpt { joinType = PQ.LeftJoin, isLateral = False }
+  in JQuery jopt undefined
+
+many :: forall o tabR tabL tabLPrj sc.
+  (Table sc tabL, Table sc tabR)
+  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> (forall s.Clause s sc tabR (TableValue sc Identity o))
+  -> JQuery tabL tabLPrj sc (Vector o)
+many tvFn clau = manyOn (const true) tvFn clau
+
+{- ^ Performs inner join between tabL and tabR producing one or more row of tabR for each tabL
+-}
+someOn :: forall o tabR tabL tabLPrj sc.
+  (Table sc tabL, Table sc tabR)
+  => (forall s.Scoped s sc (tabL {- + tabR | o1 -}) -> Expr sc Bool) -- ^ join-on
+  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> (forall s.Clause s sc tabR (TableValue sc Identity o))
+  -> JQuery tabL tabLPrj sc (NE.NonEmpty o)
+someOn _ _ _ =
+  let
+    jopt = JQueryOpt { joinType = PQ.InnerJoin, isLateral = False }
+  in JQuery jopt undefined
+
+some :: forall o tabR tabL tabLPrj sc.
+  (Table sc tabL, Table sc tabR)
+  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> (forall s.Clause s sc tabR (TableValue sc Identity o))
+  -> JQuery tabL tabLPrj sc (NE.NonEmpty o)
+some tvFn clau = someOn (const true) tvFn clau  
+
+{- ^ Performs left join between tabL and tabR producing zero or one row of tabR for each tabL
+-}
+optionOn :: forall o tabR tabL tabLPrj sc.
+  (Table sc tabL, Table sc tabR)
+  => (forall s.Scoped s sc (tabL {- + tabR | o1 -}) -> Expr sc Bool) -- ^ join-on
+  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> (forall s.Clause s sc tabR (TableValue sc Identity o))
+  -> JQuery tabL tabLPrj sc (Maybe o)
+optionOn _ _ _ =
+  let
+    jopt = JQueryOpt { joinType = PQ.LeftJoin, isLateral = False }
+  in JQuery jopt undefined
+
+option :: forall o tabR tabL tabLPrj sc.
+  (Table sc tabL, Table sc tabR)
+  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> (forall s.Clause s sc tabR (TableValue sc Identity o))
+  -> JQuery tabL tabLPrj sc (Maybe o)
+option tvFn clau = optionOn (const true) tvFn clau
+
+{- ^ lateral is modifier which converts normal join function into lateral join function
+-}
+lateral :: forall o tabR tabL tabLPrj sc.
+  (Table sc tabL, Table sc tabR)
+  => (((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+       -> (forall s.Clause s sc tabR (TableValue sc Identity o))
+       -> JQuery tabL tabLPrj sc o) -- ^ Join Function
+  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o) -- ^ R.H.S
+  -> (forall s.Clause s sc (tabR {-+ tabLPrj-}) (TableValue sc Identity o))
+  -> JQuery tabL tabLPrj sc o
+lateral jFn tvFnR clauR =
+  let
+    JQuery jopt q = jFn tvFnR clauR
+  in JQuery (jopt {isLateral = True}) q
 
 crossJoin :: forall o n1 r1 n2 r2 sc.
   (KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) =>
@@ -742,7 +916,7 @@ runMQuery_ q = do
   
 
 -----
-runQuery :: forall m a env driver sc.
+runQuery :: forall sc m a env driver.
   ( MonadReader env m
   , HasSessionConfig env driver
   , Session driver
@@ -755,7 +929,7 @@ runQuery q = do
   scfg <- reader getSessionConfig
   runSession_ scfg (V.fromList <$> runQueryAsList q) (flip const)
 
-runQuery_ :: forall m env driver sc.
+runQuery_ :: forall sc m env driver.
   ( MonadReader env m
   , HasSessionConfig env driver
   , Session driver

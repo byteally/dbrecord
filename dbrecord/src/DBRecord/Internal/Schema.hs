@@ -267,6 +267,27 @@ type family Serial (cname :: Symbol) (seqname :: Symbol) where
 type family Owned (cname :: Symbol) (seqname :: Symbol) where
   Owned cname seqname = 'PGOwned cname seqname
 
+data Multiplicity
+  = OneRow
+  | ManyRow
+  | SomeRow
+  | OptionRow
+
+data QueryType
+  = ReadQ Multiplicity
+  | MutQ Multiplicity  
+
+data MultiplicityW (mul :: Multiplicity) where
+  OneR :: MultiplicityW 'OneRow
+  ManyR :: MultiplicityW 'ManyRow
+  SomeR :: MultiplicityW 'SomeRow
+  OptionR :: MultiplicityW 'OptionRow
+  
+data QueryTypeW (qty :: QueryType) where
+  ReadQType :: MultiplicityW mul -> QueryTypeW ('ReadQ mul)
+  MutQType :: MultiplicityW mul -> QueryTypeW ('MutQ mul)
+
+  
 data Query' qt sc t = forall i.Query' (TableValue sc Identity i, State (PQ.Clauses, TableValue sc Identity i) (TableValue sc Identity t), PQ.Clauses -> PQ.PrimQuery)
 
 execQuery :: Query' qt sc t -> PQ.PrimQuery
@@ -341,6 +362,21 @@ getColumnAliasMap :: forall sc tab.(Table sc tab, AllF SingE (ColumnNames sc tab
 getColumnAliasMap = HM.fromList $ fromSing (sing :: Sing (ColumnNames sc tab))
 {-# INLINE getColumnAliasMap #-}
 
+data ClauseType
+  = SelectClause
+  | AggregateClause
+  | InsertClause
+  | UpdateClause
+  | DeleteClause
+
+data ClauseTypeW (cty :: ClauseType) where
+  SelectClauseW :: ClauseTypeW 'SelectClause
+  AggregateClauseW :: ClauseTypeW 'AggregateClause
+  InsertClauseW :: ClauseTypeW 'InsertClause
+  UpdateClauseW :: ClauseTypeW 'UpdateClause
+  DeleteClauseW :: ClauseTypeW 'DeleteClause
+  
+  
 -- Clause should be opaque
 -- o should never be `Expr`
 newtype Clause (s :: Type) sc i o = Clause (State (PQ.Clauses, TableValue sc Identity i) o)
@@ -355,7 +391,7 @@ data MQuery sc t where
   UpdateMQuery :: (TableValue sc Identity i, State (PQ.Clauses, TableValue sc Identity i) (TableValue sc Identity t), PQ.Clauses -> PQ.UpdateQuery) -> MQuery sc t
   DeleteMQuery :: (TableValue sc Identity i, State (PQ.Clauses, TableValue sc Identity i) (TableValue sc Identity t), PQ.Clauses -> PQ.DeleteQuery) -> MQuery sc t
   
-newtype InsertClause s sc i o = InsertClause (Clause s sc i o)
+newtype InsertClause s sc i o = InsertClause_ (Clause s sc i o)
   deriving newtype (Functor, Applicative, Monad, Semigroup)
 
 -- runClause :: forall i o sc s.

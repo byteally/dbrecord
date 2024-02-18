@@ -19,7 +19,7 @@ import Data.Proxy
 import DBRecord.Types (PGOID(..), PGOIDType(..), LTree, Interval, Json {-, JsonStr,-})
 import qualified DBRecord.Types as DBR
 
--- import Data.Vector (Vector)
+import Data.Vector (Vector)
 import DBRecord.Internal.Types (DbK (..), CustomType (..), _getUDTyAliases)
 import qualified DBRecord.Internal.Types as Type
 import DBRecord.Internal.Types (Sing (..), SingE (..))
@@ -524,7 +524,11 @@ instance DBRepr dbk a => DBRepr dbk (Maybe a) where
 
 instance DBRepr dbk a => DBRepr dbk [a] where
   type ToDBType dbk [a] = 'ArrayObjOf (ToDBType dbk a)
-  type AutoCodec dbk [a] = AutoCodec dbk a  
+  type AutoCodec dbk [a] = AutoCodec dbk a
+
+instance DBRepr dbk a => DBRepr dbk (Vector a) where
+  type ToDBType dbk (Vector a) = 'ArrayObjOf (ToDBType dbk a)
+  type AutoCodec dbk (Vector a) = AutoCodec dbk a
 
 -- TODO: Json is not native is all the DB
 instance DBRepr dbk (Json a) where

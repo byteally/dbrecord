@@ -52,6 +52,7 @@ import           Data.Typeable
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Vector as V
 
 newtype PostgresDBT (db :: Type) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
   deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS, U.MonadUnliftIO, MonadThrow, MonadCatch)
@@ -87,6 +88,10 @@ instance (FromField a) => FromRow (AnnEntity ('NullableObjOf 'NativeTypeObj) aut
 instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('NullableObjOf 'TableObj) 'True (Maybe a)) where
   fromRow = (AnnEntity . fmap to) <$> gfromRowOpt @(Rep a)
   {-# INLINE fromRow #-}
+
+instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('ArrayObjOf 'TableObj) 'True (V.Vector a)) where
+  fromRow = (AnnEntity . maybe V.empty V.singleton . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf 'TableObj) 'True (Maybe a))
+  {-# INLINE fromRow #-}  
 
 instance (FromField a, Typeable a) => FromRow (AnnEntity ('ArrayObjOf 'NativeTypeObj) auto [a]) where
   fromRow = AnnEntity <$> (fromPGArray <$> fieldWith fromField)
