@@ -85,7 +85,6 @@ module DBRecord.Query2
   -- Schema Internal Reexports
   , Query' (..)
   , Query
-  , PlainQ
   , MQuery
   , JQuery
   , Joins
@@ -136,22 +135,22 @@ import qualified Control.Monad.Trans.Control as U
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 
-type Query sc t = Query' PlainQ sc t
+type Query sc t = Query' ('ReadQ 'ManyRow) sc t
 type As = Field
-type TableExpr sc tab o = (forall s. Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
+type TableExpr sc tab o = (forall s. Clause s sc tab (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o
 
 
 -- * Joins
 -- FROM T1 CROSS JOIN T2 is equivalent to FROM T1 INNER JOIN T2 ON TRUE. It is also equivalent to FROM T1, T2.
 
 
-data XJoins sc qs = XJoins [TypeRep] (HRec (Query' PlainQ sc) qs)
+data XJoins sc qs = XJoins [TypeRep] (HRec (Query' ('ReadQ 'ManyRow) sc) qs)
 
 instance AnonRec (XJoins sc) where
-  type FieldKind (XJoins sc) = FieldKind (HRec (Query' PlainQ sc))
-  type IsHKRec (XJoins sc) = IsHKRec (HRec (Query' PlainQ sc))
-  type FieldNameConstraint (XJoins sc) = FieldNameConstraint (HRec (Query' PlainQ sc))
-  type FieldConstraint (XJoins sc) = FieldConstraint (HRec (Query' PlainQ sc))
+  type FieldKind (XJoins sc) = FieldKind (HRec (Query' ('ReadQ 'ManyRow) sc))
+  type IsHKRec (XJoins sc) = IsHKRec (HRec (Query' ('ReadQ 'ManyRow) sc))
+  type FieldNameConstraint (XJoins sc) = FieldNameConstraint (HRec (Query' ('ReadQ 'ManyRow) sc))
+  type FieldConstraint (XJoins sc) = FieldConstraint (HRec (Query' ('ReadQ 'ManyRow) sc))
   endRec = XJoins [] endRec
   {-# INLINE endRec #-}
   consRec fld (XJoins fsix r) =
@@ -246,6 +245,7 @@ crossJoins (XJoins treps jsHRec) (Clause clau) = Query'
   ( nextStage joinedTabs 
   , clau
   , PQ.Joins pqJoinsR
+  , ReadQType ManyR
   )
   where
     pqJoinsR = case joinedPQs of
@@ -333,7 +333,7 @@ instance AnonRec (Joins tab tabPrj sc) where
 
 joins :: forall o o1 tab qs sc.
   Table sc tab
-  => ((forall s.Clause s sc tab (TableValue sc Identity o1)) -> Query' PlainQ sc o1)
+  => ((forall s.Clause s sc tab (TableValue sc Identity o1)) -> Query' ('ReadQ 'ManyRow) sc o1)
   -> (forall s.Clause s sc tab (TableValue sc Identity o1))
   -> Joins tab o1 sc qs
   -> (forall s.Clause s sc (Rec ('("self", o1) ': qs)) (TableValue sc Identity o))
@@ -343,7 +343,7 @@ joins self selfClau js jClau = joins' @"self" self selfClau js jClau
 
 joins' :: forall (self :: Symbol) o o1 tab qs sc.
   Table sc tab
-  => ((forall s.Clause s sc tab (TableValue sc Identity o1)) -> Query' PlainQ sc o1)
+  => ((forall s.Clause s sc tab (TableValue sc Identity o1)) -> Query' ('ReadQ 'ManyRow) sc o1)
   -> (forall s.Clause s sc tab (TableValue sc Identity o1))
   -> Joins tab o1 sc qs
   -> (forall s.Clause s sc (Rec ('(self, o1) ': qs)) (TableValue sc Identity o))
@@ -352,6 +352,7 @@ joins' self selfClau (Joins treps jsHRec) (Clause _clau) = Query'
   ( nextStage joinedTabs
   , undefined -- _clau
   , PQ.Joins pqJoins
+  , ReadQType ManyR
   )
   where
     _selfQ = self selfClau
@@ -377,7 +378,7 @@ joins' self selfClau (Joins treps jsHRec) (Clause _clau) = Query'
 oneOn :: forall o tabR tabL tabLPrj sc.
   (Table sc tabL, Table sc tabR)
   => (forall s.Scoped s sc (tabL {- + tabR | o1 -}) -> Expr sc Bool) -- ^ join-on
-  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o)
   -> (forall s.Clause s sc tabR (TableValue sc Identity o))
   -> JQuery tabL tabLPrj sc o
 oneOn _ _ _ =
@@ -387,7 +388,7 @@ oneOn _ _ _ =
 
 one :: forall o tabR tabL tabLPrj sc.
   (Table sc tabL, Table sc tabR)
-  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o)
   -> (forall s.Clause s sc tabR (TableValue sc Identity o))
   -> JQuery tabL tabLPrj sc o
 one tvFn clau = oneOn (const true) tvFn clau
@@ -397,7 +398,7 @@ one tvFn clau = oneOn (const true) tvFn clau
 manyOn :: forall o tabR tabL tabLPrj sc.
   (Table sc tabL, Table sc tabR)
   => (forall s.Scoped s sc (tabL {- + tabR | o1 -}) -> Expr sc Bool) -- ^ join-on
-  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o)
   -> (forall s.Clause s sc tabR (TableValue sc Identity o))
   -> JQuery tabL tabLPrj sc (Vector o)
 manyOn _ _ _ =
@@ -407,7 +408,7 @@ manyOn _ _ _ =
 
 many :: forall o tabR tabL tabLPrj sc.
   (Table sc tabL, Table sc tabR)
-  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o)
   -> (forall s.Clause s sc tabR (TableValue sc Identity o))
   -> JQuery tabL tabLPrj sc (Vector o)
 many tvFn clau = manyOn (const true) tvFn clau
@@ -417,7 +418,7 @@ many tvFn clau = manyOn (const true) tvFn clau
 someOn :: forall o tabR tabL tabLPrj sc.
   (Table sc tabL, Table sc tabR)
   => (forall s.Scoped s sc (tabL {- + tabR | o1 -}) -> Expr sc Bool) -- ^ join-on
-  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o)
   -> (forall s.Clause s sc tabR (TableValue sc Identity o))
   -> JQuery tabL tabLPrj sc (NE.NonEmpty o)
 someOn _ _ _ =
@@ -427,7 +428,7 @@ someOn _ _ _ =
 
 some :: forall o tabR tabL tabLPrj sc.
   (Table sc tabL, Table sc tabR)
-  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o)
   -> (forall s.Clause s sc tabR (TableValue sc Identity o))
   -> JQuery tabL tabLPrj sc (NE.NonEmpty o)
 some tvFn clau = someOn (const true) tvFn clau  
@@ -437,7 +438,7 @@ some tvFn clau = someOn (const true) tvFn clau
 optionOn :: forall o tabR tabL tabLPrj sc.
   (Table sc tabL, Table sc tabR)
   => (forall s.Scoped s sc (tabL {- + tabR | o1 -}) -> Expr sc Bool) -- ^ join-on
-  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o)
   -> (forall s.Clause s sc tabR (TableValue sc Identity o))
   -> JQuery tabL tabLPrj sc (Maybe o)
 optionOn _ _ _ =
@@ -447,7 +448,7 @@ optionOn _ _ _ =
 
 option :: forall o tabR tabL tabLPrj sc.
   (Table sc tabL, Table sc tabR)
-  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  => ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o)
   -> (forall s.Clause s sc tabR (TableValue sc Identity o))
   -> JQuery tabL tabLPrj sc (Maybe o)
 option tvFn clau = optionOn (const true) tvFn clau
@@ -456,10 +457,10 @@ option tvFn clau = optionOn (const true) tvFn clau
 -}
 lateral :: forall o tabR tabL tabLPrj sc.
   (Table sc tabL, Table sc tabR)
-  => (((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  => (((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o)
        -> (forall s.Clause s sc tabR (TableValue sc Identity o))
        -> JQuery tabL tabLPrj sc o) -- ^ Join Function
-  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' PlainQ sc o) -- ^ R.H.S
+  -> ((forall s.Clause s sc tabR (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o) -- ^ R.H.S
   -> (forall s.Clause s sc (tabR {-+ tabLPrj-}) (TableValue sc Identity o))
   -> JQuery tabL tabLPrj sc o
 lateral jFn tvFnR clauR =
@@ -481,6 +482,7 @@ crossJoin q1 q2 (Clause clau) =
   in Query' ( joinTabVal
             , clau
             , PQ.Join PQ.CrossJoin False Nothing (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
+            , ReadQType ManyR
             )
 
 innerJoin :: forall o n1 r1 n2 r2 sc.
@@ -499,6 +501,7 @@ innerJoin q1 q2 on (Clause clau) =
   in Query' ( joinTabVal
             , clau
             , PQ.Join PQ.InnerJoin False (Just onCond) (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
+            , ReadQType ManyR
             )
 
 class (KnownSymbol fn, Typeable t) => FieldCxt (fn :: Symbol) (t :: Type)
@@ -521,6 +524,7 @@ leftJoin q1 q2 on (Clause clau) =
   in Query' ( ljjoinTabVal
             , clau
             , PQ.Join PQ.LeftJoin False (Just onCond) (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
+            , ReadQType ManyR
             )
 
 rightJoin :: forall o n1 r1 n2 r2 sc.
@@ -540,6 +544,7 @@ rightJoin q1 q2 on (Clause clau) =
   in Query' ( rjoinTabVal
             , clau
             , PQ.Join PQ.RightJoin False (Just onCond) (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
+            , ReadQType ManyR
             )
 
 fullJoin :: forall o n1 r1 n2 r2 sc.
@@ -559,6 +564,7 @@ fullJoin q1 q2 on (Clause clau) =
   in Query' ( fulljoinTabVal
             , clau
             , PQ.Join PQ.FullJoin False (Just onCond) (PQ.PrimQuery q1PQ) (PQ.PrimQuery q2PQ)
+            , ReadQType ManyR
             )
 
 
@@ -599,6 +605,7 @@ binQ binType q1 q2 =
     in Query' ( nextStage tv
               , let (Clause clau) = selectAll in clau
               , const $ PQ.Binary binType pq1 pq2 Nothing
+              , ReadQType ManyR
               )
 
 -- * Ordering
@@ -708,9 +715,9 @@ selectNone = scoped $ \(clau, _) -> (clau, EmptyTable)
 
 -- * Grouping
 aggregate :: forall o i sc.
-  ((forall s.Clause s sc i (TableValue sc Identity o)) -> Query' PlainQ sc o)
+  ((forall s.Clause s sc i (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o)
   -> (forall s1.Clause s1 sc i (TableValue sc Aggregated o))
-  -> Query' PlainQ sc o
+  -> Query' ('ReadQ 'ManyRow) sc o
 aggregate fn clauM = fn (go <$> clauM)
   where
     go :: TableValue sc Aggregated o -> TableValue sc Identity o
@@ -759,11 +766,11 @@ with2 ::
 with2 = undefined
 
 -- Subquery
-from :: forall o r fn sc.(KnownSymbol fn) => Field fn (Query sc r) -> (forall s.Clause s sc r (TableValue sc Identity o)) -> Query' PlainQ sc o
+from :: forall o r fn sc.(KnownSymbol fn) => Field fn (Query sc r) -> (forall s.Clause s sc r (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o
 from q (Clause clau) =
   let
     (pq, tv) = runAliasedQuery q
-  in Query' (nextStage tv, clau, PQ.Table (Just (PQ.PrimQuery pq)))
+  in Query' (nextStage tv, clau, PQ.Table (Just (PQ.PrimQuery pq)), ReadQType ManyR)
 
 {-
 4.2.11. Scalar Subqueries
@@ -832,7 +839,7 @@ insertMany :: forall o tab f sc.(Insertable f, Traversable f, Table sc tab) => f
 insertMany vs ret = insert @f vs ret
 
 insertFrom :: forall o tab sc.(Table sc tab) => Query sc (NewRow sc tab) -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
-insertFrom qs ret = insert @(Query' PlainQ sc) qs ret
+insertFrom qs ret = insert @(Query' ('ReadQ 'ManyRow) sc) qs ret
 
 data UpdatingRow sc tab = UpdatingRow (TableValue sc Identity tab) (TableValue sc Identity tab -> PQ.Assoc)
 

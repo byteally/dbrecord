@@ -153,15 +153,15 @@ class ( Schema sc
   checks' :: TableValue sc Identity tab -> [(Text, PQ.Expr sc Bool)]
   checks' _ = []
 
-  rel :: (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
+  rel :: (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o
   -- (Sub tab (GetGenIdCols (Generated sc tab)))
   default rel ::
     ( GConstructHK tab (HasColumn sc tab) (TypeFields tab)
     , KnownSymbol (TableName sc tab)
     , KnownSymbol (SchemaName sc)
     , MkFieldInvIx (TableColumns sc tab)
-    ) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' PlainQ sc o
-  rel (Clause clau) = Query' (TableValue fsix $ constructHK @(HasColumn sc tab) (ExprF . toExprId . coerceExpr . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)))
+    ) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o
+  rel (Clause clau) = Query' (TableValue fsix $ constructHK @(HasColumn sc tab) (ExprF . toExprId . coerceExpr . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)), ReadQType ManyR)
     where tabId = PQ.TableId { PQ.database = "zb"
                              , PQ.schema = schName
                              , PQ.tableName = defHSNameToDBName $ T.pack $ symbolVal (Proxy @(TableName sc tab))
@@ -288,7 +288,7 @@ data QueryTypeW (qty :: QueryType) where
   MutQType :: MultiplicityW mul -> QueryTypeW ('MutQ mul)
 
   
-data Query' qt sc t = forall i.Query' (TableValue sc Identity i, State (PQ.Clauses, TableValue sc Identity i) (TableValue sc Identity t), PQ.Clauses -> PQ.PrimQuery)
+data Query' qt sc t = forall i.Query' (TableValue sc Identity i, State (PQ.Clauses, TableValue sc Identity i) (TableValue sc Identity t), PQ.Clauses -> PQ.PrimQuery, QueryTypeW qt)
 
 execQuery :: Query' qt sc t -> PQ.PrimQuery
 execQuery  = fst . runQuery'
@@ -301,7 +301,7 @@ runQuery' :: Query' qt sc t -> (PQ.PrimQuery, TableValue sc Identity t)
 runQuery' = runQuery'' Nothing
   
 runQuery'' :: Maybe Text -> Query' qt sc t -> (PQ.PrimQuery, TableValue sc Identity t)
-runQuery'' asMay (Query' (exprs, st, mkPQ)) =
+runQuery'' asMay (Query' (exprs, st, mkPQ, _)) =
   let
     (tv, (clau', _)) = runState st (PQ.clauses, exprs)
     clau = clau' { PQ.projections = case tableToProjections tv of
@@ -571,13 +571,6 @@ tableRecAsType (TableValue fsix hk) = TableValue fsix (fromHKOfRec hk)
 tableRecAsType (JoinedTables fsix hk) = JoinedTables fsix (fromHKOfRec hk)
   
 newtype Scalar sc t = Scalar (PQ.Expr sc t)
-
-data PlainQ
-data AggQ agglist
-data WindowQ
-data SubQ
-data MutatingQ
-data AsQ (n :: Symbol) q
 
 instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (Scoped s sc i) (PQ.Expr sc t) where
   getField (Scoped hk) = R.getField @f hk
