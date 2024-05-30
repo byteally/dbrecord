@@ -65,21 +65,6 @@ type family UnWrapNT (isNewTy :: Bool) (t :: Type) where
   UnWrapNT 'True t  = InnerTy t
   UnWrapNT 'False t = t
 
-{-
-instance ( SingCols db cols colMap
-         , KnownSymbol cn
-         , InvalidDBType db ct
-         , ShowDBType (DB db) (GetDBTypeRep (DB db) ct)
-         , aliasedCol ~ AliasedCol cn colMap
-         , KnownSymbol aliasedCol
-         ) => SingCols db ((cn ::: ct) ': cols) colMap where
-  singCols _ _ _ = let pgTy = showDBType (Proxy :: Proxy (DB db)) (Proxy :: Proxy (GetDBTypeRep (DB db) ct))
-                       colN = T.pack $ symbolVal (Proxy @aliasedCol)
-                   in (Const $ Column colN pgTy) :& singCols (Proxy @db) (Proxy :: Proxy cols) (Proxy @colMap)
-
-instance SingCols db '[] colMap where
-  singCols _ _ _ = Nil
--}
 
 getDatabaseName :: forall sc.
                ( KnownSymbol (DatabaseName (SchemaDB sc))
@@ -98,15 +83,15 @@ getTableName :: forall sc tab.
                ) => Const Text (sc,tab)
 getTableName = Const $ T.pack $ symbolVal (Proxy @(TableName sc tab))
 
-getTableFields :: forall db tab.
-                 ( SingCols db (OriginalTableFields tab) (ColumnNames db tab)
-                 ) => Const [Column] (db, tab)
-getTableFields = Const $ recordToList $ singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
+-- getTableFields :: forall db tab.
+--                  ( SingCols db (OriginalTableFields tab) (ColumnNames db tab)
+--                  ) => Const [Column] (db, tab)
+-- getTableFields = Const $ recordToList $ singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
 
-getTableHFields ::  forall db tab.
-                   ( SingCols db (OriginalTableFields tab) (ColumnNames db tab)
-                   ) => Proxy db -> Proxy tab -> HList (Const Column) (OriginalTableFields tab)
-getTableHFields _ _ = singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
+-- getTableHFields ::  forall db tab.
+--                    ( SingCols db (OriginalTableFields tab) (ColumnNames db tab)
+--                    ) => Proxy db -> Proxy tab -> HList (Const Column) (OriginalTableFields tab)
+-- getTableHFields _ _ = singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
 
 
 getTableId :: forall sc tab.

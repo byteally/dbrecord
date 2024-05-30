@@ -31,130 +31,125 @@ import           Data.Time
 import           Data.Text (Text)
 import           Data.Scientific
 import           DBRecord.Internal.Types
-import           DBRecord.Internal.DBTypes hiding (toNullable)
+-- import           DBRecord.Internal.DBTypes hiding (toNullable)
 import           Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import           Data.CaseInsensitive (CI, foldedCase, mk)
 import           Data.Coerce
 import           Data.Kind
 --import           DBRecord.Internal.Schema (UDTargetType (..), GTarget)
-import           DBRecord.Internal.Common (FindAlias, NewtypeRep, FromJust)
-import           GHC.Generics
-import           GHC.TypeLits
-import           GHC.OverloadedLabels
+-- import           DBRecord.Internal.Common (FindAlias, NewtypeRep, FromJust)
+-- import           GHC.Generics
+-- import           GHC.TypeLits
+-- import           GHC.OverloadedLabels
 
 class ConstExpr sc t where
   constExpr :: t -> PQ.Expr sc t
 
-  default constExpr :: (Generic t, GConstExpr (TypeMappings sc t) (Rep t) sc t) => t -> PQ.Expr sc t
-  constExpr = gconstExpr (Proxy @(TypeMappings sc t)) . from
+-- class GConstExpr (udType :: UDTypeMappings) (rep :: Type -> Type) sc a where
+--   gconstExpr :: Proxy udType -> rep x -> PQ.Expr sc a
 
-class GConstExpr (udType :: UDTypeMappings) (rep :: Type -> Type) sc a where
-  gconstExpr :: Proxy udType -> rep x -> PQ.Expr sc a
+-- instance (GConstExpr ('EnumType al als) g sc a) => GConstExpr ('EnumType al als) (D1 m g) sc a where
+--   gconstExpr p (M1 rep) =
+--     gconstExpr p rep
 
-instance (GConstExpr ('EnumType al als) g sc a) => GConstExpr ('EnumType al als) (D1 m g) sc a where
-  gconstExpr p (M1 rep) =
-    gconstExpr p rep
+-- instance ( al ~ FindAlias als n
+--          , DBTypeCtx (GetDBTypeRep sc a)
+--          , SingI (GetDBTypeRep sc a)
+--          , KnownSymbol n
+--          , MaybeCtx SingE al
+--          , SingI al
+--          , SingE al
+--          ) => GConstExpr ('EnumType nal als) (C1 ('MetaCons n f s) U1) sc a where
+--   gconstExpr _ (M1 _) =
+--     PQ.annotateType (PQ.Expr . PQ.ConstExpr . PQ.String $ al)
 
-instance ( al ~ FindAlias als n
-         , DBTypeCtx (GetDBTypeRep sc a)
-         , SingI (GetDBTypeRep sc a)
-         , KnownSymbol n
-         , MaybeCtx SingE al
-         , SingI al
-         , SingE al
-         ) => GConstExpr ('EnumType nal als) (C1 ('MetaCons n f s) U1) sc a where
-  gconstExpr _ (M1 _) =
-    PQ.annotateType (PQ.Expr . PQ.ConstExpr . PQ.String $ al)
+--     where al = maybe (T.pack (symbolVal (Proxy @n)))
+--                id
+--                (fromSing (sing :: Sing al))
 
-    where al = maybe (T.pack (symbolVal (Proxy @n)))
-               id
-               (fromSing (sing :: Sing al))
-
-instance ( GConstExpr ('EnumType nal als) g2 sc a
-         , GConstExpr ('EnumType nal als) g1 sc a
-         ) => GConstExpr ('EnumType nal als) (g1 :+: g2) sc a where
-  gconstExpr p (L1 rep) =
-    gconstExpr p rep
-  gconstExpr p (R1 rep) =
-    gconstExpr p rep
+-- instance ( GConstExpr ('EnumType nal als) g2 sc a
+--          , GConstExpr ('EnumType nal als) g1 sc a
+--          ) => GConstExpr ('EnumType nal als) (g1 :+: g2) sc a where
+--   gconstExpr p (L1 rep) =
+--     gconstExpr p rep
+--   gconstExpr p (R1 rep) =
+--     gconstExpr p rep
 
 {-
 instance GConstExpr ('Composite al als) rep sc a where
   gconstExpr _ _ev = undefined
 -}
 
-instance (GConstExpr ('EnumText als) g sc a) => GConstExpr ('EnumText als) (D1 m g) sc a where
-  gconstExpr p (M1 rep) =
-    gconstExpr p rep
+-- instance (GConstExpr ('EnumText als) g sc a) => GConstExpr ('EnumText als) (D1 m g) sc a where
+--   gconstExpr p (M1 rep) =
+--     gconstExpr p rep
 
-instance ( al ~ FindAlias als n
-         , DBTypeCtx (GetDBTypeRep sc a)
-         , SingI (GetDBTypeRep sc a)
-         , KnownSymbol n
-         , MaybeCtx SingE al
-         , SingI al
-         , SingE al
-         ) => GConstExpr ('EnumText als) (C1 ('MetaCons n f s) U1) sc a where
-  gconstExpr _ (M1 _) =
-    PQ.Expr . PQ.ConstExpr . PQ.String $ al
+-- instance ( al ~ FindAlias als n
+--          , DBTypeCtx (GetDBTypeRep sc a)
+--          , SingI (GetDBTypeRep sc a)
+--          , KnownSymbol n
+--          , MaybeCtx SingE al
+--          , SingI al
+--          , SingE al
+--          ) => GConstExpr ('EnumText als) (C1 ('MetaCons n f s) U1) sc a where
+--   gconstExpr _ (M1 _) =
+--     PQ.Expr . PQ.ConstExpr . PQ.String $ al
 
-    where al = maybe (T.pack (symbolVal (Proxy @n)))
-               id
-               (fromSing (sing :: Sing al))
+--     where al = maybe (T.pack (symbolVal (Proxy @n)))
+--                id
+--                (fromSing (sing :: Sing al))
 
-instance ( GConstExpr ('EnumText als) g1 sc a
-         , GConstExpr ('EnumText als) g2 sc a
-         ) => GConstExpr ('EnumText als) (g1 :+: g2) sc a where
-  gconstExpr p (L1 rep) =
-    gconstExpr p rep
-  gconstExpr p (R1 rep) =
-    gconstExpr p rep
+-- instance ( GConstExpr ('EnumText als) g1 sc a
+--          , GConstExpr ('EnumText als) g2 sc a
+--          ) => GConstExpr ('EnumText als) (g1 :+: g2) sc a where
+--   gconstExpr p (L1 rep) =
+--     gconstExpr p rep
+--   gconstExpr p (R1 rep) =
+--     gconstExpr p rep
 
-instance ( GConstExprFlat als rep sc a
-         ) => GConstExpr ('Flat als) rep sc a where
-  gconstExpr _ = gconstExprFlat (Proxy @als) 
+-- instance ( GConstExprFlat als rep sc a
+--          ) => GConstExpr ('Flat als) rep sc a where
+--   gconstExpr _ = gconstExprFlat (Proxy @als) 
 
-class GConstExprFlat als rep sc a where
-  gconstExprFlat :: Proxy als -> rep x -> PQ.Expr sc a
+-- class GConstExprFlat als rep sc a where
+--   gconstExprFlat :: Proxy als -> rep x -> PQ.Expr sc a
 
-instance (GConstExprFlat als g sc a) => GConstExprFlat als (D1 m g) sc a where
-  gconstExprFlat pals (M1 rep) =
-    gconstExprFlat pals rep
+-- instance (GConstExprFlat als g sc a) => GConstExprFlat als (D1 m g) sc a where
+--   gconstExprFlat pals (M1 rep) =
+--     gconstExprFlat pals rep
 
-instance (GConstExprFlat als g sc a) => GConstExprFlat als (C1 m g) sc a where
-  gconstExprFlat pals (M1 rep) =
-    gconstExprFlat pals rep
+-- instance (GConstExprFlat als g sc a) => GConstExprFlat als (C1 m g) sc a where
+--   gconstExprFlat pals (M1 rep) =
+--     gconstExprFlat pals rep
 
-instance ( GConstExprFlat als g1 sc a
-         , GConstExprFlat als g2 sc a
-         ) => GConstExprFlat als (g1 :*: g2) sc a where
-  gconstExprFlat pals (g1 :*: g2) =
-    PQ.unsafeCoerceExpr (gconstExprFlat pals g1 `appendFlatComposite` gconstExprFlat pals g2)
+-- instance ( GConstExprFlat als g1 sc a
+--          , GConstExprFlat als g2 sc a
+--          ) => GConstExprFlat als (g1 :*: g2) sc a where
+--   gconstExprFlat pals (g1 :*: g2) =
+--     PQ.unsafeCoerceExpr (gconstExprFlat pals g1 `appendFlatComposite` gconstExprFlat pals g2)
 
-    where appendFlatComposite :: PQ.Expr sc a -> PQ.Expr sc a -> PQ.Expr sc a
-          appendFlatComposite (PQ.Expr (PQ.FlatComposite xs)) (PQ.Expr (PQ.FlatComposite ys)) = PQ.Expr (PQ.FlatComposite (xs ++ ys))
-          appendFlatComposite a b = error $ "Panic: expecting only flatcomposite @appendFlatComposite" ++ show (a, b)
+--     where appendFlatComposite :: PQ.Expr sc a -> PQ.Expr sc a -> PQ.Expr sc a
+--           appendFlatComposite (PQ.Expr (PQ.FlatComposite xs)) (PQ.Expr (PQ.FlatComposite ys)) = PQ.Expr (PQ.FlatComposite (xs ++ ys))
+--           appendFlatComposite a b = error $ "Panic: expecting only flatcomposite @appendFlatComposite" ++ show (a, b)
 
-instance ( al ~ FindAlias als n
-         , MaybeCtx SingE al
-         , SingI al
-         , KnownSymbol n
-         , ConstExpr sc t
-         ) => GConstExprFlat als (S1 ('MetaSel ('Just n) su ss ds) (K1 i t)) sc a where
-  gconstExprFlat _ (M1 (K1 v)) =
-    PQ.unsafeCoerceExpr (flatComposite (constExpr v))
+-- instance ( al ~ FindAlias als n
+--          , MaybeCtx SingE al
+--          , SingI al
+--          , KnownSymbol n
+--          , ConstExpr sc t
+--          ) => GConstExprFlat als (S1 ('MetaSel ('Just n) su ss ds) (K1 i t)) sc a where
+--   gconstExprFlat _ (M1 (K1 v)) =
+--     PQ.unsafeCoerceExpr (flatComposite (constExpr v))
 
-    where flatComposite :: PQ.Expr sc t -> PQ.Expr sc t
-          flatComposite (PQ.Expr v0) = PQ.Expr (PQ.FlatComposite (pure (al, v0)))
+--     where flatComposite :: PQ.Expr sc t -> PQ.Expr sc t
+--           flatComposite (PQ.Expr v0) = PQ.Expr (PQ.FlatComposite (pure (al, v0)))
 
-          al = maybe (T.pack (symbolVal (Proxy @n)))
-               id
-               (fromSing (sing :: Sing al))
+--           al = maybe (T.pack (symbolVal (Proxy @n)))
+--                id
+--                (fromSing (sing :: Sing al))
 
-instance ( DBTypeCtx (GetDBTypeRep sc Text)
-         , SingI (GetDBTypeRep sc Text)
-         ) => ConstExpr sc Text where
+instance ConstExpr sc Text where
   constExpr = fromString . T.unpack
 
 instance ConstExpr sc Int where
@@ -207,51 +202,37 @@ instance ConstExpr sc Rational where
 instance ConstExpr sc Scientific where
   constExpr = literalExpr . PQ.Double . toRealFloat -- (flip toRationalRepetend 2)
 
-instance ( DBTypeCtx (GetDBTypeRep sc (CI T.Text))
-         , SingI (GetDBTypeRep sc (CI T.Text))
+instance (
          ) => ConstExpr sc (CI T.Text) where
   constExpr = citext
 
-instance ( DBTypeCtx (GetDBTypeRep sc Day)
-         , SingI (GetDBTypeRep sc Day)
+instance (
          ) => ConstExpr sc Day where
   constExpr = date
 
-instance ( DBTypeCtx (GetDBTypeRep sc UTCTime)
-         , SingI (GetDBTypeRep sc UTCTime)
-         ) => ConstExpr sc UTCTime where
+instance () => ConstExpr sc UTCTime where
   constExpr = utcTime
 
-instance ( DBTypeCtx (GetDBTypeRep sc LocalTime)
-         , SingI (GetDBTypeRep sc LocalTime)
-         ) => ConstExpr sc LocalTime where
+instance () => ConstExpr sc LocalTime where
   constExpr = localTime
 
-instance ( DBTypeCtx (GetDBTypeRep sc TimeOfDay)
-         , SingI (GetDBTypeRep sc TimeOfDay)
-         ) => ConstExpr sc TimeOfDay where
+instance () => ConstExpr sc TimeOfDay where
   constExpr = timeOfDay
 
 instance (ConstExpr sc a) => ConstExpr sc (Identity a) where
   constExpr = toIdentity . constExpr . I.runIdentity
 
-instance ( DBTypeCtx (GetDBTypeRep sc [a])
-         , SingI (GetDBTypeRep sc [a])
-         , ConstExpr sc a
+instance ( ConstExpr sc a
          ) => ConstExpr sc [a] where
   constExpr = array . map constExpr
 
 instance ConstExpr sc Bool where
   constExpr = literalExpr . PQ.Bool
 
-instance ( DBTypeCtx (GetDBTypeRep sc A.Value)
-         , SingI (GetDBTypeRep sc A.Value)
-         ) => ConstExpr sc A.Value where
+instance ( ) => ConstExpr sc A.Value where
   constExpr = jsonb
 
-instance ( DBTypeCtx (GetDBTypeRep sc UUID)
-         , SingI (GetDBTypeRep sc UUID)
-         ) => ConstExpr sc UUID where
+instance ( ) => ConstExpr sc UUID where
   constExpr = uuid
 
 instance (ConstExpr sc a) => ConstExpr sc (Maybe a) where
@@ -290,36 +271,6 @@ instance (ConstExpr db v) => ConstExpr db (Key t v) where
 --   constExpr =
 --     toJson . getJson
 
-{-
-class HasInsertValues sc t where
-  insertValues :: Proxy sc -> t -> PQ.Assoc
-
-instance (KnownSymbol fn, ConstExpr sc t) => HasInsertValues sc (Identity (fn ::: t)) where
-  insertValues _ (I.Identity (Field v)) = [(T.pack $ symbolVal (Proxy @fn), getExpr $ constExpr v)]
-
-instance ( KnownSymbol fn1
-         , KnownSymbol fn2
-         , ConstExpr sc t1
-         , ConstExpr sc t2
-         ) => HasInsertValues sc (fn1 ::: t1, fn2 ::: t2) where
-  insertValues _ (Field v1, Field v2)
-    = [ (T.pack $ symbolVal (Proxy @fn1), getExpr $ constExpr v1)
-      , (T.pack $ symbolVal (Proxy @fn2), getExpr $ constExpr v2)
-      ]
-
-instance ( KnownSymbol fn1
-         , KnownSymbol fn2
-         , KnownSymbol fn3
-         , ConstExpr sc t1
-         , ConstExpr sc t2
-         , ConstExpr sc t3
-         ) => HasInsertValues sc (fn1 ::: t1, fn2 ::: t2, fn3 ::: t3) where
-  insertValues _ (Field v1, Field v2, Field v3)
-    = [ (T.pack $ symbolVal (Proxy @fn1), getExpr $ constExpr v1)
-      , (T.pack $ symbolVal (Proxy @fn2), getExpr $ constExpr v2)
-      , (T.pack $ symbolVal (Proxy @fn3), getExpr $ constExpr v3)
-      ]
--}
 
 binOp :: PQ.BinOp -> Expr sc a -> Expr sc b -> Expr sc c
 binOp op (Expr lhs) (Expr rhs) = Expr (PQ.BinExpr op lhs rhs)
@@ -430,14 +381,10 @@ instance FractionalExpr Double where
 fromIntegralExpr :: (Integral a, NumExpr b) => Expr sc a -> Expr sc b
 fromIntegralExpr e = unsafeCoerceExpr e
 
-instance ( DBTypeCtx (GetDBTypeRep sc T.Text)
-         , SingI (GetDBTypeRep sc T.Text)
-         ) => IsString (Expr sc T.Text) where
+instance () => IsString (Expr sc T.Text) where
   fromString = text . T.pack
 
-instance ( DBTypeCtx (GetDBTypeRep sc (CI T.Text))
-         , SingI (GetDBTypeRep sc (CI T.Text))
-         ) => IsString (Expr sc (CI T.Text)) where
+instance () => IsString (Expr sc (CI T.Text)) where
   fromString = citext . mk . T.pack
 
 instance ( IsString (Expr sc a)
@@ -447,8 +394,8 @@ instance ( IsString (Expr sc a)
 class EqExpr sc a where
   (.==) :: Expr sc a -> Expr sc a -> Expr sc Bool
 
-  default (.==) :: (Generic a, GEqExpr sc (TypeMappings sc a) (Rep a) a) => Expr sc a -> Expr sc a -> Expr sc Bool
-  (.==) = geqExpr (Proxy :: Proxy '(Rep a, TypeMappings sc a))
+  -- default (.==) :: (Generic a, GEqExpr sc (TypeMappings sc a) (Rep a) a) => Expr sc a -> Expr sc a -> Expr sc Bool
+  -- (.==) = geqExpr (Proxy :: Proxy '(Rep a, TypeMappings sc a))
 
 (./=) :: EqExpr sc a => Expr sc a -> Expr sc a -> Expr sc Bool
 (./=) a b = case (a .== b) of
@@ -465,55 +412,55 @@ pattern FALSE :: Expr sc Bool
 pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
   
 
-class GEqExpr sc (ud :: UDTypeMappings) rep a where
-  geqExpr :: Proxy '(rep, ud) -> Expr sc a -> Expr sc a -> Expr sc Bool
+-- class GEqExpr sc (ud :: UDTypeMappings) rep a where
+--   geqExpr :: Proxy '(rep, ud) -> Expr sc a -> Expr sc a -> Expr sc Bool
 
-instance ( EqExpr sc (FromJust (NewtypeRep a))
-         , Coercible a (FromJust (NewtypeRep a))
-         ) => GEqExpr sc map (D1 ('MetaData n f s 'True) c) a where
-  geqExpr _ e1 e2 = (coerceExpr @(FromJust (NewtypeRep a)) e1) .== coerceExpr e2
+-- instance ( EqExpr sc (FromJust (NewtypeRep a))
+--          , Coercible a (FromJust (NewtypeRep a))
+--          ) => GEqExpr sc map (D1 ('MetaData n f s 'True) c) a where
+--   geqExpr _ e1 e2 = (coerceExpr @(FromJust (NewtypeRep a)) e1) .== coerceExpr e2
 
-instance GEqExpr sc ('EnumType nal als) (D1 ('MetaData n f s 'False) c) a where
-  geqExpr _ = binOp PQ.OpEq
+-- instance GEqExpr sc ('EnumType nal als) (D1 ('MetaData n f s 'False) c) a where
+--   geqExpr _ = binOp PQ.OpEq
 
-instance GEqExpr sc ('Composite nal als) (D1 ('MetaData n f s 'False) c) a where
-  geqExpr _ = binOp PQ.OpEq
+-- instance GEqExpr sc ('Composite nal als) (D1 ('MetaData n f s 'False) c) a where
+--   geqExpr _ = binOp PQ.OpEq
 
-instance GEqExpr sc ('EnumText als) (D1 ('MetaData n f s 'False) c) a where
-  geqExpr _ = binOp PQ.OpEq
+-- instance GEqExpr sc ('EnumText als) (D1 ('MetaData n f s 'False) c) a where
+--   geqExpr _ = binOp PQ.OpEq
 
-instance ( GEqExprFlat sc a als (D1 ('MetaData n f s 'False) c)
-         ) => GEqExpr sc ('Flat als) (D1 ('MetaData n f s 'False) c) a where
-  geqExpr _ = geqExprFlat (Proxy @'((D1 ('MetaData n f s 'False) c), als))
+-- instance ( GEqExprFlat sc a als (D1 ('MetaData n f s 'False) c)
+--          ) => GEqExpr sc ('Flat als) (D1 ('MetaData n f s 'False) c) a where
+--   geqExpr _ = geqExprFlat (Proxy @'((D1 ('MetaData n f s 'False) c), als))
 
-class GEqExprFlat sc a (als :: [(Symbol, Symbol)]) rep where
-  geqExprFlat :: Proxy '(rep, als) -> Expr sc a -> Expr sc a -> Expr sc Bool
+-- class GEqExprFlat sc a (als :: [(Symbol, Symbol)]) rep where
+--   geqExprFlat :: Proxy '(rep, als) -> Expr sc a -> Expr sc a -> Expr sc Bool
 
-instance ( GEqExprFlat sc a als c
-         ) => GEqExprFlat sc a als (D1 m c) where
-  geqExprFlat _ e1 e2 =
-    geqExprFlat (Proxy @'(c, als)) e1 e2
+-- instance ( GEqExprFlat sc a als c
+--          ) => GEqExprFlat sc a als (D1 m c) where
+--   geqExprFlat _ e1 e2 =
+--     geqExprFlat (Proxy @'(c, als)) e1 e2
 
-instance ( GEqExprFlat sc a als c
-         ) => GEqExprFlat sc a als (C1 m c) where
-  geqExprFlat _ e1 e2 =
-    geqExprFlat (Proxy @'(c, als)) e1 e2
+-- instance ( GEqExprFlat sc a als c
+--          ) => GEqExprFlat sc a als (C1 m c) where
+--   geqExprFlat _ e1 e2 =
+--     geqExprFlat (Proxy @'(c, als)) e1 e2
 
-instance ( GEqExprFlat sc a als p
-         , GEqExprFlat sc a als q
-         ) => GEqExprFlat sc a als (p :*: q) where
-  geqExprFlat _ e1 e2 =
-    geqExprFlat (Proxy @'(p, als)) e1 e2 .&&
-    geqExprFlat (Proxy @'(q, als)) e1 e2 
+-- instance ( GEqExprFlat sc a als p
+--          , GEqExprFlat sc a als q
+--          ) => GEqExprFlat sc a als (p :*: q) where
+--   geqExprFlat _ e1 e2 =
+--     geqExprFlat (Proxy @'(p, als)) e1 e2 .&&
+--     geqExprFlat (Proxy @'(q, als)) e1 e2 
 
-instance ( EqExpr sc t
-         , UDTargetType ('Flat als) fld t a
-         , t ~ GTarget fld (Rep a)
-         ) => GEqExprFlat sc a als (S1 ('MetaSel ('Just fld) m1 m2 m3) (K1 m t)) where
-  geqExprFlat _ e1 e2 =
-    -- snd (hasField @fld e1) .== snd (hasField @fld e2)
-    snd (udTargetType (Proxy @'(fld, 'Flat als)) e1) .==
-    snd (udTargetType (Proxy @'(fld, 'Flat als)) e2)
+-- instance ( EqExpr sc t
+--          , UDTargetType ('Flat als) fld t a
+--          , t ~ GTarget fld (Rep a)
+--          ) => GEqExprFlat sc a als (S1 ('MetaSel ('Just fld) m1 m2 m3) (K1 m t)) where
+--   geqExprFlat _ e1 e2 =
+--     -- snd (hasField @fld e1) .== snd (hasField @fld e2)
+--     snd (udTargetType (Proxy @'(fld, 'Flat als)) e1) .==
+--     snd (udTargetType (Proxy @'(fld, 'Flat als)) e2)
 
 instance (EqExpr sc t) => EqExpr sc (fld ::: t) where
   a .== b = coerceExprTo a .== coerceExprTo b
@@ -567,9 +514,7 @@ append arrl arrr =
   let fun = PQ.FunExpr "array_cat" [getExpr arrl, getExpr arrr]
   in  Expr fun
 
-nil :: ( SingI (GetDBTypeRep sc [a])
-      , DBTypeCtx (GetDBTypeRep sc [a])
-      ) => Expr sc [a]
+nil :: () => Expr sc [a]
 nil = array []
 
 class (EqExpr sc a) => OrdExpr sc a where
@@ -702,9 +647,7 @@ true = Expr $ PQ.ConstExpr $ PQ.Bool True
 false :: Expr sc Bool
 false = Expr $ PQ.ConstExpr $ PQ.Bool False
 
-array :: ( DBTypeCtx (GetDBTypeRep sc [a])
-        , SingI (GetDBTypeRep sc [a])
-        ) => [Expr sc a] -> Expr sc [a]
+array :: () => [Expr sc a] -> Expr sc [a]
 array = annotateType . Expr . PQ.ArrayExpr . coerce
 
 iscontainedBy :: Expr sc [a] -> Expr sc [a] -> Expr sc Bool
@@ -716,8 +659,6 @@ iscontainedBy a b = binOp (PQ.OpOther "<@") a b
 jsonb ::
   forall sc a.
   ( A.ToJSON a
-  , DBTypeCtx (GetDBTypeRep sc A.Value)
-  , SingI (GetDBTypeRep sc A.Value)
   ) => a -> Expr sc A.Value
 jsonb = annotateType . Expr . PQ.ConstExpr . PQ.String . jsonify
   where jsonify = T.pack . lazyDecodeUtf8 . A.encode
@@ -725,32 +666,22 @@ jsonb = annotateType . Expr . PQ.ConstExpr . PQ.String . jsonify
 text :: T.Text -> Expr sc T.Text
 text = Expr . PQ.ConstExpr . PQ.String
 
-citext :: ( DBTypeCtx (GetDBTypeRep sc (CI T.Text))
-         , SingI (GetDBTypeRep sc (CI T.Text))
-         ) => CI T.Text -> Expr sc (CI T.Text)
+citext :: ( ) => CI T.Text -> Expr sc (CI T.Text)
 citext = annotateType . Expr . PQ.ConstExpr . PQ.String . foldedCase
 
-date :: ( DBTypeCtx (GetDBTypeRep sc Day)
-       , SingI (GetDBTypeRep sc Day)
-       ) => Day -> Expr sc Day
+date :: ( ) => Day -> Expr sc Day
 date = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%F'"
 
-utcTime :: ( DBTypeCtx (GetDBTypeRep sc UTCTime)
-          , SingI (GetDBTypeRep sc UTCTime)
-          ) => UTCTime -> Expr sc UTCTime
+utcTime :: ( ) => UTCTime -> Expr sc UTCTime
 utcTime = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%FT%TZ'"
 
-localTime :: ( DBTypeCtx (GetDBTypeRep sc LocalTime)
-            , SingI (GetDBTypeRep sc LocalTime)
-            ) => LocalTime -> Expr sc LocalTime
+localTime :: ( ) => LocalTime -> Expr sc LocalTime
 localTime = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%FT%T%Q'"
 
-timeOfDay :: ( DBTypeCtx (GetDBTypeRep sc TimeOfDay)
-            , SingI (GetDBTypeRep sc TimeOfDay)
-            ) => TimeOfDay -> Expr sc TimeOfDay
+timeOfDay :: ( ) => TimeOfDay -> Expr sc TimeOfDay
 timeOfDay = annotateType . Expr . PQ.ConstExpr . PQ.Other . T.pack . format
   where format = formatTime defaultTimeLocale "'%T%Q'"
 
@@ -809,58 +740,28 @@ pgOID oid = go (getPGOID oid)
     where
       go = literalExpr . PQ.String
 
-interval :: ( DBTypeCtx (GetDBTypeRep sc Interval)
-           , SingI (GetDBTypeRep sc Interval)
-           ) => Interval -> Expr sc Interval
+interval :: () => Interval -> Expr sc Interval
 interval (Interval e) = annotateType (literalExpr (PQ.Other e))
 
-hours :: ( DBTypeCtx (GetDBTypeRep sc Interval)
-           , SingI (GetDBTypeRep sc Interval)
-           ) => Int -> Expr sc Interval
+hours :: ( ) => Int -> Expr sc Interval
 hours i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " hours\'"
 
-months :: ( DBTypeCtx (GetDBTypeRep sc Interval)
-           , SingI (GetDBTypeRep sc Interval)
-           ) => Int -> Expr sc Interval
+months :: () => Int -> Expr sc Interval
 months i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " months\'"
 
-days :: ( DBTypeCtx (GetDBTypeRep sc Interval)
-        , SingI (GetDBTypeRep sc Interval)
-        ) => Int -> Expr sc Interval
+days :: ( ) => Int -> Expr sc Interval
 days i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " days\'"
 
-minutes :: ( DBTypeCtx (GetDBTypeRep sc Interval)
-           , SingI (GetDBTypeRep sc Interval)
-           ) => Int -> Expr sc Interval
+minutes :: ( ) => Int -> Expr sc Interval
 minutes i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " minutes\'"
 
-seconds :: ( DBTypeCtx (GetDBTypeRep sc Interval)
-           , SingI (GetDBTypeRep sc Interval)
-           ) => Int -> Expr sc Interval
+seconds :: ( ) => Int -> Expr sc Interval
 seconds i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))
   where txt = T.pack $ "\'" ++ show i ++ " seconds\'"
-
-{-
--- TODO: decide on json
-strToJson :: (Typeable a) => String -> Expr sc (Json a)
-strToJson = annotateType . Expr . PQ.ConstExpr . PQ.String . T.pack
-
-strToJsonStr :: (Typeable a) => String -> Expr sc (JsonStr a)
-strToJsonStr = annotateType . Expr . PQ.ConstExpr . PQ.String . T.pack
-
-lazyJson :: (Typeable a) => LB.ByteString -> Expr sc (Json a)
-lazyJson = strToJson . lazyDecodeUtf8
-
-toJson :: (ToJSON a, Typeable a) => a -> Expr sc (Json a)
-toJson = lazyJson . A.encode
-
-toJsonStr :: (ToJSON a, Typeable a) => a -> Expr sc (JsonStr a)
-toJsonStr = strToJsonStr . lazyDecodeUtf8 . A.encode
--}
 
 bytes :: SB.ByteString -> Expr sc SB.ByteString
 bytes = Expr . PQ.ConstExpr . PQ.Byte
@@ -868,9 +769,7 @@ bytes = Expr . PQ.ConstExpr . PQ.Byte
 addInterval :: Expr sc Interval -> Expr sc Interval -> Expr sc Interval
 addInterval e1 e2 = binOp PQ.OpPlus e1 e2
 
-uuid :: ( DBTypeCtx (GetDBTypeRep sc UUID)
-       , SingI (GetDBTypeRep sc UUID)
-       ) => UUID -> Expr sc UUID
+uuid :: ( ) => UUID -> Expr sc UUID
 uuid = annotateType . Expr . PQ.ConstExpr . PQ.Other . quoteVal . T.pack . UUID.toString
   where
     quoteVal str = "\'" <> str <> "\'"
@@ -915,12 +814,6 @@ avg = Expr . PQ.FunExpr "avg" . singleton . getExpr
 jsonbSet ::
   forall sc b.
   ( A.ToJSON b
-  , DBTypeCtx (GetDBTypeRep sc T.Text)
-  , SingI (GetDBTypeRep sc T.Text)
-  , DBTypeCtx (GetDBTypeRep sc [T.Text])
-  , SingI (GetDBTypeRep sc [T.Text])
-  , DBTypeCtx (GetDBTypeRep sc A.Value)
-  , SingI (GetDBTypeRep sc A.Value)
   ) => Expr sc A.Value -> [ Text ] -> b -> Expr sc A.Value
 jsonbSet col vs val =
   Expr (PQ.FunExpr "jsonb_set" args)
@@ -1053,62 +946,3 @@ count = coerce . funOp "count"
 
 sumOf :: NumExpr n => Expr sc n -> AggExpr sc n
 sumOf = coerce . funOp "sum"
-
-class Alias f where
-  as :: f a -> Proxy fld -> f (fld ::: a)
-
-instance Alias (Expr sc) where
-  as e _ = coerceExpr e
-
-instance Alias (AggExpr sc) where
-  as e _ = coerceAggExpr e
-
-instance ( lab ~ sym
-         ) => IsLabel lab (Proxy sym) where
-  fromLabel = Proxy
-
-
----- from Int.Schema
-
-class UDTargetType (ud :: UDTypeMappings) fld r a | ud fld a -> r  where
-  udTargetType :: Proxy '(fld, ud) -> PQ.Expr sc a -> (PQ.Expr sc r -> PQ.Expr sc a, PQ.Expr sc r)
-
--- NOTE: if unresolved, then does not meet specifications
-type family GTarget (fld :: Symbol) (rep :: Type -> Type) :: Type where
-  GTarget fld (D1 _ c) = GTarget fld c 
-  GTarget fld (C1 _ p) = GTarget fld p
-  GTarget fld ((S1 ('MetaSel ('Just fld) _ _ _) (K1 _ t)) :*: _) = t
-  GTarget fld ((S1 ('MetaSel _ _ _ _) (K1 _ t)) :*: p) = GTarget fld p
-  GTarget fld (S1 ('MetaSel ('Just fld) _ _ _) (K1 _ t)) = t
-
-instance ( r ~ GTarget fld (Rep a)
-         , als ~ FindAlias flds fld
-         ) => UDTargetType ('Composite tyn flds) fld r a where
-  udTargetType _ (PQ.Expr _e) =
-    let get' = undefined
-        setter _a = undefined
-    in  (setter, get')
-
-instance ( r ~ GTarget fld (Rep a) 
-         , als ~ FindAlias flds fld
-         , KnownSymbol fld
-         , SingI als
-         , SingE als
-         ) => UDTargetType ('Flat flds) fld r a where
-  udTargetType _ (PQ.Expr e) =
-    let getter = case e of
-          (PQ.FlatComposite es) -> case lookup als es of
-            Just t -> PQ.Expr t
-            _      -> error "Panic: impossible case @UDTargetType. Field not found"
-          _ -> error "Panic: impossible case @UDTargetType. Found non FlatComposite"
-        setter a = case e of
-          (PQ.FlatComposite es) -> PQ.Expr (PQ.FlatComposite (map (set a) es))
-          pq                    -> PQ.Expr pq
-        set (PQ.Expr a) (fld, e0) | als == fld
-          = (fld, a)
-                                  | otherwise
-          = (fld, e0)
-        als = maybe (T.pack (symbolVal (Proxy @fld)))
-                    id
-                    (fromSing (sing :: Sing als))
-    in  (setter, getter)

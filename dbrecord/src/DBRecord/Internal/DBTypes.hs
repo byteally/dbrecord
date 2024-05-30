@@ -11,27 +11,33 @@ import Data.Time.Clock (UTCTime)
 import Data.CaseInsensitive  (CI)
 import Data.Int
 import Data.Functor.Identity
-import Data.Word
+import Data.Functor.Const
+-- import Data.Word
 import Data.Scientific
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
 import Data.Proxy
-import DBRecord.Types (PGOID(..), PGOIDType(..), LTree, Interval, Json {-, JsonStr,-})
+import DBRecord.Types (PGOID(..), PGOIDType(..), LTree{-, Interval-}, Json {-, JsonStr,-})
 import qualified DBRecord.Types as DBR
 
 import Data.Vector (Vector)
-import DBRecord.Internal.Types (DbK (..), CustomType (..), _getUDTyAliases)
+import DBRecord.Internal.Types (DbK (..))
 import qualified DBRecord.Internal.Types as Type
-import DBRecord.Internal.Types (Sing (..), SingE (..))
-import DBRecord.Internal.Common
+-- import DBRecord.Internal.Types (Sing (..), SingE (..))
+-- import DBRecord.Internal.Common
 import qualified Data.Text as T
 import GHC.Generics
 import Data.Kind
+import Data.String
+import GHC.Records
 import GHC.TypeLits
+-- import GHC.Exts
+-- import Data.Type.Bool
 --import Data.Type.Equality
 --import Data.Typeable
-import qualified Path as Path
+-- import qualified Path as Path
 import Record
+import Record.Setter
 
 -- TODO: Very similar to DBTypeK! Try to unify.
 data DBType = DBInt4
@@ -73,305 +79,121 @@ data DBTypeName = DBTypeName T.Text [TypeArg]
 data TypeArg = TextArg    T.Text
              | IntegerArg Integer
              deriving (Show, Eq, Ord, Read)
-
-type family DBTypeCtx (t :: Type.DBTypeK) :: Constraint where
-  DBTypeCtx ('Type.DBFloat v)             = SingE v
-  DBTypeCtx ('Type.DBNumeric v1 v2)       = (SingE v1, SingE v2)
-  DBTypeCtx ('Type.DBChar v)              = SingE v
-  DBTypeCtx ('Type.DBVarchar v)           = Type.EitherCtx SingE SingE v
-  DBTypeCtx ('Type.DBTime v)              = SingE v
-  DBTypeCtx ('Type.DBTimetz v)            = SingE v
-  DBTypeCtx ('Type.DBTimestamp v)         = SingE v
-  DBTypeCtx ('Type.DBTimestamptz v)       = SingE v
-  DBTypeCtx ('Type.DBInterval _ v)        = SingE v
-  DBTypeCtx ('Type.DBNullable v)          = SingE v
-  DBTypeCtx ('Type.DBBinary v)            = SingE v
-  DBTypeCtx ('Type.DBVarbinary v)         = Type.EitherCtx SingE SingE v
-  DBTypeCtx ('Type.DBBit v)               = SingE v
-  DBTypeCtx ('Type.DBVarbit v)            = SingE v
-  DBTypeCtx ('Type.DBArray v)             = SingE v
-  DBTypeCtx ('Type.DBCustomType _ _ dbt ) = SingE dbt
-  DBTypeCtx _                             = ()
   
-instance (DBTypeCtx t) => SingE (t :: Type.DBTypeK) where
-  type Demote t = DBType
+instance Type.SingE 'Type.DBInt4 where
+  type Demote 'Type.DBInt4 = DBType
+  fromSing Type.SDBInt4 = undefined
   
-  fromSing SDBInt4                 = DBInt4
-  fromSing SDBInt8                 = DBInt8
-  fromSing SDBInt2                 = DBInt2
-  fromSing (SDBFloat v)            = DBFloat (fromSing v)
-  fromSing (SDBNumeric n1 n2)      = DBNumeric (fromSing n1) (fromSing n2)
-  fromSing (SDBChar n)             = DBChar (fromSing n)
-  fromSing (SDBVarchar n)          = DBVarchar (fromSing n)
-  fromSing SDBBool                 = DBBool
-  fromSing SDBDate                 = DBDate
-  fromSing (SDBTime n)             = DBTime (fromSing n)
-  fromSing (SDBTimetz n)           = DBTimetz (fromSing n)
-  fromSing (SDBTimestamp n)        = DBTimestamp (fromSing n)
-  fromSing (SDBTimestamptz n)      = DBTimestamptz (fromSing n)
-  fromSing (SDBInterval _ n2)      = DBInterval Nothing (fromSing n2)
-  fromSing (SDBNullable n)         = DBNullable (fromSing n)
-  fromSing SDBXml                  = DBXml
-  fromSing (SDBBinary n)           = DBBinary (fromSing n)
-  fromSing (SDBVarbinary n)        = DBVarbinary (fromSing n)
-  fromSing SDBText                 = DBText
-  fromSing SDBCiText               = DBCiText
-  fromSing SDBUuid                 = DBUuid
-  fromSing (SDBBit n)              = DBBit (fromSing n)
-  fromSing (SDBVarbit n)           = DBVarbit (fromSing n)
-  fromSing SDBJson                 = DBJson  
-  fromSing SDBJsonB                = DBJsonB
-  fromSing (SDBArray a)            = DBArray (fromSing a)
-  fromSing SDBLTree                = DBLTree
-  fromSing (SDBCustomType sc _ t ) = DBCustomType (fromSing sc) (fromSing t)
-
-type family DBTypeNameKCtx (typn :: Type.DBTypeNameK) where
-  DBTypeNameKCtx ('Type.DBTypeName s args udm) = (SingE s, SingE args, Type.UDTCtx udm)
-
-instance (DBTypeNameKCtx typn) => SingE (typn :: Type.DBTypeNameK) where
-  type Demote typn = DBTypeName
-  fromSing (SDBTypeName s args udm) = DBTypeName alias (fromSing args)
-    where alias = case fromSing udm of
-            Type.EnumTypeNM (Just a) _ -> a
-            Type.CompositeNM (Just a) _ -> a
-            _ -> fromSing s
-
-type family TypeArgCtx (t :: Type.TypeArgK) where
-  TypeArgCtx ('Type.SymArg sym) = SingE sym
-  TypeArgCtx ('Type.NatArg n)   = SingE n
-
-instance ( TypeArgCtx t
-         ) => SingE (t :: Type.TypeArgK) where
-  type Demote (t :: Type.TypeArgK) = TypeArg
-
-  fromSing (SSymArg s) = TextArg (fromSing s)
-  fromSing (SNatArg s) = IntegerArg (fromSing s)
-
-{-
-class SingDBType (db :: DbK) (dbTy :: Type.DBTypeK) where
-  unliftDBType :: Proxy db -> Proxy dbTy -> DBType
-
-instance SingDBType 'Postgres 'Type.DBInt2 where
-  unliftDBType _ _ = DBInt2
-
-instance SingDBType 'Postgres 'Type.DBInt4 where
-  unliftDBType _ _ = DBInt4
-
-instance SingDBType 'Postgres 'Type.DBInt8 where
-  unliftDBType _ _ = DBInt8
-
-instance (KnownNat n) => SingDBType 'Postgres ('Type.DBFloat n) where
-  unliftDBType _ _ = DBFloat (fromInteger (natVal (Proxy :: Proxy n)))
-
-instance SingDBType 'Postgres 'Type.DBBool where
-  unliftDBType _ _ = DBBool
-
-instance (KnownNat n) => SingDBType 'Postgres ('Type.DBChar n) where
-  unliftDBType _ _ = DBChar (natVal (Proxy @n))
-
-instance SingDBType 'Postgres 'Type.DBText where
-  unliftDBType _ _ = DBText
-
-instance SingDBType 'Postgres 'Type.DBByteArr where
-  unliftDBType _ _ = DBByteArr
-
-instance SingDBType 'Postgres 'Type.DBTimestamptz where
-  unliftDBType _ _ = DBTimestamptz
-
-instance SingDBType 'Postgres 'Type.DBInterval where
-  unliftDBType _ _ = DBInterval
-
-instance SingDBType 'Postgres 'Type.DBCiText where
-  unliftDBType _ _ = DBCiText
-
-instance SingDBType 'Postgres 'Type.DBTimestamp where
-  unliftDBType _ _ = DBTimestamp
-
-instance SingDBType 'Postgres 'Type.DBDate where
-  unliftDBType _ _ = DBDate
-
-instance SingDBType 'Postgres 'Type.DBTime where
-  unliftDBType _ _ = DBTime
-
-instance SingDBType 'Postgres 'Type.DBUuid where
-  unliftDBType _ _ = DBUuid
-
-instance SingDBType 'Postgres 'Type.DBJsonB where
-  unliftDBType _ _ = DBJsonB
-
-instance SingDBType 'Postgres 'Type.DBJson where
-  unliftDBType _ _ = DBJson
-
-instance KnownSymbol tab => SingDBType 'Postgres ('Type.DBTypeName tab) where
-  unliftDBType _ _ = DBTypeName (T.unpack $ T.toUpper $ T.pack $ symbolVal (Proxy :: Proxy tab))
-
-instance SingDBType 'Postgres dbTy => SingDBType 'Postgres ('Type.DBNullable dbTy) where
-  unliftDBType db _ = DBNullable (unliftDBType db (Proxy :: Proxy dbTy))
-
-instance SingDBType 'Postgres dbTy => SingDBType 'Postgres ('Type.DBArray dbTy) where
-  unliftDBType db _ = DBArray (unliftDBType db (Proxy :: Proxy dbTy))
-
-instance (SingDBType 'Postgres (GetDBTypeRep 'Postgres (InnerTy ty))) => SingDBType 'Postgres ('Type.DBCustomType ty dbTy 'True) where
-  unliftDBType db _ = DBCustomType (unliftDBType db (Proxy :: Proxy (GetDBTypeRep Postgres (InnerTy ty)))) True
-
-instance (SingDBType 'Postgres dbTy, Typeable dbTy) => SingDBType 'Postgres ('Type.DBCustomType ty dbTy 'False) where
-  unliftDBType db _ = DBCustomType (unliftDBType db (Proxy :: Proxy dbTy)) False
--}
+--   fromSing SDBInt4                 = DBInt4
+--   fromSing SDBInt8                 = DBInt8
+--   fromSing SDBInt2                 = DBInt2
+--   fromSing (SDBFloat v)            = DBFloat (fromSing v)
+--   fromSing (SDBNumeric n1 n2)      = DBNumeric (fromSing n1) (fromSing n2)
+--   fromSing (SDBChar n)             = DBChar (fromSing n)
+--   fromSing (SDBVarchar n)          = DBVarchar (fromSing n)
+--   fromSing SDBBool                 = DBBool
+--   fromSing SDBDate                 = DBDate
+--   fromSing (SDBTime n)             = DBTime (fromSing n)
+--   fromSing (SDBTimetz n)           = DBTimetz (fromSing n)
+--   fromSing (SDBTimestamp n)        = DBTimestamp (fromSing n)
+--   fromSing (SDBTimestamptz n)      = DBTimestamptz (fromSing n)
+--   fromSing (SDBInterval _ n2)      = DBInterval Nothing (fromSing n2)
+--   fromSing (SDBNullable n)         = DBNullable (fromSing n)
+--   fromSing SDBXml                  = DBXml
+--   fromSing (SDBBinary n)           = DBBinary (fromSing n)
+--   fromSing (SDBVarbinary n)        = DBVarbinary (fromSing n)
+--   fromSing SDBText                 = DBText
+--   fromSing SDBCiText               = DBCiText
+--   fromSing SDBUuid                 = DBUuid
+--   fromSing (SDBBit n)              = DBBit (fromSing n)
+--   fromSing (SDBVarbit n)           = DBVarbit (fromSing n)
+--   fromSing SDBJson                 = DBJson  
+--   fromSing SDBJsonB                = DBJsonB
+--   fromSing (SDBArray a)            = DBArray (fromSing a)
+--   fromSing SDBLTree                = DBLTree
+--   fromSing (SDBCustomType sc _ t ) = DBCustomType (fromSing sc) (fromSing t)
 
 
-{-
-class ShowDBType (db :: DbK) (dbTy :: Type.DBTypeK) where
-  showDBType :: Proxy db -> Proxy dbTy -> T.Text
+-- type family GetDBTypeRep sc t where
+--   GetDBTypeRep sc t = GetDBTypeRep' sc (DB (SchemaDB sc)) t
 
-instance ShowDBType 'Postgres 'Type.DBInt2 where
-  showDBType _ _ = "SMALLINT"
+-- type family GetDBTypeRep' sc dbk t where
+--   GetDBTypeRep' sc 'Postgres t = GetPGTypeRep sc t
+--   GetDBTypeRep' sc 'MSSQL    t = GetMSSQLTypeRep sc t
 
-instance ShowDBType 'Postgres 'Type.DBInt4 where
-  showDBType _ _ = "INTEGER"
+-- type family GetMSSQLTypeRep (sc :: Type) (t :: Type) = (r :: Type.DBTypeK) {-| r -> t-} where
+--   GetMSSQLTypeRep _ Int                = 'Type.DBInt8
+--   GetMSSQLTypeRep _ Int8               = 'Type.DBNumeric 3 0
+--   GetMSSQLTypeRep _ Int16              = 'Type.DBInt2
+--   GetMSSQLTypeRep _ Int32              = 'Type.DBInt4
+--   GetMSSQLTypeRep _ Int64              = 'Type.DBInt8
+--   GetMSSQLTypeRep _ Word               = 'Type.DBNumeric 20 0
+--   GetMSSQLTypeRep _ Word8              = 'Type.DBNumeric 3 0
+--   GetMSSQLTypeRep _ Word16             = 'Type.DBNumeric 5 0
+--   GetMSSQLTypeRep _ Word32             = 'Type.DBNumeric 10 0
+--   GetMSSQLTypeRep _ Word64             = 'Type.DBNumeric 20 0
+--   GetMSSQLTypeRep _ Float              = 'Type.DBFloat 24
+--   GetMSSQLTypeRep _ Double             = 'Type.DBFloat 53
+--   GetMSSQLTypeRep _ Char               = 'Type.DBChar 1
+--   GetMSSQLTypeRep _ T.Text             = 'Type.DBText
+--   GetMSSQLTypeRep _ ByteString         = 'Type.DBVarbinary ('Left 'Type.Max)
+--   GetMSSQLTypeRep _ Bool               = 'Type.DBBit 1
+--   GetMSSQLTypeRep _ Day                = 'Type.DBDate
+--   GetMSSQLTypeRep _ UTCTime            = 'Type.DBTimestamptz 7
+--   GetMSSQLTypeRep _ LocalTime          = 'Type.DBTimestamp 7
+--   GetMSSQLTypeRep _ TimeOfDay          = 'Type.DBTime 7
+--   GetMSSQLTypeRep sc (Maybe t)         = 'Type.DBNullable (GetMSSQLTypeRep sc t)
+--   GetMSSQLTypeRep sc [t]               = 'Type.DBArray (GetMSSQLTypeRep sc t)
+--   GetMSSQLTypeRep sc (CustomType a)    = CustomDBTypeRep sc a
+--   GetMSSQLTypeRep sc a                 =
+--     GetMSSQLTypeRepCustom sc a (NewtypeRep a)
 
-instance ShowDBType 'Postgres 'Type.DBInt8 where
-  showDBType _ _ = "BIGINT"
+-- type family GetMSSQLTypeRepCustom (sc :: Type) (ot :: Type) (t :: Maybe Type) where
+--   GetMSSQLTypeRepCustom sc a 'Nothing =
+--     'Type.DBCustomType (SchemaName sc) a ('Type.DBTypeName (GetTypeName a) '[] (TypeMappings sc a))
+--   GetMSSQLTypeRepCustom sc _ ('Just a) =
+--     GetMSSQLTypeRep sc a
 
-instance ShowDBType 'Postgres 'Type.DBBool where
-  showDBType _ _ = "BOOLEAN"
+-- type family GetPGTypeRep (sc :: Type) (t :: Type) = (r :: Type.DBTypeK) where
+--   GetPGTypeRep _ Int                = 'Type.DBInt4
+--   GetPGTypeRep _ Int16              = 'Type.DBInt2
+--   GetPGTypeRep _ Int32              = 'Type.DBInt4
+--   GetPGTypeRep _ Int64              = 'Type.DBInt8
+--   GetPGTypeRep _ Float              = 'Type.DBFloat 24
+--   GetPGTypeRep _ Double             = 'Type.DBFloat 53
+--   GetPGTypeRep _ Rational           = 'Type.DBNumeric 1000 1000
+--   GetPGTypeRep _ Scientific         = 'Type.DBNumeric 1000 1000
+--   GetPGTypeRep _ Char               = 'Type.DBChar 1
+--   GetPGTypeRep _ T.Text             = 'Type.DBText
+--   GetPGTypeRep _ (CI T.Text)        = 'Type.DBCiText
+--   GetPGTypeRep _ ByteString         = 'Type.DBVarbinary ('Left 'Type.Max)
+--   GetPGTypeRep _ Bool               = 'Type.DBBool
+--   GetPGTypeRep _ Day                = 'Type.DBDate
+--   GetPGTypeRep _ UTCTime            = 'Type.DBTimestamptz 6
+--   GetPGTypeRep _ LocalTime          = 'Type.DBTimestamp 6
+--   GetPGTypeRep _ TimeOfDay          = 'Type.DBTime 6
+--   GetPGTypeRep _ Value              = 'Type.DBJsonB
+--   GetPGTypeRep _ Interval           = 'Type.DBInterval 'Nothing 6
+--   GetPGTypeRep _ (Path.Path a ft)   = 'Type.DBText
+--   GetPGTypeRep _ (Json a)           = 'Type.DBJsonB
+--   -- GetPGTypeRep sc (Json a)          = 'Type.DBCustomType (Json a) 'Type.DBJsonB (TypeMappings sc (Json a))
+--   -- GetPGTypeRep sc (JsonStr a)       = 'Type.DBCustomType (JsonStr a) 'Type.DBJson (TypeMappings sc (JsonStr a))
+--   GetPGTypeRep _ UUID               = 'Type.DBUuid
+--   GetPGTypeRep sc (Maybe t)         = 'Type.DBNullable (GetPGTypeRep sc t)
+--   -- GetPGTypeRep (Vector t)         = 'DBArray (GetPGTypeRep t)
+--   GetPGTypeRep sc [t]               = 'Type.DBArray (GetPGTypeRep sc t)
+--   GetPGTypeRep sc (CustomType a)    = CustomDBTypeRep sc a
+--   GetPGTypeRep sc a                 =
+--     GetPGTypeRepCustom sc a (NewtypeRep a)
 
-instance ShowDBType 'Postgres 'Type.DBFloat  where
-  showDBType _ _ = "DOUBLE PRECISION"
+-- type family GetPGTypeRepCustom (sc :: Type) (ot :: Type) (t :: Maybe Type) :: Type.DBTypeK where
+--   GetPGTypeRepCustom sc a 'Nothing =
+--     'Type.DBCustomType (SchemaName sc) a ('Type.DBTypeName (GetTypeName a) '[] (TypeMappings sc a)) 
+--   GetPGTypeRepCustom sc _ ('Just a) =
+--     GetPGTypeRep sc a
 
-instance KnownNat n => ShowDBType 'Postgres ('Type.DBChar n) where
-  showDBType _ _ = T.pack $ "CHARACTER (" ++ (show $ natVal $ Proxy @n) ++ ")"
+-- type family CustomDBTypeRep (sc :: Type) (ty :: Type) :: Type.DBTypeK
 
-instance ShowDBType 'Postgres 'Type.DBText where
-  showDBType _ _ = "TEXT"
-
-
-instance ShowDBType 'Postgres 'Type.DBByteArr where
-  showDBType _ _ = "BYTEA"
-
-instance ShowDBType 'Postgres 'Type.DBTimestamptz where
-  showDBType _ _ = "TIMESTAMPTZ"
-
-instance ShowDBType 'Postgres 'Type.DBInterval where
-  showDBType _ _ = "INTERVAL"
-
-instance ShowDBType 'Postgres 'Type.DBCiText where
-  showDBType _ _ = "CITEXT"
-
-instance ShowDBType 'Postgres 'Type.DBTimestamp where
-  showDBType _ _ = "TIMESTAMP"
-
-instance ShowDBType 'Postgres 'Type.DBDate where
-  showDBType _ _ = "DATE"
-
-instance ShowDBType 'Postgres 'Type.DBTime where
-  showDBType _ _ = "TIME"
-
-instance ShowDBType 'Postgres 'Type.DBUuid where
-  showDBType _ _ = "UUID"
-
-instance ShowDBType 'Postgres 'Type.DBJsonB where
-  showDBType _ _ = "JSONB"
-
-instance ShowDBType 'Postgres 'Type.DBJson where
-  showDBType _ _ = "JSON"
-
-instance ShowDBType 'Postgres dbTy => ShowDBType 'Postgres ('Type.DBNullable dbTy) where
-  showDBType db _ = showDBType db (Proxy :: Proxy dbTy)
-
-instance ShowDBType 'Postgres dbTy => ShowDBType 'Postgres ('Type.DBArray dbTy) where
-  showDBType db _ = showDBType db (Proxy :: Proxy dbTy) `T.append` "[]"
-
-instance KnownSymbol tab => ShowDBType 'Postgres ('Type.DBTypeName tab) where
-  showDBType _ _ = T.toUpper $ T.pack $ symbolVal (Proxy :: Proxy tab)
-
-instance (ShowDBType 'Postgres (GetDBTypeRep 'Postgres (InnerTy ty))) => ShowDBType 'Postgres ('Type.DBCustomType ty dbTy 'True) where
-  showDBType db _ = showDBType db (Proxy :: Proxy (GetDBTypeRep 'Postgres (InnerTy ty)))
-
-instance (ShowDBType 'Postgres dbTy, Typeable dbTy) => ShowDBType 'Postgres ('Type.DBCustomType ty dbTy 'False) where
-  showDBType db _ = if typeRepTyCon (typeRep (Proxy @dbTy)) == typeRepTyCon (typeRep (Proxy @ 'DBTypeName))
-                    then doubleQuote $ showDBType db (Proxy :: Proxy dbTy)
-                    else showDBType db (Proxy :: Proxy dbTy)
--}
-
-type family GetDBTypeRep sc t where
-  GetDBTypeRep sc t = GetDBTypeRep' sc (DB (SchemaDB sc)) t
-
-type family GetDBTypeRep' sc dbk t where
-  GetDBTypeRep' sc 'Postgres t = GetPGTypeRep sc t
-  GetDBTypeRep' sc 'MSSQL    t = GetMSSQLTypeRep sc t
-
-type family GetMSSQLTypeRep (sc :: Type) (t :: Type) = (r :: Type.DBTypeK) {-| r -> t-} where
-  GetMSSQLTypeRep _ Int                = 'Type.DBInt8
-  GetMSSQLTypeRep _ Int8               = 'Type.DBNumeric 3 0
-  GetMSSQLTypeRep _ Int16              = 'Type.DBInt2
-  GetMSSQLTypeRep _ Int32              = 'Type.DBInt4
-  GetMSSQLTypeRep _ Int64              = 'Type.DBInt8
-  GetMSSQLTypeRep _ Word               = 'Type.DBNumeric 20 0
-  GetMSSQLTypeRep _ Word8              = 'Type.DBNumeric 3 0
-  GetMSSQLTypeRep _ Word16             = 'Type.DBNumeric 5 0
-  GetMSSQLTypeRep _ Word32             = 'Type.DBNumeric 10 0
-  GetMSSQLTypeRep _ Word64             = 'Type.DBNumeric 20 0
-  GetMSSQLTypeRep _ Float              = 'Type.DBFloat 24
-  GetMSSQLTypeRep _ Double             = 'Type.DBFloat 53
-  GetMSSQLTypeRep _ Char               = 'Type.DBChar 1
-  GetMSSQLTypeRep _ T.Text             = 'Type.DBText
-  GetMSSQLTypeRep _ ByteString         = 'Type.DBVarbinary ('Left 'Type.Max)
-  GetMSSQLTypeRep _ Bool               = 'Type.DBBit 1
-  GetMSSQLTypeRep _ Day                = 'Type.DBDate
-  GetMSSQLTypeRep _ UTCTime            = 'Type.DBTimestamptz 7
-  GetMSSQLTypeRep _ LocalTime          = 'Type.DBTimestamp 7
-  GetMSSQLTypeRep _ TimeOfDay          = 'Type.DBTime 7
-  GetMSSQLTypeRep sc (Maybe t)         = 'Type.DBNullable (GetMSSQLTypeRep sc t)
-  GetMSSQLTypeRep sc [t]               = 'Type.DBArray (GetMSSQLTypeRep sc t)
-  GetMSSQLTypeRep sc (CustomType a)    = CustomDBTypeRep sc a
-  GetMSSQLTypeRep sc a                 =
-    GetMSSQLTypeRepCustom sc a (NewtypeRep a)
-
-type family GetMSSQLTypeRepCustom (sc :: Type) (ot :: Type) (t :: Maybe Type) where
-  GetMSSQLTypeRepCustom sc a 'Nothing =
-    'Type.DBCustomType (SchemaName sc) a ('Type.DBTypeName (GetTypeName a) '[] (TypeMappings sc a))
-  GetMSSQLTypeRepCustom sc _ ('Just a) =
-    GetMSSQLTypeRep sc a
-
-type family GetPGTypeRep (sc :: Type) (t :: Type) = (r :: Type.DBTypeK) where
-  GetPGTypeRep _ Int                = 'Type.DBInt4
-  GetPGTypeRep _ Int16              = 'Type.DBInt2
-  GetPGTypeRep _ Int32              = 'Type.DBInt4
-  GetPGTypeRep _ Int64              = 'Type.DBInt8
-  GetPGTypeRep _ Float              = 'Type.DBFloat 24
-  GetPGTypeRep _ Double             = 'Type.DBFloat 53
-  GetPGTypeRep _ Rational           = 'Type.DBNumeric 1000 1000
-  GetPGTypeRep _ Scientific         = 'Type.DBNumeric 1000 1000
-  GetPGTypeRep _ Char               = 'Type.DBChar 1
-  GetPGTypeRep _ T.Text             = 'Type.DBText
-  GetPGTypeRep _ (CI T.Text)        = 'Type.DBCiText
-  GetPGTypeRep _ ByteString         = 'Type.DBVarbinary ('Left 'Type.Max)
-  GetPGTypeRep _ Bool               = 'Type.DBBool
-  GetPGTypeRep _ Day                = 'Type.DBDate
-  GetPGTypeRep _ UTCTime            = 'Type.DBTimestamptz 6
-  GetPGTypeRep _ LocalTime          = 'Type.DBTimestamp 6
-  GetPGTypeRep _ TimeOfDay          = 'Type.DBTime 6
-  GetPGTypeRep _ Value              = 'Type.DBJsonB
-  GetPGTypeRep _ Interval           = 'Type.DBInterval 'Nothing 6
-  GetPGTypeRep _ (Path.Path a ft)   = 'Type.DBText
-  GetPGTypeRep _ (Json a)           = 'Type.DBJsonB
-  -- GetPGTypeRep sc (Json a)          = 'Type.DBCustomType (Json a) 'Type.DBJsonB (TypeMappings sc (Json a))
-  -- GetPGTypeRep sc (JsonStr a)       = 'Type.DBCustomType (JsonStr a) 'Type.DBJson (TypeMappings sc (JsonStr a))
-  GetPGTypeRep _ UUID               = 'Type.DBUuid
-  GetPGTypeRep sc (Maybe t)         = 'Type.DBNullable (GetPGTypeRep sc t)
-  -- GetPGTypeRep (Vector t)         = 'DBArray (GetPGTypeRep t)
-  GetPGTypeRep sc [t]               = 'Type.DBArray (GetPGTypeRep sc t)
-  GetPGTypeRep sc (CustomType a)    = CustomDBTypeRep sc a
-  GetPGTypeRep sc a                 =
-    GetPGTypeRepCustom sc a (NewtypeRep a)
-
-type family GetPGTypeRepCustom (sc :: Type) (ot :: Type) (t :: Maybe Type) :: Type.DBTypeK where
-  GetPGTypeRepCustom sc a 'Nothing =
-    'Type.DBCustomType (SchemaName sc) a ('Type.DBTypeName (GetTypeName a) '[] (TypeMappings sc a)) 
-  GetPGTypeRepCustom sc _ ('Just a) =
-    GetPGTypeRep sc a
-
-type family CustomDBTypeRep (sc :: Type) (ty :: Type) :: Type.DBTypeK
 
 doubleQuote :: T.Text -> T.Text
 doubleQuote = quoteBy '"' (Just '"')
@@ -385,138 +207,123 @@ quoteBy ch esc s = T.pack $ ch : go esc (T.unpack s) ++ (ch:[])
       | ch' == esch          = esch : ch': go esc xs
     go esc' (x:xs)          = x : go esc' xs
 
-newtype TyFieldAliases sc ty = TyFieldAliases (HM.HashMap Text Text)
+newtype FieldAliases sc ty = FieldAliases (HM.HashMap Text Text)
+  deriving newtype (Show, Semigroup, Monoid)
 
-class ( Generic ty
-      ) => UDType (sc :: Type) (ty :: Type) where
-  type TypeMappings sc ty :: Type.UDTypeMappings
-  type TypeMappings sc ty = GTypeMappings sc (Rep ty)
+instance (HasField fn ty ft, KnownSymbol fn) => SetField (fn :: Symbol) (FieldAliases sc ty) Text where
+  modifyField f (FieldAliases hmap) = FieldAliases $ HM.alter (Just . maybe (f fname) f) fname hmap
+    where
+      fname = T.pack $ symbolVal (Proxy :: Proxy fn)
+  {-# INLINE modifyField #-}    
 
-  _tyFieldAliases :: TyFieldAliases sc ty
-  default _tyFieldAliases :: (Type.GetUDTyAliases' (TypeMappings sc ty)) => TyFieldAliases sc ty
-  _tyFieldAliases = TyFieldAliases $ _getUDTyAliases (Proxy @(TypeMappings sc ty))
+getAliasedFieldName :: forall fn ty sc ft. (HasField fn ty ft, KnownSymbol fn) => FieldAliases sc ty -> Const Text fn
+getAliasedFieldName (FieldAliases hmap) = Const $ HM.findWithDefault fname fname hmap
+  where
+    fname = T.pack $ symbolVal (Proxy :: Proxy fn)
+{-# INLINE getAliasedFieldName #-}
 
-_lookupTyFieldAliases :: Text -> TyFieldAliases sc ty -> Maybe Text
-_lookupTyFieldAliases fn (TyFieldAliases als) = HM.lookup fn als
+newtype ConAliases sc ty = ConAliases (HM.HashMap Text Text)
+  deriving newtype (Show, Semigroup, Monoid)
 
-type family GTypeMappings sc rep where
-  GTypeMappings sc (D1 _ g)    = GTypeMappings sc g
-  GTypeMappings sc (g1 :+: g2) =
-    GTypeMappingsSum sc (GTypeMappingsSum' (g1 :+: g2))
-  GTypeMappings sc (C1 _ g)    = 'Type.Flat '[]
+instance (Generic ty, ValidateConName ty fn (Rep ty) (UnconsSymbol fn), KnownSymbol fn) => SetField (fn :: Symbol) (ConAliases sc ty) Text where
+  modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . maybe (f cname) f) cname hmap
+    where
+      -- Invariant: `ValidateConName` ensures that `fn` is not empty, making the use of `tail` safe
+      cname = T.pack $ tail $ symbolVal (Proxy :: Proxy fn)
+  {-# INLINE modifyField #-}
 
-type family GTypeMappingsSum sc (isEnum :: Bool) where
-  GTypeMappingsSum sc 'True  = 'Type.EnumType 'Nothing '[]
-  GTypeMappingsSum sc 'False = 'Type.Sum 'Nothing '[]  
+type family ValidateConName (ty :: Type) (k :: Symbol) (rep :: Type -> Type) (unconsedConName :: Maybe (Char, Symbol)) :: Constraint where
+  ValidateConName _ _ _ 'Nothing = TypeError ('Text "Invalid Constructor Name: " ':<>: 'Text " for type " ':<>: 'Text "")
+  ValidateConName ty k rep unconsedConName = ()
 
-type family GTypeMappingsSum' rep where
-  GTypeMappingsSum' (g1 :+: g2)  = GTypeMappingsSum' g1 && GTypeMappingsSum' g2
-  GTypeMappingsSum' (C1 _ U1)    = 'True
-  GTypeMappingsSum' (C1 _ _)     = 'False
+newtype UDTypeName sc ty = UDTypeName Text
+
+instance IsString (UDTypeName sc ty) where
+  fromString s = UDTypeName $ T.pack s
+
+class UDType (sc :: Type) (ty :: Type) where
+  type UDTypeRep sc ty :: Type.UDTypeK
+  
+  udTypeName :: UDTypeName sc ty
+  default udTypeName :: (Generic ty) => UDTypeName sc ty
+  udTypeName = ""
+
+  fieldAliases :: FieldAliases sc ty
+  fieldAliases = mempty
+
+  conAliases :: ConAliases sc ty
+  conAliases = mempty
+
+type Pred = Type
 
 data DBObjK
   = TableObj
-  | NativeTypeObj
-  | UDTypeObj
+  | NativeTypeObj Type.DBTypeK
+  | UDTypeObj Type.UDTypeK
+  | NewtypeObj Type
+  | DomainType DBObjK
+  | SimDomainType DBObjK
   | NullableObjOf DBObjK
   | ArrayObjOf DBObjK
-  | NewtypeObj
 
 class DBRepr (dbk :: DbK) (t :: Type) where
   type ToDBType dbk t :: DBObjK
   type ToDBType dbk t = 'TableObj
   type AutoCodec dbk t :: Bool
   type AutoCodec dbk t = 'True
-{-
-  getTableObjFields :: Proxy '(dbk, t) -> TableObjFields (ToDBType dbk t)
-  default getTableObjFields :: (MkTableObjFields t (ToDBType dbk t)) => Proxy '(dbk, t) -> TableObjFields (ToDBType dbk t)
-  getTableObjFields _ = mkTableObjFields (Proxy @'(t, ToDBType dbk t))
 
-class MkTableObjFields (t :: Type) (isTab :: DBObjK) where
-  mkTableObjFields :: Proxy '(t, isTab) -> TableObjFields isTab
-
-instance {-# Overlappable #-} MkTableObjFields t dbObjK where
-  mkTableObjFields _ = NoTableObjFields
-
-instance {-# Overlapping #-} GMkTableObjFields (Rep t) => MkTableObjFields t 'TableObj where
-  mkTableObjFields _ = TableObjFields (gMkTableObjFields (Proxy @(Rep t)))
-
-class GMkTableObjFields (f :: Type -> Type) where
-  gMkTableObjFields :: Proxy f -> [TypeRep]
-
-instance GMkTableObjFields f => GMkTableObjFields (D1 d f) where
-  gMkTableObjFields _ = gMkTableObjFields (Proxy @f)
-
-instance (TypeError ('Text "TODO: Fix error msg. Sum Type not supported by  GMkTableObjFields")) => GMkTableObjFields (f :+: g) where
-  gMkTableObjFields _ = error "Unreachable code!"
-
-instance GMkTableObjFields f => GMkTableObjFields (C1 d f) where
-  gMkTableObjFields _ = gMkTableObjFields (Proxy @f)
-
-instance (GMkTableObjFields f, GMkTableObjFields g) => GMkTableObjFields (f :*: g) where
-  gMkTableObjFields _ = gMkTableObjFields (Proxy @f) ++ gMkTableObjFields (Proxy @g)
-
-instance GMkTableObjFields (S1 d f) where
-  gMkTableObjFields _ = []
-  
-
-data TableObjFields (dbobj :: DBObjK) where
-  TableObjFields :: [TypeRep] -> TableObjFields 'TableObj
---  HOTableObjFields :: [TypeRep] -> TableObjFields (f 'TableObj)
-  NoTableObjFields :: TableObjFields dbobj
--}
 instance DBRepr dbk Int where
-  type ToDBType dbk Int = 'NativeTypeObj
+  type ToDBType dbk Int = 'NativeTypeObj 'Type.DBInt8
 
 instance DBRepr dbk Int64 where
-  type ToDBType dbk Int64 = 'NativeTypeObj
+  type ToDBType dbk Int64 = 'NativeTypeObj 'Type.DBInt8
 
 instance DBRepr dbk Int32 where
-  type ToDBType dbk Int32 = 'NativeTypeObj
+  type ToDBType dbk Int32 = 'NativeTypeObj 'Type.DBInt4
 
 instance DBRepr dbk Int16 where
-  type ToDBType dbk Int16 = 'NativeTypeObj  
+  type ToDBType dbk Int16 = 'NativeTypeObj 'Type.DBInt2
 
 instance DBRepr dbk Text where
-  type ToDBType dbk Text = 'NativeTypeObj
+  type ToDBType dbk Text = 'NativeTypeObj 'Type.DBText
 
 deriving newtype instance DBRepr dbk t => DBRepr dbk (Identity t)
 
 instance DBRepr dbk (CI t) where
-  type ToDBType dbk (CI t) = 'NativeTypeObj  
+  type ToDBType dbk (CI t) = 'NativeTypeObj ('Type.DBCiText)
 
 instance DBRepr dbk TimeOfDay where
-  type ToDBType dbk TimeOfDay = 'NativeTypeObj
+  type ToDBType dbk TimeOfDay = 'NativeTypeObj ('Type.DBTime 7)
 
 instance DBRepr dbk Bool where
-  type ToDBType dbk Bool = 'NativeTypeObj  
+  type ToDBType dbk Bool = 'NativeTypeObj 'Type.DBBool
 
 instance DBRepr dbk Double where
-  type ToDBType dbk Double = 'NativeTypeObj
+  type ToDBType dbk Double = 'NativeTypeObj ('Type.DBFloat 53)
 
 instance DBRepr dbk Float where
-  type ToDBType dbk Float = 'NativeTypeObj
+  type ToDBType dbk Float = 'NativeTypeObj ('Type.DBFloat 24)
 
 instance DBRepr dbk Rational where
-  type ToDBType dbk Rational = 'NativeTypeObj
+  type ToDBType dbk Rational = 'NativeTypeObj ('Type.DBNumeric 1000 1000)
   
 instance DBRepr dbk Scientific where
-  type ToDBType dbk Scientific = 'NativeTypeObj  
+  type ToDBType dbk Scientific = 'NativeTypeObj ('Type.DBNumeric 1000 1000)
 
 instance DBRepr dbk Day where
-  type ToDBType dbk Day = 'NativeTypeObj
+  type ToDBType dbk Day = 'NativeTypeObj 'Type.DBDate
   
 instance DBRepr dbk LocalTime where
-  type ToDBType dbk LocalTime = 'NativeTypeObj
+  type ToDBType dbk LocalTime = 'NativeTypeObj ('Type.DBTimestamp 6)
 
 instance DBRepr dbk UTCTime where
-  type ToDBType dbk UTCTime = 'NativeTypeObj
+  type ToDBType dbk UTCTime = 'NativeTypeObj ('Type.DBTimestamptz 6)
 
 instance DBRepr dbk ByteString where
-  type ToDBType dbk ByteString = 'NativeTypeObj  
+  type ToDBType dbk ByteString = 'NativeTypeObj ('Type.DBVarbinary ('Left 'Type.Max))
 
 instance DBRepr dbk UUID where
-  type ToDBType dbk UUID = 'NativeTypeObj  
+  type ToDBType dbk UUID = 'NativeTypeObj 'Type.DBUuid 
   
 instance DBRepr dbk a => DBRepr dbk (Maybe a) where
   type ToDBType dbk (Maybe a) = 'NullableObjOf (ToDBType dbk a)
@@ -532,10 +339,10 @@ instance DBRepr dbk a => DBRepr dbk (Vector a) where
 
 -- TODO: Json is not native is all the DB
 instance DBRepr dbk (Json a) where
-  type ToDBType dbk (Json a) = 'NativeTypeObj
+  type ToDBType dbk (Json a) = 'NativeTypeObj 'Type.DBJsonB
 
 instance DBRepr dbk Value where
-  type ToDBType dbk Value = 'NativeTypeObj
+  type ToDBType dbk Value = 'NativeTypeObj 'Type.DBJsonB
 
 instance DBRepr dbk (Rec xs) where
   type ToDBType dbk (Rec xs) = 'TableObj
@@ -552,26 +359,26 @@ newtype TableVal t = TableVal t
 
 
 instance DBRepr dbk (Row xs) where
-  type ToDBType dbk (Row xs) = 'UDTypeObj
+  type ToDBType dbk (Row xs) = 'UDTypeObj ('Type.UDRec 'Type.FlatRec)
 
 newtype AsUDType t = AsUDType t
 
 instance DBRepr dbk (AsUDType t) where
-  type ToDBType dbk (AsUDType t) = 'UDTypeObj
+  type ToDBType dbk (AsUDType t) = 'UDTypeObj (Type.GenUDTypeRep (Rep t))
 
 instance DBRepr dbk (DBR.Key tab t) where
   type ToDBType dbk (DBR.Key tab t) = ToDBType dbk t
   type AutoCodec dbk (DBR.Key tab t) = AutoCodec dbk t
 
 instance DBRepr dbk (PGOID 'RegType) where
-  type ToDBType dbk (PGOID 'RegType) = 'NativeTypeObj  
+  type ToDBType dbk (PGOID 'RegType) = 'NativeTypeObj 'Type.DBText -- TODO: Fix  
 
 instance DBRepr dbk (a, b) where
   type ToDBType dbk (a, b) = 'TableObj  
 
 
 instance DBRepr dbk LTree where
-  type ToDBType dbk LTree = 'NativeTypeObj  
+  type ToDBType dbk LTree = 'NativeTypeObj 'Type.DBText -- TODO: Fix
   
 
 class ( -- Break (NoGeneric db) (Rep db)
@@ -620,21 +427,21 @@ class SchemaCatalog (sc :: Type) where
   type AggFunctions sc :: [(Symbol, Type)]
 --  type Sequences sc :: [Type]
 
-toNullable :: DBType -> DBType
-toNullable = DBNullable
+-- toNullable :: DBType -> DBType
+-- toNullable = DBNullable
 
-removeNullable :: DBType -> DBType
-removeNullable (DBNullable t) = t
-removeNullable _ = error "Panic: Remove nullable failed"
+-- removeNullable :: DBType -> DBType
+-- removeNullable (DBNullable t) = t
+-- removeNullable _ = error "Panic: Remove nullable failed"
 
-isNullable :: DBType -> Bool
-isNullable (DBNullable _) = True
-isNullable _              = False
+-- isNullable :: DBType -> Bool
+-- isNullable (DBNullable _) = True
+-- isNullable _              = False
 
 -- enumType :: T.Text -> DBType
 -- enumType v = DBCustomType (DBTypeName v []) False
 
 -- NOTE: newtype handling.
 
-type TPair (a :: Symbol) (b :: Symbol) = '(a, b)
+-- type TPair (a :: Symbol) (b :: Symbol) = '(a, b)
 

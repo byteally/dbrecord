@@ -89,8 +89,6 @@ library
                     DBRecord.Postgres.Internal.Sql.Pretty
                     DBRecord.Postgres.Internal.Sql.Parser
                     DBRecord.Postgres.Internal.PrettyDDL
-                    DBRecord.Postgres.Internal.Reify
-                    -- DBRecord.Postgres.Internal.Transaction
                     DBRecord.Postgres.Internal.Query
                     -- DBRecord.Postgres.Internal.Types
                     DBRecord.Postgres.Internal.LTree

@@ -9,8 +9,8 @@ import qualified Data.Text as T
 import Data.Kind
 import Data.Typeable
 import GHC.Exts
-import Data.Text (Text)
-import qualified Data.HashMap.Strict as HM
+-- import Data.Text (Text)
+-- import qualified Data.HashMap.Strict as HM
 
 
 data DBTag (db :: Type) (tab :: Type) (v :: k)
@@ -92,67 +92,32 @@ data DBTypeK
   | DBLTree
   | DBCustomType Symbol Type DBTypeNameK
 
-data DBTypeNameK = DBTypeName Symbol [TypeArgK] UDTypeMappings
+data DBTypeNameK = DBTypeName Symbol [TypeArgK]
 
 data TypeArgK = SymArg Symbol
               | NatArg Nat
     
-{-
-instance (FromJSON a, Typeable a) => FromField (Json a) where
-  fromField f dat = Json <$> fromJSONField f dat
--}
+data UDTypeK
+  = UDRec UDRecK -- ^ Invariant: Haskell Record Type
+  | UDEnum UDEnumK -- ^ Invariant: Haskell Sum-Of-Nullary Type
+  | TaggedUnionRec UDEnumK UDRecK -- ^ Invariant: Haskell Sum-Of-RecordOrNullary Type
+  | TaggedUnionPrim DBTypeK -- ^ Invariant: Haskell Sum-Of-PrimOrNullary Type
+  | TypedUnion
 
-data UDTypeMappings = EnumType
-                               (Maybe Symbol)      -- ^ Alias for typename
-                               [(Symbol, Symbol)]  -- ^ Aliases for datacons
-                               
-                    | Composite (Maybe Symbol)     -- ^ Alias for typename
-                                [(Symbol, Symbol)] -- ^ Alias for composite field names
-                      
-                    | EnumText [(Symbol, Symbol)]  -- ^ Aliases for datacons
-                    
-                    | Flat [(Symbol, Symbol)]      -- ^ Aliases for flattened field names
-                    
-                    | Sum (Maybe Symbol)           -- ^ Alias for tag column
-                          [(Symbol, [(Symbol, Symbol)])] -- ^ Alias for flattened field names, in a particular con
-                    -- | Json
+-- ^ Invariant: Haskell Record Type
+data UDRecK
+  = CompositeRec
+  | JsonRec
+  | FlatRec
 
-class GetUDTyAliases' (t :: UDTypeMappings) where
-  _getUDTyAliases :: Proxy t -> HM.HashMap Text Text
+-- ^ Invariant: Haskell Sum-Of-Nullary Type
+data UDEnumK
+  = EnumType
+  | EnumText
+  | EnumNat
 
-instance GetUDTyAliases' ('Composite _tn '[]) where
-  _getUDTyAliases _ = HM.empty
-  {-# INLINE _getUDTyAliases #-}
-  
-instance GetUDTyAliases' ('Flat '[]) where
-  _getUDTyAliases _ = HM.empty
-  {-# INLINE _getUDTyAliases #-}
-
-instance (KnownSymbol fn , KnownSymbol cn, GetUDTyAliases' ('Composite _tn fs)) => GetUDTyAliases' ('Composite _tn ('(fn, cn) ': fs)) where
-  _getUDTyAliases _ = HM.insert (T.pack $ symbolVal (Proxy @fn)) (T.pack $ symbolVal (Proxy @cn)) $ _getUDTyAliases (Proxy @('Composite _tn fs))
-  {-# INLINE _getUDTyAliases #-}
-
-instance (KnownSymbol fn , KnownSymbol cn, GetUDTyAliases' ('Flat fs)) => GetUDTyAliases' ('Flat ('(fn, cn) ': fs)) where
-  _getUDTyAliases _ = HM.insert (T.pack $ symbolVal (Proxy @fn)) (T.pack $ symbolVal (Proxy @cn)) $ _getUDTyAliases (Proxy @('Flat fs))
-  {-# INLINE _getUDTyAliases #-}
-
-instance GetUDTyAliases' ('EnumType tynMay conMaps) where
-  _getUDTyAliases _ = HM.empty
-  {-# INLINE _getUDTyAliases #-}
-
-data TableTypes =
-    UpdatableView
-  | NonUpdatableView
-  | BaseTable
-  deriving (Show, Eq, Generic)
-
--- newtype Only a = Only { fromOnly :: a }
---                deriving (Eq, Ord, Read, Show, Typeable, Functor)
-                        
-{-
-instance (ToJSON a, Typeable a) => ToField (Json a) where
-  toField = toJSONField . getJson
--}
+type family GenUDTypeRep (rep :: Type -> Type) :: UDTypeK where
+  GenUDTypeRep rep = TypeError ('Text "TODO")
 
 data family Sing (a :: k)
 
@@ -310,17 +275,6 @@ instance SingE (db :: DbK) where
   fromSing SPresto    = Presto
   fromSing SMSSQL     = MSSQL
 
-instance SingE (ttyp :: TableTypes) where
-  type Demote ttyp = TableTypes
-  fromSing SUpdatableView = UpdatableView
-  fromSing SNonUpdatableView = NonUpdatableView
-  fromSing SBaseTable = BaseTable
-
-data instance Sing (t :: TableTypes) where
-  SUpdatableView :: Sing 'UpdatableView
-  SNonUpdatableView :: Sing 'NonUpdatableView
-  SBaseTable :: Sing 'BaseTable
-
 data instance Sing (t :: DBTypeK) where
   SDBInt4        :: Sing 'DBInt4
   SDBInt8        :: Sing 'DBInt8
@@ -352,18 +306,11 @@ data instance Sing (t :: DBTypeK) where
   SDBCustomType  :: Sing sc -> Sing t -> Sing dbt -> Sing ('DBCustomType sc t dbt)
 
 data instance Sing (t :: DBTypeNameK) where
-  SDBTypeName :: Sing s -> Sing args -> Sing udm -> Sing ('DBTypeName s args udm)
+  SDBTypeName :: Sing s -> Sing args -> Sing ('DBTypeName s args)
 
 data instance Sing (t :: TypeArgK) where
   SSymArg :: Sing n -> Sing ('SymArg n)
   SNatArg :: Sing n -> Sing ('NatArg n)
-
-data instance Sing (t :: UDTypeMappings) where
-  SEnumType :: Sing s -> Sing ss -> Sing ('EnumType s ss)
-  SComposite :: Sing s -> Sing tss -> Sing ('Composite s tss)
-  SEnumText :: Sing ss -> Sing ('EnumText ss)
-  SFlat :: Sing tss -> Sing ('Flat tss)  
-  SSum :: Sing tagn -> Sing tsss -> Sing ('Sum tagn tsss)
 
 data instance Sing (m :: Max) where
   SMax :: Sing 'Max
@@ -459,35 +406,11 @@ instance ( SingI t, SingI dbt, SingI sc
          ) => SingI ('DBCustomType sc t dbt) where
   sing = SDBCustomType sing sing sing
 
-instance (SingI s, SingI args, SingI udm) => SingI ('DBTypeName s args udm) where
-  sing = SDBTypeName sing sing sing
-
-instance (SingI s, SingI ss) => SingI ('EnumType s ss) where
-  sing = SEnumType sing sing
-
-instance (SingI s, SingI tss) => SingI ('Composite s tss) where
-  sing = SComposite sing sing
-
-instance (SingI tss) => SingI ('Flat tss) where
-  sing = SFlat sing
-
-instance (SingI ss) => SingI ('EnumText ss) where
-  sing = SEnumText sing
-
-instance (SingI tsss, SingI tagn) => SingI ('Sum tagn tsss) where
-  sing = SSum sing sing
+instance (SingI s, SingI args) => SingI ('DBTypeName s args) where
+  sing = SDBTypeName sing sing
 
 instance SingI 'Max where
   sing = SMax
-
-instance SingI 'UpdatableView where
-  sing = SUpdatableView
-
-instance SingI 'NonUpdatableView where
-  sing = SNonUpdatableView
-
-instance SingI 'BaseTable where
-  sing = SBaseTable
 
 instance SingE (t :: Max) where
   type Demote (t :: Max) = Max
@@ -506,32 +429,3 @@ class (AllF (All f) xss) => All2 f xss
 instance (AllF (All f) xss) => All2 f xss
 
 ---
-
--- NOTE: from https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0158-record-set-field.rst
-
-class HasField x r a | x r -> a where
-  -- | Function to get and set a field in a record.
-  hasField :: r -> (a -> r, a)
-
-
-type family UDTCtx (udt :: UDTypeMappings) where
-  UDTCtx ('EnumType tn dcons) = (SingE tn, SingE dcons)
-  UDTCtx ('Composite tn ss)   = (SingE tn, SingE ss)
-  UDTCtx ('Flat ss)           = (SingE ss)
-  UDTCtx ('Sum tagn tss)      = (SingE tss, SingE tagn)
-  UDTCtx ('EnumText es)       = (SingE es)
-
-instance (UDTCtx udt) => SingE (udt :: UDTypeMappings) where
-  type Demote udt = TypeNameMap
-  fromSing (SEnumType s ss)   = EnumTypeNM (fromSing s) (fromSing ss)
-  fromSing (SComposite s tss) = CompositeNM (fromSing s) (fromSing tss)
-  fromSing (SFlat tss)        = FlatNM (fromSing tss)
-  fromSing (SEnumText t)      = EnumTextNM (fromSing t)
-  fromSing (SSum t tss)       = SumNM (fromSing t) (fromSing tss)
-
-data TypeNameMap = EnumTypeNM (Maybe Text) [(Text, Text)]
-                 | CompositeNM (Maybe Text) [(Text, Text)]
-                 | EnumTextNM [(Text, Text)]
-                 | FlatNM [(Text, Text)]
-                 | SumNM (Maybe Text) [(Text, [(Text, Text)])]
-                 deriving (Show, Eq)

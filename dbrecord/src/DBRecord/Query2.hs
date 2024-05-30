@@ -104,13 +104,11 @@ module DBRecord.Query2
   ) where
 
 
-import DBRecord.Old.Schema
-
 import DBRecord.Internal.Order hiding (order)
 import DBRecord.Internal.Expr hiding (Alias)
 import DBRecord.Internal.Predicate
 import DBRecord.Internal.Window
-import DBRecord.Internal.Schema hiding (insert, delete, runMQuery)
+import DBRecord.Internal.Schema hiding (runMQuery)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import qualified Data.List as L

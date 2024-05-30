@@ -1,19 +1,12 @@
 {-# OPTIONS_GHC -Wno-dodgy-exports #-}
-module DBRecord.Old.Schema
+module DBRecord.Schema
        ( DbK (..)
        , Col (..)
-       , col
        , Database (..)
        , Table (..)
        , Schema (..)
        , UDType (..)
        , module DBRecord.Internal.DBTypeValidation
-       , tabName
-       , def
-       , end
-       , dbDefaults
-       , check
-       , dbChecks
        , TableFields
        , AliasedCol
        , CheckCT (..)
@@ -24,21 +17,13 @@ module DBRecord.Old.Schema
        , HList (..)
        , Serial
        , Owned
-       , TypeName (..)
        , UDTypeMappings (..)
        , Json (..)
        , TableTypes (..)
        ) where
 
 import DBRecord.Internal.Types 
-import DBRecord.Internal.Schema hiding (DBType)
+import DBRecord.Internal.Schema
 import DBRecord.Internal.DBTypeValidation ()
 import DBRecord.Internal.DBTypes
 import DBRecord.Types
-{-
-IgnoredCol
-ForeignRef
-CheckCT
-
-constructing defautls, checks
--}

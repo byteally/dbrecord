@@ -17,23 +17,18 @@ import qualified Data.Text as T
 -- import Data.Aeson (FromJSON (..), ToJSON (..))
 -- import qualified Data.Aeson as A
 -- import Data.Text.Encoding (decodeUtf8, encodeUtf8)
-import GHC.Generics
-import GHC.Records
-import GHC.TypeLits
-import GHC.Exts
 -- import qualified Data.HashMap.Strict as HM
 -- import qualified Data.ByteString.Base64 as B64
+import GHC.Generics
+import GHC.Exts
 import Data.Generics.Uniplate.Direct
-import DBRecord.Internal.Types (DBTypeK (..), DBTypeNameK(..), UDTypeMappings(..), SingI(..), Sing (..), fromSing)
-import DBRecord.Internal.DBTypes  (SchemaDB, DB, DBRepr (..), DBObjK(..), GetDBTypeRep, DBType, UDType(..), _lookupTyFieldAliases, DBTypeCtx)
+-- import GHC.Records
+import GHC.TypeLits
+--import qualified DBRecord.Internal.Types as Type
+import DBRecord.Internal.DBTypes  (SchemaDB, DB, DBRepr (..), DBObjK(..), DBType, UDType(..))
+import DBRecord.Internal.DBTypes (DBTypeName(..))
 import Data.Kind
 import Data.Proxy
-
-
--- import DBRecord.Migration hiding (TableName)
--- import GHC.TypeLits
--- import Data.Functor.Const
--- import Data.Proxy
 
 type TableName  = Text
 type WindowName = Text
@@ -463,54 +458,6 @@ symFromText = unsafeToSym . singleton
 instance IsString Sym where
   fromString = symFromText . T.pack
         
-{-
-instance Binary PrimExpr
-instance Binary OrderExpr
-instance Binary AggrOp
-instance Binary OrderOp
-instance Binary UnOp
-instance Binary OrderDirection
-instance Binary OrderNulls
-instance Binary BinOp
-instance Binary Lit
-instance Binary Sym
-instance Binary WindowPart
-
-instance FromJSON PrimExpr
-instance FromJSON OrderExpr
-instance FromJSON AggrOp
-instance FromJSON OrderOp
-instance FromJSON UnOp
-instance FromJSON OrderDirection
-instance FromJSON OrderNulls
-instance FromJSON BinOp
-instance FromJSON Lit
-instance FromJSON Sym
-instance FromJSON WindowPart
-
-instance FromJSON ByteString where
-  parseJSON = A.withText "Order" go
-    where go t = case B64.decode (encodeUtf8 t) of
-            Left e  -> fail e
-            Right o -> pure o
-
-instance ToJSON PrimExpr
-instance ToJSON OrderExpr
-instance ToJSON AggrOp
-instance ToJSON OrderOp
-instance ToJSON UnOp
-instance ToJSON OrderDirection
-instance ToJSON OrderNulls
-instance ToJSON BinOp
-instance ToJSON Lit
-instance ToJSON Sym
-instance ToJSON WindowPart
-
-instance ToJSON ByteString where
-  -- toEncoding = E.string . B64.encode
-  toJSON     = A.String . decodeUtf8 . B64.encode
--}
-
 transformPE :: (PrimExpr -> PrimExpr) -> PrimExpr -> PrimExpr
 transformPE = transform
 
@@ -524,17 +471,47 @@ getExpr (Expr e) = e
 unsafeCast :: DBType -> Expr sc a -> Expr sc b
 unsafeCast castTo (Expr expr) = Expr $ CastExpr castTo expr
 
-annotateType :: forall sc a.
-                 ( DBTypeCtx (GetDBTypeRep sc a)
-                 , SingI (GetDBTypeRep sc a)
-                 ) => Expr sc a -> Expr sc a
-annotateType = unsafeCast tyRep
-  where tyRep = fromSing (sing :: Sing (GetDBTypeRep sc a))
+-- TODO: Reimplement this
+-- annotateType :: forall sc a.
+--                  ( DBTypeCtx (GetDBTypeRep sc a)
+--                  , SingI (GetDBTypeRep sc a)
+--                  ) => Expr sc a -> Expr sc a
+-- annotateType = unsafeCast tyRep
+--   where tyRep = fromSing (sing :: Sing (GetDBTypeRep sc a))
+annotateType :: Expr sc a -> Expr sc a
+annotateType = undefined
 
 unsafeCoerceExpr :: Expr sc a -> Expr sc b
 unsafeCoerceExpr (Expr e) = Expr e
 
+class DBTypeOf sc a where
+  dbTypeOf :: ( DBRepr (DB (SchemaDB sc)) a
+              , ReifyTypeName sc a (ToDBType (DB (SchemaDB sc)) a)
+              ) => Expr sc a -> DBTypeName
+  dbTypeOf _ = reifyTypeName (Proxy :: Proxy '(sc, a, ToDBType (DB (SchemaDB sc)) a))
 
+instance DBTypeOf sc a
+
+class ReifyTypeName (sc :: Type) (a :: Type) (dbObj :: DBObjK) where
+  reifyTypeName :: Proxy '(sc, a, dbObj) -> DBTypeName
+
+instance (TypeError ('Text "Table is used as Type")) => ReifyTypeName sc a 'TableObj where
+  reifyTypeName = error "Panic: Unreachable code"
+
+instance UDType sc a => ReifyTypeName sc a ('UDTypeObj udt) where
+  reifyTypeName _ = undefined $ udTypeName @sc @a
+
+instance (DBTypeOf sc ty, DBRepr (DB (SchemaDB sc)) ty, ReifyTypeName sc ty (ToDBType (DB (SchemaDB sc)) ty) ) => ReifyTypeName sc a ('NewtypeObj ty) where
+  reifyTypeName _ = dbTypeOf (undefined :: Expr sc ty)
+
+instance ReifyTypeName sc a dbObj => ReifyTypeName sc (f (a :: Type)) ('ArrayObjOf dbObj) where
+  reifyTypeName _ = reifyTypeName (Proxy @'(sc, a, dbObj))
+
+instance ReifyTypeName sc a dbObj => ReifyTypeName sc (f (a :: Type)) ('NullableObjOf dbObj) where
+  reifyTypeName _ = reifyTypeName (Proxy @'(sc, a, dbObj))  
+
+
+{- TODO: Reimplement this
 instance (DBRepr (DB (SchemaDB sc)) t, HasField '(fn, ToDBType (DB (SchemaDB sc)) t) (Expr sc t) a) => HasField (fn :: Symbol) (Expr sc t) a where
   getField e = getField @'(fn, ToDBType (DB (SchemaDB sc)) t) e
 
@@ -575,7 +552,7 @@ instance (HasField fn t a, KnownSymbol fn, UDType sc t) => HasField '(fn :: Symb
       fname = T.pack $ symbolVal (Proxy @fn)
       cname = maybe fname id $ _lookupTyFieldAliases fname $ _tyFieldAliases @sc @t 
     in Expr (CompositeExpr e cname)
-
+-}
 
 newtype AggExpr (sc :: Type) (t :: Type) =
   AggExpr { getAggExpr :: Expr sc t }
@@ -587,13 +564,6 @@ unsafeCol = Expr . unsafeAttrExpr
 unsafeAttrExpr :: [T.Text] -> PrimExpr
 unsafeAttrExpr = AttrExpr . sym
   where sym = maybe (error "Panic: Empty col @col_") id . toSym
-{-
-
-class BackendExpr (b :: Type) where
-  type BackendExprType b :: Type
-  backendExpr :: proxy b -> PrimExpr -> BackendExprType b
-
--}
 
 unsafeFromRawExpr :: PrimExpr -> Text
 unsafeFromRawExpr (RawExpr e) = e

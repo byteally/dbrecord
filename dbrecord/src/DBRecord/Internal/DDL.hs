@@ -3,8 +3,10 @@ module DBRecord.Internal.DDL where
 
 import qualified Data.Text as T
 import qualified DBRecord.Internal.PrimQuery as PQ
-import DBRecord.Internal.Schema (HaskName, DBName)
 import DBRecord.Internal.DBTypes 
+
+type HaskName = T.Text
+type DBName   = T.Text
 
 data TypeName = TypeName DBName
               deriving Show

@@ -29,12 +29,15 @@ import           Control.Monad.Catch
 import           Control.Monad.Reader
 import qualified Control.Monad.Trans.Control as U
 import qualified DBRecord.Internal.Sql.SqlGen as PG
-import           DBRecord.Internal.Types
-import           DBRecord.Internal.DBTypes
 import           DBRecord.Postgres.Internal.RegClass
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
-import           DBRecord.Old.Query
+-- import           DBRecord.Old.Query
 import           DBRecord.Types
+import           DBRecord.Driver
+ -- TODO: Internal Modules
+import           DBRecord.Internal.Types
+import           DBRecord.Internal.DBTypes
+import           DBRecord.Internal.Expr
 import           Data.Functor.Identity
 import qualified Data.Pool as P
 import           Data.String

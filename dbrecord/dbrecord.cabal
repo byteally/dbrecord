@@ -93,9 +93,10 @@ library
                   DBRecord
                   DBRecord.Query2
                   DBRecord.Driver
+                  DBRecord.Schema
 
-                  DBRecord.Old.Query
-                  DBRecord.Old.Schema
+                  -- Internal Modules
+                                 
                   DBRecord.Internal.Driver
                   DBRecord.Internal.PrimQuery
                   DBRecord.Internal.Sql
@@ -112,9 +113,7 @@ library
                   DBRecord.Internal.DDL
                   DBRecord.Internal.DBTypes
                   DBRecord.Internal.Schema
-                  DBRecord.Internal.Query
                   
-  other-modules:       DBRecord.Internal.Lens                  
   build-depends:       uniplate             >= 1.6
                      , transformers      == 0.5.*
                      , mtl               == 2.*

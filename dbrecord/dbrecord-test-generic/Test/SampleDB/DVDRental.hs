@@ -81,7 +81,7 @@ data FilmCategory = FilmCategory
   } deriving (Show, Generic)
     deriving anyclass (DBRepr sc)
 
-type Year = Int32
+type YearI32 = Int32
 -- newtype Year = Year {getYear :: Int16}
 --   deriving (Show, Generic)
 
@@ -107,7 +107,7 @@ data Film = Film
   { filmId :: Int32
   , title :: Text
   , description :: Text
-  , releaseYear :: Year
+  , releaseYear :: YearI32
   , languageId :: Int16
   , rentalDuration :: Int16
   , rentalRate :: Scientific
@@ -123,7 +123,7 @@ data Film = Film
 data NewFilm = NewFilm
   { title :: Text
   , description :: Text
-  , releaseYear :: Year
+  , releaseYear :: YearI32
   , languageId :: Int16
   , rentalDuration :: Int16
   , rentalRate :: Scientific
@@ -555,7 +555,7 @@ qWithLimit :: forall db.
   (db ~ 'Postgres) =>
   Query (DVDRentalDB db) (Rec '[ '("filmId", Int32)
                                , '("title", Text)
-                               , '("releaseYear", Year)
+                               , '("releaseYear", YearI32)
                                ])
 qWithLimit = rel @(DVDRentalDB db) @Film $ do
   limit $ Just 5
@@ -569,7 +569,7 @@ qWithLimitOffset :: forall db.
   (db ~ 'Postgres) =>
   Query (DVDRentalDB db) (Rec '[ '("filmId", Int32)
                                , '("title", Text)
-                               , '("releaseYear", Year)
+                               , '("releaseYear", YearI32)
                                ])
 qWithLimitOffset = rel @(DVDRentalDB db) @Film $ do
   limit $ Just 5
@@ -692,7 +692,7 @@ rightJoinEg2 =
   order $ \r -> asc r.film.title
   selectAll
 
-
+{-
 qJoinsLEg1 :: forall db.
   (db ~ 'Postgres) =>
   Query (DVDRentalDB db) (Rec '[ '("customer", Customer)
@@ -720,7 +720,7 @@ qJoinsREg1 =
     .& #staff .= rel @(DVDRentalDB db) @Staff (limit (Just 1) *> selectAll)
     .& end
   ) (const true) $ selectAll  
-             
+-}             
 
 -- self join
 -- full outer join
