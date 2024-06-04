@@ -172,7 +172,8 @@ instance (GEnumToMap f, GEnumToMap g) => GEnumToMap (f :+: g) where
                   in l1 ++ r1
 instance (GEnumToMap f, Constructor c) => GEnumToMap (C1 c f) where
   gEnumToMap _p = let cname = conName (undefined :: (C1 c f) a)
-                      [(con, _)] = gEnumToMap Proxy
-                  in [(M1 con, cname)]
+                  in case gEnumToMap Proxy of
+                       [(con, _)] -> [(M1 con, cname)]
+                       _          -> error "Panic: GEnumToMap is only defined for nullary constructors"
 instance GEnumToMap U1 where
   gEnumToMap _ = [(U1, "")]
