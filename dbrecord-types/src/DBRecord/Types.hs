@@ -17,6 +17,7 @@ import           Data.Tuple (swap)
 import           GHC.Generics
 
 #ifndef ghcjs_HOST_OS
+import           Data.Hashable
 import           Codec.Serialise
 #endif
 
@@ -67,7 +68,7 @@ unescape =
 newtype Key (t :: k) (v :: Type) = Key {getKey :: v}
   deriving newtype (Show, Read, Eq, Ord, ToJSON, FromJSON)
 #ifndef ghcjs_HOST_OS
-  deriving newtype (Serialise)
+  deriving newtype (Serialise, Hashable)
 #endif
   deriving stock Generic
 
