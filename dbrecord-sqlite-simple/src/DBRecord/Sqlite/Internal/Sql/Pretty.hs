@@ -21,7 +21,6 @@ import qualified DBRecord.Internal.Sql.DML as DML
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 import Data.Foldable (toList)
-import Data.Monoid ((<>))
 import Data.List (intersperse)
 import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   parens, comma, punctuate,
@@ -437,12 +436,12 @@ ppSqliteType = go
         -- go DBJsonB            = "JSONB"        
         -- go (DBArray t)        = go t ++ "[]"
         go (DBNullable t)     = go t
-        go (DBTypeName t args)      = T.unpack (doubleQuote t) ++ ppArgs args        
-        go (DBCustomType t _) = go t
+        -- TODO: go (DBTypeName t args)      = T.unpack (doubleQuote t) ++ ppArgs args        
+        -- TODO: go (DBCustomType t _) = go t
         go _                  = error "Panic: not implemented"
 
-        ppArgs []  = ""
-        ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"
+        _ppArgs []  = ""
+        _ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"
 
         ppArg (TextArg t)    = T.unpack t
         ppArg (IntegerArg i) = show i

@@ -45,7 +45,7 @@ library
                     , mtl
                     , hashable
                     , interpolate
-                    
+                    , unliftio
 
                      -- , time              == 1.6.*
 
