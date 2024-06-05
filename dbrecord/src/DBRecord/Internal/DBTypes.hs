@@ -222,15 +222,61 @@ getAliasedFieldName (FieldAliases hmap) = Const $ HM.findWithDefault fname fname
     fname = T.pack $ symbolVal (Proxy :: Proxy fn)
 {-# INLINE getAliasedFieldName #-}
 
-newtype ConAliases sc ty = ConAliases (HM.HashMap Text Text)
+newtype ConAliases sc ty = ConAliases (HM.HashMap Text (Either Text Int64))
   deriving newtype (Show, Semigroup, Monoid)
 
-instance (Generic ty, ValidateConName ty fn (Rep ty) (UnconsSymbol fn), KnownSymbol fn) => SetField (fn :: Symbol) (ConAliases sc ty) Text where
-  modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . maybe (f cname) f) cname hmap
+lookupConName :: Text -> Maybe Int64 -> ConAliases sc ty -> Either Text Int64
+lookupConName cn pos (ConAliases hmap) = HM.findWithDefault (maybe (Left cn) Right pos) cn hmap
+
+type family GetTagEnumK (dbObj :: DBObjK) = (res :: Type.UDEnumK) where
+  GetTagEnumK ('UDTypeObj ('Type.UDEnum en)) = en
+  GetTagEnumK _ = TypeError ('Text "Expecting only enum type")
+
+instance (Generic ty
+         , ValidateConName ty fn (Rep ty) (UnconsSymbol fn)
+         , SetField '(fn, GetTagEnumK (ToDBType (DB (SchemaDB sc)) ty)) (ConAliases sc ty) fty
+         , KnownSymbol fn
+         ) => SetField (fn :: Symbol) (ConAliases sc ty) fty where
+  modifyField f cas = modifyField @'(fn, GetTagEnumK (ToDBType (DB (SchemaDB sc)) ty)) f cas
+  {-# INLINE modifyField #-}
+
+instance (Generic ty
+         , ValidateConName ty fn (Rep ty) (UnconsSymbol fn)
+         , KnownSymbol fn
+         ) => SetField '(fn :: Symbol, 'Type.EnumType) (ConAliases sc ty) Text where
+  modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . Left . maybe (f cname) (f . unsafeText)) cname hmap
     where
       -- Invariant: `ValidateConName` ensures that `fn` is not empty, making the use of `tail` safe
       cname = T.pack $ tail $ symbolVal (Proxy :: Proxy fn)
+      unsafeText (Left n) = n
+      unsafeText _ = error "Panic: Invariant: Expecting only Text"
   {-# INLINE modifyField #-}
+
+instance (Generic ty
+         , ValidateConName ty fn (Rep ty) (UnconsSymbol fn)
+         , KnownSymbol fn
+         ) => SetField '(fn :: Symbol, 'Type.EnumText) (ConAliases sc ty) Text where
+  modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . Left . maybe (f cname) (f . unsafeText)) cname hmap
+    where
+      -- Invariant: `ValidateConName` ensures that `fn` is not empty, making the use of `tail` safe
+      cname = T.pack $ tail $ symbolVal (Proxy :: Proxy fn)
+      unsafeText (Left n) = n
+      unsafeText _ = error "Panic: Invariant: Expecting only Text"
+  {-# INLINE modifyField #-}
+
+instance (Generic ty
+         , ValidateConName ty fn (Rep ty) (UnconsSymbol fn)
+         , KnownSymbol fn
+         ) => SetField '(fn :: Symbol, 'Type.EnumNum) (ConAliases sc ty) Int64 where
+  modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . Right . maybe (f minBound) (f . unsafeNum)) cname hmap -- TODO: remove `minBound` by making ValidateConName to return `Maybe (con's-Ix)`
+    where
+      -- Invariant: `ValidateConName` ensures that `fn` is not empty, making the use of `tail` safe
+      cname = T.pack $ tail $ symbolVal (Proxy :: Proxy fn)
+      unsafeNum (Right n) = n
+      unsafeNum _ = error "Panic: Invariant: Expecting only Integer"
+  {-# INLINE modifyField #-}  
+
+  
 
 type family ValidateConName (ty :: Type) (k :: Symbol) (rep :: Type -> Type) (unconsedConName :: Maybe (Char, Symbol)) :: Constraint where
   ValidateConName _ _ _ 'Nothing = TypeError ('Text "Invalid Constructor Name: " ':<>: 'Text " for type " ':<>: 'Text "")
@@ -241,8 +287,9 @@ newtype UDTypeName sc ty = UDTypeName Text
 instance IsString (UDTypeName sc ty) where
   fromString s = UDTypeName $ T.pack s
 
-class UDType (sc :: Type) (ty :: Type) where
-  type UDTypeRep sc ty :: Type.UDTypeK
+class ( DBRepr (DB (SchemaDB sc)) ty
+      ) => UDType (sc :: Type) (ty :: Type) where
+  type TypeId sc ty = (oid :: Nat) | oid -> ty
   
   udTypeName :: UDTypeName sc ty
   default udTypeName :: (Generic ty) => UDTypeName sc ty
@@ -254,8 +301,6 @@ class UDType (sc :: Type) (ty :: Type) where
   conAliases :: ConAliases sc ty
   conAliases = mempty
 
-type Pred = Type
-
 data DBObjK
   = TableObj
   | NativeTypeObj Type.DBTypeK
@@ -263,8 +308,8 @@ data DBObjK
   | NewtypeObj Type
   | DomainType DBObjK
   | SimDomainType DBObjK
-  | NullableObjOf DBObjK
-  | ArrayObjOf DBObjK
+  | NullableObjOf Type DBObjK -- ^ Invariant: Supports only Native column
+  | ArrayObjOf Type DBObjK -- ^ Invariant: Supports only Native column
 
 class DBRepr (dbk :: DbK) (t :: Type) where
   type ToDBType dbk t :: DBObjK
@@ -326,15 +371,15 @@ instance DBRepr dbk UUID where
   type ToDBType dbk UUID = 'NativeTypeObj 'Type.DBUuid 
   
 instance DBRepr dbk a => DBRepr dbk (Maybe a) where
-  type ToDBType dbk (Maybe a) = 'NullableObjOf (ToDBType dbk a)
+  type ToDBType dbk (Maybe a) = 'NullableObjOf a (ToDBType dbk a)
   type AutoCodec dbk (Maybe a) = AutoCodec dbk a
 
 instance DBRepr dbk a => DBRepr dbk [a] where
-  type ToDBType dbk [a] = 'ArrayObjOf (ToDBType dbk a)
+  type ToDBType dbk [a] = 'ArrayObjOf a (ToDBType dbk a)
   type AutoCodec dbk [a] = AutoCodec dbk a
 
 instance DBRepr dbk a => DBRepr dbk (Vector a) where
-  type ToDBType dbk (Vector a) = 'ArrayObjOf (ToDBType dbk a)
+  type ToDBType dbk (Vector a) = 'ArrayObjOf a (ToDBType dbk a)
   type AutoCodec dbk (Vector a) = AutoCodec dbk a
 
 -- TODO: Json is not native is all the DB
@@ -365,6 +410,51 @@ newtype AsUDType t = AsUDType t
 
 instance DBRepr dbk (AsUDType t) where
   type ToDBType dbk (AsUDType t) = 'UDTypeObj (Type.GenUDTypeRep (Rep t))
+
+newtype AsEnum t = AsEnum t
+
+instance DBRepr 'Postgres (AsEnum t) where
+  type ToDBType 'Postgres (AsEnum t) = 'UDTypeObj ('Type.UDEnum 'Type.EnumType)
+
+newtype AsEnumText t = AsEnumText t
+
+instance DBRepr 'Postgres (AsEnumText t) where
+  type ToDBType 'Postgres (AsEnumText t) = 'UDTypeObj ('Type.UDEnum 'Type.EnumText)
+
+newtype AsEnumNum t = AsEnumNum t
+
+instance DBRepr 'Postgres (AsEnumNum t) where
+  type ToDBType 'Postgres (AsEnumNum t) = 'UDTypeObj ('Type.UDEnum 'Type.EnumNum)
+
+newtype AsCompositeRec t = AsCompositeRec t
+
+instance DBRepr 'Postgres (AsCompositeRec t) where
+  type ToDBType 'Postgres (AsCompositeRec t) = 'UDTypeObj ('Type.UDRec 'Type.CompositeRec)
+
+newtype AsFlatRec t = AsFlatRec t
+
+instance DBRepr 'Postgres (AsFlatRec t) where
+  type ToDBType 'Postgres (AsFlatRec t) = 'UDTypeObj ('Type.UDRec 'Type.FlatRec)
+
+newtype AsJsonRec t = AsJsonRec t
+
+instance DBRepr 'Postgres (AsJsonRec t) where
+  type ToDBType 'Postgres (AsJsonRec t) = 'UDTypeObj ('Type.UDRec 'Type.JsonRec)  
+
+newtype AsJsonBlob t = AsJsonBlob t
+
+instance DBRepr 'Postgres (AsJsonBlob t) where
+  type ToDBType 'Postgres (AsJsonBlob t) = 'UDTypeObj ('Type.SerializedBlob ('Type.JsonContent 'Nothing))
+
+newtype AsSumOfRec t = AsSumOfRec t
+
+instance DBRepr 'Postgres (AsSumOfRec t) where
+  type ToDBType 'Postgres (AsSumOfRec t) = 'UDTypeObj ('Type.TaggedUnionRec 'Type.EnumType 'Type.CompositeRec)
+
+newtype AsSumOfVal colTy t = AsSumOfVal t
+
+instance DBRepr 'Postgres cty => DBRepr 'Postgres (AsSumOfVal cty t) where
+  type ToDBType 'Postgres (AsSumOfVal cty t) = 'UDTypeObj ('Type.TaggedUnionUnary 'Type.EnumType cty)  
 
 instance DBRepr dbk (DBR.Key tab t) where
   type ToDBType dbk (DBR.Key tab t) = ToDBType dbk t

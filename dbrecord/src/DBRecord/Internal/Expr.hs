@@ -31,7 +31,7 @@ import           Data.Time
 import           Data.Text (Text)
 import           Data.Scientific
 import           DBRecord.Internal.Types
--- import           DBRecord.Internal.DBTypes hiding (toNullable)
+import           DBRecord.Internal.DBTypes
 import           Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import           Data.CaseInsensitive (CI, foldedCase, mk)
@@ -39,12 +39,47 @@ import           Data.Coerce
 import           Data.Kind
 --import           DBRecord.Internal.Schema (UDTargetType (..), GTarget)
 -- import           DBRecord.Internal.Common (FindAlias, NewtypeRep, FromJust)
--- import           GHC.Generics
--- import           GHC.TypeLits
+import           GHC.Generics
+import           GHC.TypeLits
 -- import           GHC.OverloadedLabels
 
 class ConstExpr sc t where
   constExpr :: t -> PQ.Expr sc t
+
+genEnumExpr :: forall sc t.
+  ( Generic t, UDType sc t
+  , GenEnumExpr sc t (Rep t) (GetTagEnumK (ToDBType (DB (SchemaDB sc)) t))
+  ) => t -> Expr sc t
+genEnumExpr = genEnumExpr' (Proxy @(GetTagEnumK (ToDBType (DB (SchemaDB sc)) t))) (conAliases @sc @t) . from
+
+class GenEnumExpr (sc :: Type) (t :: Type) (rep :: Type -> Type) (enumK :: UDEnumK) where
+  genEnumExpr' :: Proxy enumK -> ConAliases sc t -> rep a -> Expr sc t
+
+instance GenEnumExpr sc t f enk => GenEnumExpr sc t (D1 d f) enk where
+  genEnumExpr' pe conAs (M1 f) = genEnumExpr' pe conAs f
+
+instance (GenEnumExpr sc t f enk, GenEnumExpr sc t g enk) => GenEnumExpr sc t (f :+: g) enk where
+  genEnumExpr' pe conAs (L1 l) = genEnumExpr' pe conAs l
+  genEnumExpr' pe  conAs (R1 r) = genEnumExpr' pe conAs r
+
+instance (Constructor c) => GenEnumExpr sc t (C1 c U1) 'EnumType where
+  genEnumExpr' _ conAs c@(M1 _) = case lookupConName (T.pack $ conName c) Nothing conAs of
+    Left t -> Expr (PQ.ConstExpr (PQ.String t))
+    Right _ -> error "Panic: Expecting Only Text for 'EnumType lookup"
+
+instance (Constructor c) => GenEnumExpr sc t (C1 c U1) 'EnumText where
+  genEnumExpr' _ conAs c@(M1 _) = case lookupConName (T.pack $ conName c) Nothing conAs of
+    Left t -> Expr (PQ.ConstExpr (PQ.String t))
+    Right _ -> error "Panic: Expecting Only Text for 'EnumText lookup"
+
+instance (Constructor c) => GenEnumExpr sc t (C1 c U1) 'EnumNum where
+  -- TODO: Use Con Ix instead of `minBound`
+  genEnumExpr' _ conAs c@(M1 _) = case lookupConName (T.pack $ conName c) (Just minBound) conAs of
+    Right t -> Expr (PQ.ConstExpr (PQ.Integer $ toInteger t))
+    Left _ -> error "Panic: Expecting Only Number for 'EnumNum lookup"    
+
+instance (TypeError ('Text "Expected Only Unary Constructor " ':<>: 'ShowType t)) => GenEnumExpr sc t (C1 c (f :*: g)) enk where
+  genEnumExpr' = error "Panic: Unreachable code"
 
 -- class GConstExpr (udType :: UDTypeMappings) (rep :: Type -> Type) sc a where
 --   gconstExpr :: Proxy udType -> rep x -> PQ.Expr sc a
@@ -223,6 +258,7 @@ instance (ConstExpr sc a) => ConstExpr sc (Identity a) where
   constExpr = toIdentity . constExpr . I.runIdentity
 
 instance ( ConstExpr sc a
+         , PQ.DBTypeOf sc a
          ) => ConstExpr sc [a] where
   constExpr = array . map constExpr
 
@@ -514,7 +550,7 @@ append arrl arrr =
   let fun = PQ.FunExpr "array_cat" [getExpr arrl, getExpr arrr]
   in  Expr fun
 
-nil :: () => Expr sc [a]
+nil :: (PQ.DBTypeOf sc a) => Expr sc [a]
 nil = array []
 
 class (EqExpr sc a) => OrdExpr sc a where
@@ -647,7 +683,8 @@ true = Expr $ PQ.ConstExpr $ PQ.Bool True
 false :: Expr sc Bool
 false = Expr $ PQ.ConstExpr $ PQ.Bool False
 
-array :: () => [Expr sc a] -> Expr sc [a]
+array :: ( PQ.DBTypeOf sc a
+         ) => [Expr sc a] -> Expr sc [a]
 array = annotateType . Expr . PQ.ArrayExpr . coerce
 
 iscontainedBy :: Expr sc [a] -> Expr sc [a] -> Expr sc Bool
@@ -740,8 +777,9 @@ pgOID oid = go (getPGOID oid)
     where
       go = literalExpr . PQ.String
 
-interval :: () => Interval -> Expr sc Interval
-interval (Interval e) = annotateType (literalExpr (PQ.Other e))
+-- TODO: Reimplement this
+-- interval :: () => Interval -> Expr sc Interval
+-- interval (Interval e) = annotateType (literalExpr (PQ.Other e))
 
 hours :: ( ) => Int -> Expr sc Interval
 hours i = prefixOp (PQ.OpOtherPrefix "interval") (literalExpr (PQ.Other txt))

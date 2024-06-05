@@ -52,9 +52,9 @@ import           Data.Proxy
 import qualified Data.List as L
 import           Data.ByteString.Char8 as ASCII
 import           Data.Typeable
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.HashMap.Strict as HM
+-- import qualified Data.Text as T
+-- import qualified Data.Text.Encoding as T
+-- import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 
 newtype PostgresDBT (db :: Type) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
@@ -80,23 +80,23 @@ class FromRowGen a where
 instance FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a) => FromRowGen a where
   fromRowGen = getEntity <$> fromRow @(AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a)
 
-instance (FromField a) => FromRow (AnnEntity 'NativeTypeObj auto a) where
+instance (FromField a) => FromRow (AnnEntity ('NativeTypeObj dbk) auto a) where
   fromRow = AnnEntity <$> field
   {-# INLINE fromRow #-}
 
-instance (FromField a) => FromRow (AnnEntity ('NullableObjOf 'NativeTypeObj) auto a) where
+instance (FromField a) => FromRow (AnnEntity ('NullableObjOf a ('NativeTypeObj dbk)) auto (Maybe a)) where
   fromRow = AnnEntity <$> field
   {-# INLINE fromRow #-}
 
-instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('NullableObjOf 'TableObj) 'True (Maybe a)) where
+instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('NullableObjOf a 'TableObj) 'True (Maybe a)) where
   fromRow = (AnnEntity . fmap to) <$> gfromRowOpt @(Rep a)
   {-# INLINE fromRow #-}
 
-instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('ArrayObjOf 'TableObj) 'True (V.Vector a)) where
-  fromRow = (AnnEntity . maybe V.empty V.singleton . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf 'TableObj) 'True (Maybe a))
+instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('ArrayObjOf a 'TableObj) 'True (V.Vector a)) where
+  fromRow = (AnnEntity . maybe V.empty V.singleton . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf a 'TableObj) 'True (Maybe a))
   {-# INLINE fromRow #-}  
 
-instance (FromField a, Typeable a) => FromRow (AnnEntity ('ArrayObjOf 'NativeTypeObj) auto [a]) where
+instance (FromField a, Typeable a) => FromRow (AnnEntity ('ArrayObjOf a ('NativeTypeObj dbk)) auto [a]) where
   fromRow = AnnEntity <$> (fromPGArray <$> fieldWith fromField)
   {-# INLINE fromRow #-}  
   
@@ -108,16 +108,17 @@ instance (FromRow a) => FromRow (AnnEntity 'TableObj 'False a) where
   fromRow = AnnEntity <$> fromRow @a
   {-# INLINE fromRow #-}
 
--- TODO: 
-instance (UDFromField t (TypeMappings () t)) => FromRow (AnnEntity 'UDTypeObj 'True t) where
-  fromRow = AnnEntity <$> fieldWith (udFromField @t (Proxy @(TypeMappings () t)))
+-- TODO: Complete the following instance impl
+instance (UDFromField t udRep) => FromRow (AnnEntity ('UDTypeObj udRep) 'True t) where
+  fromRow = AnnEntity <$> fieldWith (udFromField @t (Proxy @udRep))
 
-instance (FromField t) => FromRow (AnnEntity 'UDTypeObj 'False t) where
+instance (FromField t) => FromRow (AnnEntity ('UDTypeObj udRep) 'False t) where
   fromRow = AnnEntity <$> fieldWith (fromField @t)
 
-class UDFromField (t :: Type) (udtMap :: UDTypeMappings) where
+class UDFromField (t :: Type) (udtMap :: UDTypeK) where
   udFromField :: Proxy udtMap -> FieldParser t
 
+{-
 instance (SingI tyAliasM, SingE tyAliasM, SingI conAliases, SingE conAliases, Typeable t, Generic t, GFromEnum (Rep t)) => UDFromField t ('EnumType tyAliasM conAliases) where
   udFromField _ f =
     let
@@ -153,7 +154,7 @@ instance (Constructor c) => GFromEnum (C1 c U1) where
   gFromEnum _ con
     | con == (T.pack $ conName (undefined :: (C1 c f) a)) = Just (M1 U1)
     | otherwise = Nothing
-
+-}
 
 -- Type class for default implementation of FromRow using generics
 class GFromRow f where
@@ -181,8 +182,8 @@ instance GFromRowOpt f => GFromRowOpt (M1 c i f) where
 instance (GFromRowOpt f, GFromRowOpt g) => GFromRowOpt (f :*: g) where
     gfromRowOpt = liftA2 (\l r -> liftA2 (:*:) l r) gfromRowOpt gfromRowOpt
 
-instance (FromRow (AnnEntity ('NullableObjOf (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) (Maybe a))) => GFromRowOpt (K1 R a) where
-    gfromRowOpt = (fmap K1 . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) (Maybe a))
+instance (FromRow (AnnEntity ('NullableObjOf a (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) (Maybe a))) => GFromRowOpt (K1 R a) where
+    gfromRowOpt = (fmap K1 . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf a (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) (Maybe a))
 
 instance GFromRowOpt U1 where
     gfromRowOpt = pure $ Just U1    

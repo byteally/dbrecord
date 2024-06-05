@@ -79,26 +79,15 @@ getSchemaName :: forall sc.
 getSchemaName = Const $ T.pack $ symbolVal (Proxy @(SchemaName sc))
 
 getTableName :: forall sc tab.
-               ( KnownSymbol (TableName sc tab)
+               ( Table sc tab
                ) => Const Text (sc,tab)
-getTableName = Const $ T.pack $ symbolVal (Proxy @(TableName sc tab))
-
--- getTableFields :: forall db tab.
---                  ( SingCols db (OriginalTableFields tab) (ColumnNames db tab)
---                  ) => Const [Column] (db, tab)
--- getTableFields = Const $ recordToList $ singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
-
--- getTableHFields ::  forall db tab.
---                    ( SingCols db (OriginalTableFields tab) (ColumnNames db tab)
---                    ) => Proxy db -> Proxy tab -> HList (Const Column) (OriginalTableFields tab)
--- getTableHFields _ _ = singCols (Proxy @db) (Proxy @(OriginalTableFields tab)) (Proxy @(ColumnNames db tab))
-
+getTableName = Const $ unTableName $ tableName @sc @tab
 
 getTableId :: forall sc tab.
-               ( KnownSymbol (TableName sc tab)
-               , KnownSymbol (SchemaName sc)
+               ( KnownSymbol (SchemaName sc)
                , KnownSymbol (DatabaseName (SchemaDB sc))
                , Schema sc
+               , Table sc tab
                ) => Proxy sc -> Proxy tab -> PQ.TableId
 getTableId _ _ = tab
   where tab = PQ.TableId { PQ.schema    = getConst (getSchemaName :: Const Text sc)

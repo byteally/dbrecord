@@ -84,6 +84,8 @@ class ( Schema sc
       , DBRepr (DB (SchemaDB sc)) tab
       , ToDBType (DB (SchemaDB sc)) tab ~ 'TableObj
       ) => Table (sc :: Type) (tab :: Type) where
+  type TableId sc tab = (oid :: Nat) | oid -> tab
+
   type PrimaryKey sc tab :: [Symbol]
   type PrimaryKey sc tab = '[]
 
@@ -124,14 +126,13 @@ class ( Schema sc
   -- (Sub tab (GetGenIdCols (Generated sc tab)))
   default rel ::
     ( GConstructHK tab (HasColumn sc tab) (TypeFields tab)
-    , KnownSymbol (TableName sc tab)
     , KnownSymbol (SchemaName sc)
     , MkFieldInvIx (TableColumns sc tab)
     ) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o
   rel (Clause clau) = Query' (TableValue fsix $ constructHK @(HasColumn sc tab) (ExprF . toExprId . coerceExpr . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)), ReadQType ManyR)
     where tabId = PQ.TableId { PQ.database = "zb"
                              , PQ.schema = schName
-                             , PQ.tableName = defHSNameToDBName $ T.pack $ symbolVal (Proxy @(TableName sc tab))
+                             , PQ.tableName = defHSNameToDBName $ unTableName $ tableName @sc @tab
                              }
           schName = T.pack $ symbolVal (Proxy @(SchemaName sc))
           fsix = mkFieldInvIx (Proxy @(TableColumns sc tab)) emptyFieldInvIx
@@ -146,8 +147,19 @@ class ( Schema sc
 
 newtype TableName sc ty = TableName Text
 
+unTableName :: TableName sc tab -> Text
+unTableName = coerce
+
 instance IsString (TableName sc ty) where
   fromString s = TableName $ T.pack s
+
+newtype Defaulted (t :: Type) = Defaulted {getDefaulted :: Maybe t}
+
+defaulted :: Defaulted t
+defaulted = Defaulted Nothing
+
+override :: t -> Defaulted t
+override t = Defaulted (Just t)
   
 type family GetGenIdCols (fs :: [(Symbol, GenerationType)]) :: [Symbol] where
   GetGenIdCols ('(c, 'GenAsId 'GenAlways _) ': fs) = c ': GetGenIdCols fs
@@ -204,8 +216,32 @@ class HasConstOrDefCol (isDef :: Either Bool GenerationType) (sc :: Type) (tab :
 instance HasConstOrDefCol ('Left 'True) sc tab r col a where
   getConstOrDefCol _ _ _ = PQ.Expr PQ.DefaultInsertExpr
 
-instance (R.HasField col r a, ConstExpr sc a) => HasConstOrDefCol ('Left 'False) sc tab r col a where
-  getConstOrDefCol _ r _ = coerceExpr $ constExpr $ R.getField @col r
+instance (R.HasField col r a, AutoConstExpr sc a (ToDBType (DB (SchemaDB sc)) a) (AutoCodec (DB (SchemaDB sc)) a)) => HasConstOrDefCol ('Left 'False) sc tab r col a where
+  getConstOrDefCol _ r _ = coerceExpr $ autoConstExpr (Proxy @'(ToDBType (DB (SchemaDB sc)) a, AutoCodec (DB (SchemaDB sc)) a)) $ R.getField @col r
+
+class AutoConstExpr sc t (dbObj :: DBObjK) (isAuto :: Bool) where
+  autoConstExpr :: Proxy '(dbObj, isAuto) -> t -> PQ.Expr sc t
+
+-- TODO: Add TypeError for `'TableObj`
+instance ConstExpr sc t => AutoConstExpr sc t dbObj 'False where
+  autoConstExpr _ = constExpr
+  
+instance TypeError ('Text "Unexpected Table in place of Type" ':<>: 'ShowType t) => AutoConstExpr sc t 'TableObj 'True where
+  autoConstExpr = error "Panic: Unreachable code"
+
+instance ConstExpr sc t => AutoConstExpr sc t ('NativeTypeObj nat) 'True where
+  autoConstExpr _ = constExpr
+
+instance AutoConstExpr sc t ('UDTypeObj ('TaggedUnionUnary colty enum)) 'True where
+  autoConstExpr _ = undefined
+
+instance (Generic t, UDType sc t, GenEnumExpr sc t (Rep t) (GetTagEnumK (ToDBType (DB (SchemaDB sc)) t))) => AutoConstExpr sc t ('UDTypeObj ('UDEnum enum)) 'True where
+  autoConstExpr _ t = genEnumExpr t
+
+instance (t ~ ety, AutoConstExpr sc ety edbk 'True) => AutoConstExpr sc (Maybe t) ('NullableObjOf ety edbk) 'True where
+  autoConstExpr _ = \case
+    Nothing -> nothing
+    Just t -> toNullable $ autoConstExpr (Proxy @'(edbk, 'True)) t
 
 type family IsDefCol (c :: Symbol) (defs :: [Symbol]) (gens :: [(Symbol, GenerationType)]) :: Either Bool GenerationType where
   IsDefCol c (c ': _) gs = 'Left 'True
@@ -559,41 +595,115 @@ class HasColumn sc tab (col :: Symbol) (a :: Type) where
   getCol :: Proxy '(sc, tab) -> Proxy '(col, a) -> PQ.Expr sc (Field col a)
 
 instance
-  ( HasColumnByDBType sc tab col a dbTypeRep
+  ( Table sc tab
   , R.HasField col tab ct
   , ct ~ a
-  , Table sc tab
   , KnownSymbol col
-  , dbTypeRep ~ GetDBTypeRep sc a
+  , HasColumnByDBType sc tab col a dbTypeRep
+  , dbTypeRep ~ ToDBType (DB (SchemaDB sc)) a
   ) => HasColumn sc tab col a where
   getCol _ _ = PQ.Expr $ PQ.getExpr $ getColByDBTypeRep @sc @tab @col @a @dbTypeRep Proxy
 
-class HasColumnByDBType sc tab (col :: Symbol) (a :: Type) (atrep :: DBTypeK) where
+
+class HasColumnByDBType sc tab (col :: Symbol) (a :: Type) (dbObj :: DBObjK) where
   getColByDBTypeRep :: Proxy '(sc, tab, col, a, atrep) -> PQ.Expr sc a
 
-instance {-# OVERLAPPING #-}
+
+instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
-  , UDType sc a
-  ) => HasColumnByDBType sc tab col a ('DBCustomType scn a tn) where
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a 'TableObj where
   getColByDBTypeRep _ = getColumnName @sc @tab @col
 
-instance {-# OVERLAPPING #-}
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('NativeTypeObj dbk) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col
+
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('NullableObjOf e edbk) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col
+
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('ArrayObjOf e edbk) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col  
+  
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('SerializedBlob ct)) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col  
+  
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('UDRec 'FlatRec)) where
+  getColByDBTypeRep _ = undefined -- TODO: Make FlatComposite
+
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('UDRec 'CompositeRec)) where
+  getColByDBTypeRep _ = undefined -- TODO: Make Composite
+
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('UDRec 'JsonRec)) where
+  getColByDBTypeRep _ = undefined -- TODO: Make JSON
+
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TaggedUnionRec dis r)) where
+  getColByDBTypeRep _ = undefined -- TODO:
+
+instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
   , UDType sc a
-  ) => HasColumnByDBType sc tab col a (f ('DBCustomType scn a tn)) where
-  getColByDBTypeRep _ = getColumnName @sc @tab @col  
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TaggedUnionUnary dis r)) where
+  getColByDBTypeRep _ = undefined -- TODO:
 
-instance {-# OVERLAPPABLE #-}
+instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
-  ) => HasColumnByDBType sc tab col a atrep where
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TypedUnion ty)) where
+  getColByDBTypeRep _ = undefined -- TODO:  
+  
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('UDEnum et)) where
   getColByDBTypeRep _ = getColumnName @sc @tab @col  
-
 
 getColumnName :: forall sc tab (fn :: Symbol) a.
   ( Table sc tab
@@ -608,6 +718,7 @@ getColumnName =
     cexpr = PQ.BaseTableAttrExpr $ cname
   in PQ.Expr cexpr
 {-# INLINE getColumnName #-}
+
 
 defHSNameToDBName :: Text -> Text
 defHSNameToDBName = LT.toStrict . LTB.toLazyText .  T.foldl'
@@ -631,3 +742,5 @@ data ForeignRef a
 
 data UniqueCT = UniqueOn [Symbol] Symbol
 data Uq sc (un :: Symbol) = Uq
+
+  

@@ -90,13 +90,6 @@ data MPAA = G | PG | PG'13 | R | NC'17
   deriving (DBRepr db) via AsUDType MPAA
 
 instance UDType sc MPAA where
-  type TypeMappings sc MPAA = 'EnumType ('Just "mpaa_rating")
-                              '[ '("G", "G")
-                               , '("PG", "PG")
-                               , '("PG'13", "PG'13")
-                               , '("R", "R")
-                               , '("NC'17", "NC-17")
-                               ]
 
 
 instance ConstExpr (DVDRentalDB db) MPAA where
@@ -271,7 +264,6 @@ instance (db ~ 'Postgres) => Table (DVDRentalDB db) Customer where
   type PrimaryKey (DVDRentalDB db) Customer = '["customerId"]
   type HasDefault (DVDRentalDB db) Customer = '["customerId"]
   type NewRow (DVDRentalDB db) Customer = NewCustomer
-  type ColumnNames (DVDRentalDB db) Customer = '[ '("firstName", "first_name")]
 
 
 -- ^ stores address data for staff and customers

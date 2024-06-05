@@ -105,7 +105,7 @@ module DBRecord.Query2
 
 
 import DBRecord.Internal.Order hiding (order)
-import DBRecord.Internal.Expr hiding (Alias)
+import DBRecord.Internal.Expr
 import DBRecord.Internal.Predicate
 import DBRecord.Internal.Window
 import DBRecord.Internal.Schema hiding (runMQuery)
@@ -798,7 +798,7 @@ runQueryAsList q = do
 
 insert' :: forall o tab sc.(Table sc tab) => PQ.InsertValues -> (TableValue sc Identity tab -> TableValue sc Identity o) -> MQuery sc o
 insert' ivs retFn = getMutQ @o @tab @sc $ \tabId basetab ->
-  let attrs = fmap peToAttr $ tableToProjections basetab
+  let attrs = fmap peToAttr $ tableToProjections basetab -- TODO: filter Identity Prj
       peToAttr (_, PQ.BaseTableAttrExpr a) = a
       peToAttr (_, e) = error $ "Panic: Invariant violated! Expected only `BaseTableAttrExpr` " <> (show e)
   in InsertMQuery (basetab, pure $ retFn basetab, PQ.InsertQuery tabId attrs ivs Nothing)

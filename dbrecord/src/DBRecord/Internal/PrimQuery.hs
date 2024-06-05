@@ -478,19 +478,22 @@ unsafeCast castTo (Expr expr) = Expr $ CastExpr castTo expr
 --                  ) => Expr sc a -> Expr sc a
 -- annotateType = unsafeCast tyRep
 --   where tyRep = fromSing (sing :: Sing (GetDBTypeRep sc a))
-annotateType :: Expr sc a -> Expr sc a
-annotateType = undefined
+annotateType :: forall sc a.
+  ( DBTypeOf sc a
+  ) => Expr sc a -> Expr sc a
+annotateType e =
+  let _dbt = dbTypeOf e
+  in undefined
 
 unsafeCoerceExpr :: Expr sc a -> Expr sc b
 unsafeCoerceExpr (Expr e) = Expr e
 
-class DBTypeOf sc a where
-  dbTypeOf :: ( DBRepr (DB (SchemaDB sc)) a
-              , ReifyTypeName sc a (ToDBType (DB (SchemaDB sc)) a)
-              ) => Expr sc a -> DBTypeName
-  dbTypeOf _ = reifyTypeName (Proxy :: Proxy '(sc, a, ToDBType (DB (SchemaDB sc)) a))
+type DBTypeOf sc a = ( DBRepr (DB (SchemaDB sc)) a
+                     , ReifyTypeName sc a (ToDBType (DB (SchemaDB sc)) a)
+                     )
 
-instance DBTypeOf sc a
+dbTypeOf :: forall a sc.DBTypeOf sc a => Expr sc a -> DBTypeName
+dbTypeOf _ = reifyTypeName (Proxy :: Proxy '(sc, a, ToDBType (DB (SchemaDB sc)) a))
 
 class ReifyTypeName (sc :: Type) (a :: Type) (dbObj :: DBObjK) where
   reifyTypeName :: Proxy '(sc, a, dbObj) -> DBTypeName
@@ -501,19 +504,24 @@ instance (TypeError ('Text "Table is used as Type")) => ReifyTypeName sc a 'Tabl
 instance UDType sc a => ReifyTypeName sc a ('UDTypeObj udt) where
   reifyTypeName _ = undefined $ udTypeName @sc @a
 
+instance ReifyTypeName sc a ('NativeTypeObj dbt) where
+  reifyTypeName _ = undefined
+
 instance (DBTypeOf sc ty, DBRepr (DB (SchemaDB sc)) ty, ReifyTypeName sc ty (ToDBType (DB (SchemaDB sc)) ty) ) => ReifyTypeName sc a ('NewtypeObj ty) where
   reifyTypeName _ = dbTypeOf (undefined :: Expr sc ty)
 
-instance ReifyTypeName sc a dbObj => ReifyTypeName sc (f (a :: Type)) ('ArrayObjOf dbObj) where
-  reifyTypeName _ = reifyTypeName (Proxy @'(sc, a, dbObj))
+instance ReifyTypeName sc e dbObj => ReifyTypeName sc c ('ArrayObjOf e dbObj) where
+  reifyTypeName _ = reifyTypeName (Proxy @'(sc, e, dbObj))
 
-instance ReifyTypeName sc a dbObj => ReifyTypeName sc (f (a :: Type)) ('NullableObjOf dbObj) where
-  reifyTypeName _ = reifyTypeName (Proxy @'(sc, a, dbObj))  
+instance ReifyTypeName sc e dbObj => ReifyTypeName sc opt ('NullableObjOf e dbObj) where
+  reifyTypeName _ = reifyTypeName (Proxy @'(sc, e, dbObj))  
 
 
-{- TODO: Reimplement this
+{- TODO: Need to check who is using these instance
+       : Without Region Parameter it is not safe to have these instance
 instance (DBRepr (DB (SchemaDB sc)) t, HasField '(fn, ToDBType (DB (SchemaDB sc)) t) (Expr sc t) a) => HasField (fn :: Symbol) (Expr sc t) a where
   getField e = getField @'(fn, ToDBType (DB (SchemaDB sc)) t) e
+
 
 instance (HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'TableObj) (Expr sc t) (Expr sc a) where
   getField (Expr (FlatComposite es)) =
@@ -524,14 +532,16 @@ instance (HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'TableObj
          _      -> error $ "Panic: Impossible case! Field not found: " ++ show (cname, fmap fst es)
   getField (Expr _e) = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
 
-instance (HasField '(fn, dbrepr) (Expr sc t) (Expr sc a), HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'NullableObjOf dbrepr) (Expr sc (Maybe t)) (Expr sc (Maybe a)) where
+
+instance (HasField '(fn, dbrepr) (Expr sc t) (Expr sc a), HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'NullableObjOf a dbrepr) (Expr sc (Maybe t)) (Expr sc (Maybe a)) where
   getField e = toMaybe $ getField @'(fn, dbrepr) (unsafeUnMaybe e)
     where
       unsafeUnMaybe :: Expr sc (Maybe x) -> Expr sc x
       unsafeUnMaybe (Expr ex) = Expr ex
       toMaybe :: Expr sc x -> Expr sc (Maybe x)
       toMaybe (Expr ex) = Expr ex
-  
+
+
 instance (HasField '(fn, GetDBTypeRep sc t) (Expr sc t) a, UDType sc t) => HasField '(fn :: Symbol, 'UDTypeObj) (Expr sc t) a where
   getField e = getField @'(fn, GetDBTypeRep sc t) e  
   

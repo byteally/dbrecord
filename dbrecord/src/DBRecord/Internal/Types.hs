@@ -101,23 +101,34 @@ data UDTypeK
   = UDRec UDRecK -- ^ Invariant: Haskell Record Type
   | UDEnum UDEnumK -- ^ Invariant: Haskell Sum-Of-Nullary Type
   | TaggedUnionRec UDEnumK UDRecK -- ^ Invariant: Haskell Sum-Of-RecordOrNullary Type
-  | TaggedUnionPrim DBTypeK -- ^ Invariant: Haskell Sum-Of-PrimOrNullary Type
-  | TypedUnion
+  | TaggedUnionUnary UDEnumK Type -- ^ Invariant: Haskell Sum-Of-UnaryOrNullary Type
+  | TypedUnion Type
+  | SerializedBlob ContentType -- ^ Invariant: Any serializable Haskell Type
 
 -- ^ Invariant: Haskell Record Type
 data UDRecK
-  = CompositeRec
-  | JsonRec
-  | FlatRec
+  = CompositeRec -- ^ Native 
+  | FlatRec -- ^ Simulated
+  | JsonRec -- ^ Native
 
 -- ^ Invariant: Haskell Sum-Of-Nullary Type
 data UDEnumK
-  = EnumType
-  | EnumText
-  | EnumNat
+  = EnumType -- ^ Native
+  | EnumText -- ^ Native
+  | EnumNum -- ^ Native
 
+data ContentType
+  = JsonContent (Maybe Type)
+  | TextContent (Maybe Type)
+  | XmlContent (Maybe Type)
+  | BinaryContent Type
+
+data DBSupportK
+  = Native
+  | Synthetic
+  
 type family GenUDTypeRep (rep :: Type -> Type) :: UDTypeK where
-  GenUDTypeRep rep = TypeError ('Text "TODO")
+  GenUDTypeRep rep = TypeError ('Text "TODO @ type family GenUDTypeRep")
 
 data family Sing (a :: k)
 
