@@ -39,14 +39,14 @@ infixr 7 :&
 
 instance (Show (f x), Show (HList f xs)) => Show (HList f (x ': xs)) where
   show (x :& xs) = show x ++ ", " ++ show xs
-  
+
 instance Show (HList f '[]) where
   show Nil = "Done"
 
 hnat :: (forall a. f a -> g a) -> HList f xs -> HList g xs
 hnat f (a :& as) = f a :& hnat f as
 hnat _ Nil       = Nil
-  
+
 data DbK = Postgres
          | MySQL
          | SQLite
@@ -71,19 +71,19 @@ data DBTypeK
   | DBBool
   | DBDate
   | DBTime Nat
-  | DBTimetz Nat    
+  | DBTimetz Nat
   | DBTimestamp Nat
   | DBTimestamptz Nat
   | DBInterval (Maybe Type) Nat
   | DBNullable DBTypeK
   | DBXml
-  | DBJson    
+  | DBJson
   -- NOTE: Non SQL 92
-  | DBBinary Nat                
+  | DBBinary Nat
   | DBVarbinary (Either Max Nat)
   -- NOTE: Non standard
   | DBText
-  | DBCiText    
+  | DBCiText
   | DBUuid
   | DBBit    Nat
   | DBVarbit Nat
@@ -96,19 +96,19 @@ data DBTypeNameK = DBTypeName Symbol [TypeArgK]
 
 data TypeArgK = SymArg Symbol
               | NatArg Nat
-    
+
 data UDTypeK
   = UDRec UDRecK -- ^ Invariant: Haskell Record Type
   | UDEnum UDEnumK -- ^ Invariant: Haskell Sum-Of-Nullary Type
-  | TaggedUnionRec UDEnumK UDRecK -- ^ Invariant: Haskell Sum-Of-RecordOrNullary Type
-  | TaggedUnionUnary UDEnumK Type -- ^ Invariant: Haskell Sum-Of-UnaryOrNullary Type
-  | TypedUnion Type
+  | TaggedSum UDEnumK UDRecK -- ^ Invariant: Haskell Sum-Of-AnyUniaryOrNullary Type
+  | TaggedSumMono UDEnumK Type UDRecK -- ^ Invariant: Haskell Sum-Of-UnaryOrNullary Type, where all the argument is of same type allowing single column to be used for all the variants
+  | SumOfCol UDRecK -- ^ Invariant: Haskell Sum-Of-NonNUllNativeUniary Type where the column name is the discriminator
   | SerializedBlob ContentType -- ^ Invariant: Any serializable Haskell Type
 
 -- ^ Invariant: Haskell Record Type
 data UDRecK
-  = CompositeRec -- ^ Native 
-  | FlatRec -- ^ Simulated
+  = CompositeRec -- ^ Native
+  | FlatRec -- ^ Synthetic
   | JsonRec -- ^ Native
 
 -- ^ Invariant: Haskell Sum-Of-Nullary Type
@@ -125,8 +125,34 @@ data ContentType
 
 data DBSupportK
   = Native
-  | Synthetic
-  
+  | Synthesized
+
+type family GetDBSupportOf (udt :: UDTypeK) :: DBSupportK where
+  GetDBSupportOf ('UDRec 'CompositeRec) = 'Native
+  GetDBSupportOf ('UDRec 'JsonRec) = 'Native
+  GetDBSupportOf ('UDRec 'FlatRec) = 'Synthesized
+  GetDBSupportOf ('UDEnum _) = 'Native
+  GetDBSupportOf ('SerializedBlob _) = 'Native
+  GetDBSupportOf ('TaggedSum _ 'FlatRec) = 'Synthesized
+  GetDBSupportOf ('TaggedSum _ _) = 'Native
+  GetDBSupportOf ('TaggedSumMono _ _ 'FlatRec) = 'Synthesized
+  GetDBSupportOf ('TaggedSumMono _ _ _) = 'Native
+  GetDBSupportOf ('SumOfCol 'FlatRec) = 'Synthesized
+  GetDBSupportOf ('SumOfCol _) = 'Native
+
+type family IsTaggedSum (udt :: UDTypeK) :: Bool where
+  IsTaggedSum ('TaggedSum _ _) = 'True
+  IsTaggedSum ('TaggedSumMono _ _ _) = 'True
+  IsTaggedSum _ = 'False
+
+type family GetDBEnumK (db :: DbK) :: UDEnumK where
+  GetDBEnumK 'Postgres = 'EnumType
+  GetDBEnumK 'SQLite = 'EnumText
+  GetDBEnumK 'MySQL = 'EnumType
+  GetDBEnumK 'MSSQL = 'EnumType
+  GetDBEnumK 'Cassandra = 'EnumType
+  GetDBEnumK 'Presto = 'EnumType
+
 type family GenUDTypeRep (rep :: Type -> Type) :: UDTypeK where
   GenUDTypeRep rep = TypeError ('Text "TODO @ type family GenUDTypeRep")
 
@@ -174,7 +200,7 @@ data instance Sing (db :: DbK) where
   SCassandra :: Sing 'Cassandra
   SPresto    :: Sing 'Presto
   SMSSQL     :: Sing 'MSSQL
-  
+
 instance SingI 'True where
   sing = STrue
 
@@ -311,7 +337,7 @@ data instance Sing (t :: DBTypeK) where
   SDBUuid        :: Sing 'DBUuid
   SDBBit         :: Sing n -> Sing ('DBBit n)
   SDBVarbit      :: Sing n -> Sing ('DBVarbit n)
-  SDBJsonB       :: Sing 'DBJsonB  
+  SDBJsonB       :: Sing 'DBJsonB
   SDBArray       :: Sing a -> Sing ('DBArray a)
   SDBLTree       :: Sing 'DBLTree
   SDBCustomType  :: Sing sc -> Sing t -> Sing dbt -> Sing ('DBCustomType sc t dbt)

@@ -5,7 +5,9 @@ module DBRecord
   , module DBRecord.Types
   , module DBRecord.Schema
   , DBRepr (..), DBObjK (..), AsUDType, AsEnum, AsEnumText, AsEnumNum, AsCompositeRec
-  , AsFlatRec, AsJsonRec, AsJsonBlob, AsSumOfRec, AsSumOfVal
+  , AsFlatRec, AsJsonRec, AsJsonBlob, AsTaggedSumFlat, AsTaggedSumComposite
+  , AsTaggedSumJson, AsTaggedSumMonoFlat, AsTaggedSumMonoComposite, AsTaggedSumMonoJson
+  , AsSumOfColFlat, AsSumOfColComposite, AsSumOfColJson
   ) where
 
 import DBRecord.Query2
@@ -15,6 +17,10 @@ import Data.Word (Word16, Word32, Word64)
 import DBRecord.Types
 import DBRecord.Internal.DBTypes ( DBRepr (..), DBObjK (..), AsUDType, AsEnum
                                  , AsEnumText, AsEnumNum, AsCompositeRec, AsFlatRec
-                                 , AsJsonRec, AsJsonBlob, AsSumOfRec, AsSumOfVal
+                                 , AsJsonRec, AsJsonBlob, AsTaggedSumFlat
+                                 , AsTaggedSumComposite, AsTaggedSumJson
+                                 , AsTaggedSumMonoFlat, AsTaggedSumMonoComposite
+                                 , AsTaggedSumMonoJson, AsSumOfColFlat
+                                 , AsSumOfColComposite, AsSumOfColJson
                                  )
 import DBRecord.Schema

@@ -92,14 +92,18 @@ instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('NullableObjOf 
   fromRow = (AnnEntity . fmap to) <$> gfromRowOpt @(Rep a)
   {-# INLINE fromRow #-}
 
+instance (FromField a, Typeable a) => FromRow (AnnEntity ('NullableObjOf [a] ('ArrayObjOf arrElt ('NativeTypeObj eldbk))) 'True (Maybe [a])) where
+  fromRow = AnnEntity <$> (fieldWith $ optionalField (\v cn -> fromPGArray <$> (fromField v cn)))
+  {-# INLINE fromRow #-}
+
 instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('ArrayObjOf a 'TableObj) 'True (V.Vector a)) where
   fromRow = (AnnEntity . maybe V.empty V.singleton . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf a 'TableObj) 'True (Maybe a))
-  {-# INLINE fromRow #-}  
+  {-# INLINE fromRow #-}
 
 instance (FromField a, Typeable a) => FromRow (AnnEntity ('ArrayObjOf a ('NativeTypeObj dbk)) auto [a]) where
   fromRow = AnnEntity <$> (fromPGArray <$> fieldWith fromField)
-  {-# INLINE fromRow #-}  
-  
+  {-# INLINE fromRow #-}
+
 instance (Generic a, GFromRow (Rep a)) => FromRow (AnnEntity 'TableObj 'True a) where
   fromRow = (AnnEntity . to) <$> gfromRow @(Rep a)
   {-# INLINE fromRow #-}
@@ -112,11 +116,20 @@ instance (FromRow a) => FromRow (AnnEntity 'TableObj 'False a) where
 instance (UDFromField t udRep) => FromRow (AnnEntity ('UDTypeObj udRep) 'True t) where
   fromRow = AnnEntity <$> fieldWith (udFromField @t (Proxy @udRep))
 
+instance (UDFromField t udRep) => FromRow (AnnEntity ('NullableObjOf t ('UDTypeObj udRep)) 'True (Maybe t)) where
+  fromRow = AnnEntity <$> fieldWith (optionalField $ udFromField @t (Proxy @udRep))
+
+instance (UDFromField t udRep, Typeable t) => FromRow (AnnEntity ('ArrayObjOf t ('UDTypeObj udRep)) 'True [t]) where
+  fromRow = AnnEntity <$> fieldWith (\v cn -> fromPGArray <$> pgArrayFieldParser (udFromField @t (Proxy @udRep)) v cn)
+
 instance (FromField t) => FromRow (AnnEntity ('UDTypeObj udRep) 'False t) where
   fromRow = AnnEntity <$> fieldWith (fromField @t)
 
 class UDFromField (t :: Type) (udtMap :: UDTypeK) where
   udFromField :: Proxy udtMap -> FieldParser t
+
+instance UDFromField t ('UDEnum enk) where
+  udFromField = undefined
 
 {-
 instance (SingI tyAliasM, SingE tyAliasM, SingI conAliases, SingE conAliases, Typeable t, Generic t, GFromEnum (Rep t)) => UDFromField t ('EnumType tyAliasM conAliases) where
@@ -126,7 +139,7 @@ instance (SingI tyAliasM, SingE tyAliasM, SingI conAliases, SingE conAliases, Ty
       conAliases = HM.fromList $ fmap (\(k,v) -> (v,k)) $ fromSing (sing :: Sing conAliases)
       tab = T.encodeUtf8 $ maybe (T.pack $ show $ typeRep (Proxy @t)) id tyAliasM
     in \case
-      Nothing -> returnError UnexpectedNull f ""      
+      Nothing -> returnError UnexpectedNull f ""
       Just val' -> case T.decodeUtf8' val' of
         Left ex -> returnError Incompatible f (show ex)
         Right val -> do
@@ -170,7 +183,7 @@ instance (FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a)) 
     gfromRow = (K1 . getEntity) <$> fromRow @(AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a)
 
 instance GFromRow U1 where
-    gfromRow = pure U1  
+    gfromRow = pure U1
 
 
 class GFromRowOpt f where
@@ -186,7 +199,7 @@ instance (FromRow (AnnEntity ('NullableObjOf a (ToDBType 'Postgres a)) (AutoCode
     gfromRowOpt = (fmap K1 . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf a (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) (Maybe a))
 
 instance GFromRowOpt U1 where
-    gfromRowOpt = pure $ Just U1    
+    gfromRowOpt = pure $ Just U1
 
 data PGS where
   PGS :: PGS.Connection -> PGS
@@ -234,7 +247,7 @@ instance HasDelete PGS where
 instance HasDeleteRet PGS where
   dbDeleteRetWith parser (PGS conn) deleteQ = do
     let delSQL = PG.renderDelete $ PG.deleteSql $ deleteQ
-    queryWith_ parser conn (fromString delSQL)    
+    queryWith_ parser conn (fromString delSQL)
 
 runPGExpr :: Expr sc a -> String
 runPGExpr = PG.renderExpr . PG.toSqlExpr . getExpr
@@ -305,9 +318,9 @@ instance (GEnumToMap f, GEnumToMap g) => GEnumToMap (f :+: g) where
                       r1 = fmap (\(fa, n) -> (R1 fa, n)) $ gEnumToMap Proxy
                   in l1 ++ r1
 instance (GEnumToMap f, Constructor c) => GEnumToMap (C1 c f) where
-  gEnumToMap _p = let cname = conName (undefined :: (C1 c f) a)                      
+  gEnumToMap _p = let cname = conName (undefined :: (C1 c f) a)
                   in case gEnumToMap Proxy of
                        [(con, _)] -> [(M1 con, cname)]
-                       _ -> error "Panic: Expected a Singleton" 
+                       _ -> error "Panic: Expected a Singleton"
 instance GEnumToMap U1 where
   gEnumToMap _ = [(U1, "")]
