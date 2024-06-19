@@ -38,13 +38,9 @@ import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as LT
-import qualified Data.Text.Lazy.Builder as LTB
 import GHC.TypeLits
--- import Data.Type.Equality
 import GHC.Generics
 import GHC.Exts
--- import GHC.Stack
 import GHC.OverloadedLabels
 import Data.Kind
 import Data.Typeable
@@ -55,30 +51,18 @@ import DBRecord.Internal.Types
 import DBRecord.Internal.Common
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Internal.DBTypes hiding (DBType (..), DBTypeName (..))
--- import qualified DBRecord.Internal.DBTypes as Type
 import qualified Data.List as L
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
-import Data.Char
 import Data.Aeson (ToJSON (..))
 import qualified GHC.Records as R
 import Record
 import Control.Monad.Trans.State.Strict
--- import Type.Reflection (SomeTypeRep (..), typeRepKind)
-
--- data Col (a :: Symbol) = Col
--- data DefSyms = DefSyms [Symbol]
-
--- type ColName  = Text
--- type ColType  = Text
--- data Column   = Column !ColName !ColType
---   deriving (Show)
 
 type family NoSchema t where
   NoSchema x = TypeError ('Text "No instance for " ':<>: 'ShowType (Schema x))
 
 class ( Schema sc
-      , AssertCxt (Elem (Tables sc) tab) ('Text "Schema " ':<>: 'ShowType sc ':<>: 'Text " does not contain the table: " ':<>: 'ShowType tab)
       , ValidateTableProps sc tab
       , Generic tab
       , Break0 (NoSchema sc) (SchemaDB sc)
@@ -114,8 +98,8 @@ class ( Schema sc
   type Extension sc tab = ()
 
   tableName :: TableName sc tab
-  default tableName :: (Generic tab) => TableName sc tab
-  tableName = ""
+  default tableName :: (Generic tab, KnownSymbol (GenTyCon (Rep tab))) => TableName sc tab
+  tableName = TableName $ defHSNameToDBName $ T.pack (symbolVal (Proxy @(GenTyCon (Rep tab))))
 
   columnAliases :: FieldAliases sc tab
   columnAliases = mempty
@@ -127,15 +111,10 @@ class ( Schema sc
   -- (Sub tab (GetGenIdCols (Generated sc tab)))
   default rel ::
     ( GConstructHK tab (HasColumn sc tab) (TypeFields tab)
-    , KnownSymbol (SchemaName sc)
     , MkFieldInvIx (TableColumns sc tab)
     ) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o
   rel (Clause clau) = Query' (TableValue fsix $ constructHK @(HasColumn sc tab) (ExprF . toExprId . coerceExpr . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)), ReadQType ManyR)
-    where tabId = PQ.TableId { PQ.database = "zb"
-                             , PQ.schema = schName
-                             , PQ.tableName = defHSNameToDBName $ unTableName $ tableName @sc @tab
-                             }
-          schName = T.pack $ symbolVal (Proxy @(SchemaName sc))
+    where tabId = getTableId @sc @tab Proxy Proxy
           fsix = mkFieldInvIx (Proxy @(TableColumns sc tab)) emptyFieldInvIx
 
   fromNewRow :: NewRow sc tab -> TableValue sc Identity tab
@@ -150,6 +129,32 @@ newtype TableName sc ty = TableName Text
 
 unTableName :: TableName sc tab -> Text
 unTableName = coerce
+
+getDatabaseName :: forall sc.
+               ( Database (SchemaDB sc)
+               , Schema sc
+               ) => Const Text sc
+getDatabaseName = Const $ _getDatabaseName $ databaseName @(SchemaDB sc)
+
+getSchemaName :: forall sc.
+               ( Schema sc
+               ) => Const Text sc
+getSchemaName = Const $ _getSchemaName $ schemaName @sc
+
+getTableName :: forall sc tab.
+               ( Table sc tab
+               ) => Const Text (sc,tab)
+getTableName = Const $ unTableName $ tableName @sc @tab
+
+getTableId :: forall sc tab.
+               ( Schema sc
+               , Table sc tab
+               ) => Proxy sc -> Proxy tab -> PQ.TableId
+getTableId _ _ = tab
+  where tab = PQ.TableId { PQ.schema    = getConst (getSchemaName :: Const Text sc)
+                         , PQ.tableName = getConst (getTableName  :: Const Text (sc, tab))
+                         , PQ.database  = getConst (getDatabaseName :: Const Text sc)
+                         }
 
 instance IsString (TableName sc ty) where
   fromString s = TableName $ T.pack s
@@ -791,17 +796,6 @@ getColumnName =
   in PQ.Expr cexpr
 {-# INLINE getColumnName #-}
 
-
-defHSNameToDBName :: Text -> Text
-defHSNameToDBName = LT.toStrict . LTB.toLazyText .  T.foldl'
-  (\b c ->
-     if
-       | c == '\'' -> b <> LTB.singleton '_' <> LTB.singleton c
-       | isUpper c -> if b == mempty
-                      then LTB.singleton (toLower c)
-                      else b <> LTB.singleton '_' <> LTB.singleton (toLower c)
-       | otherwise -> b <> LTB.singleton c
-  ) mempty
 
 type family ValidateTableProps (sc :: Type) (tab :: Type) :: Constraint where
   ValidateTableProps sc tab =

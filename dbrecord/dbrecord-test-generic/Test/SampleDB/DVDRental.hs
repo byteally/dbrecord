@@ -38,23 +38,6 @@ instance Database (DVDRentalDB db) where
   
 instance Schema (DVDRentalDB db) where
   type SchemaDB (DVDRentalDB db) = DVDRentalDB db
-  type Tables (DVDRentalDB db) =
-    '[ Category
-     , FilmCategory
-     , Film
-     , Language
-     , FilmActor
-     , Actor
-     , Inventory
-     , Rental
-     , Payment
-     , Staff
-     , Customer
-     , Address
-     , City
-     , Country
-     , Store
-     ]
 
 -- ^ stores film’s categories data
 data Category = Category
@@ -62,38 +45,36 @@ data Category = Category
   , name :: Text
   , lastUpdate :: LocalTime
   } deriving (Show, Generic)
-    deriving anyclass (DBRepr sc)
+    deriving anyclass (DBRepr db)
 
 data NewCategory = NewCategory
   { name :: Text
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Category where
+  type TableId (DVDRentalDB db) Category = 1
   type PrimaryKey (DVDRentalDB db) Category = '["categoryId"]
   type HasDefault (DVDRentalDB db) Category = '["categoryId", "lastUpdate"]
   type NewRow (DVDRentalDB db) Category = NewCategory
     
 -- ^ stores the relationships between films and categories
 data FilmCategory = FilmCategory
-  { film_id :: Int16
+  { filmId :: Int16
   , categoryId :: Int16
   , lastUpdate :: LocalTime
   } deriving (Show, Generic)
-    deriving anyclass (DBRepr sc)
+    deriving anyclass (DBRepr db)
 
-type YearI32 = Int32
--- newtype Year = Year {getYear :: Int16}
---   deriving (Show, Generic)
+newtype YearI32 = YearI32 Int32
+  deriving newtype (Show, DBRepr db)
 
 data MPAA = G | PG | PG'13 | R | NC'17
   deriving (Show, Generic)
-  deriving (DBRepr db) via AsUDType MPAA
+  deriving (DBRepr db) via AsEnum MPAA
 
-instance UDType sc MPAA where
-
-
-instance ConstExpr (DVDRentalDB db) MPAA where
-  constExpr = undefined
+instance (db ~ 'Postgres) => UDType (DVDRentalDB db) MPAA where
+  type TypeId (DVDRentalDB db) MPAA = 1
+  conAliases = mempty { _PG'14 = "PG13" }
 
 -- ^ stores film data such as title, release year, length, rating, etc
 data Film = Film
@@ -111,7 +92,7 @@ data Film = Film
   , specialFeatures :: [Text]
   , fulltext :: Text -- tsvector TODO: Handle this
   } deriving (Show, Generic)
-    deriving anyclass (DBRepr sc)
+    deriving anyclass (DBRepr db)
 
 data NewFilm = NewFilm
   { title :: Text
@@ -129,6 +110,7 @@ data NewFilm = NewFilm
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Film where
+  type TableId (DVDRentalDB db) Film = 2
   type PrimaryKey (DVDRentalDB db) Film = '["filmId"]
   type HasDefault (DVDRentalDB db) Film = '["filmId"]
   type NewRow (DVDRentalDB db) Film = NewFilm
@@ -155,7 +137,7 @@ data Inventory = Inventory
   , storeId :: Int16
   , lastUpdate :: LocalTime
   } deriving (Show, Generic)
-    deriving anyclass (DBRepr sc)
+    deriving anyclass (DBRepr db)
 
 data NewInventory = NewInventory
   { filmId :: Int16
@@ -164,6 +146,7 @@ data NewInventory = NewInventory
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Inventory where
+  type TableId (DVDRentalDB db) Inventory = 3
   type PrimaryKey (DVDRentalDB db) Inventory = '["inventoryId"]
   type HasDefault (DVDRentalDB db) Inventory = '["inventoryId"]
   type NewRow (DVDRentalDB db) Inventory = NewInventory
@@ -183,7 +166,7 @@ data Payment = Payment
   , amount :: Rational -- numeric(5,2)
   , paymentDate :: LocalTime
   } deriving (Show, Generic)
-    deriving anyclass (DBRepr sc)
+    deriving anyclass (DBRepr db)
 
 data NewPayment = NewPayment
   { customerId :: Int16
@@ -194,6 +177,7 @@ data NewPayment = NewPayment
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Payment where
+  type TableId (DVDRentalDB db) Payment = 4
   type PrimaryKey (DVDRentalDB db) Payment = '["paymentId"]
   type HasDefault (DVDRentalDB db) Payment = '["paymentId"]
   type NewRow (DVDRentalDB db) Payment = NewPayment
@@ -212,7 +196,7 @@ data Staff = Staff
   , lastUpdate :: LocalTime
   , picture :: Maybe ByteString
   } deriving (Show, Generic)
-    deriving anyclass (DBRepr sc)
+    deriving anyclass (DBRepr db)
 
 data NewStaff = NewStaff
   { firstName :: Text
@@ -228,6 +212,7 @@ data NewStaff = NewStaff
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Staff where
+  type TableId (DVDRentalDB db) Staff = 5
   type PrimaryKey (DVDRentalDB db) Staff = '["staffId"]
   type HasDefault (DVDRentalDB db) Staff = '["staffId"]
   type NewRow (DVDRentalDB db) Staff = NewStaff
@@ -246,7 +231,7 @@ data Customer = Customer
   , lastUpdate :: Maybe LocalTime
   , active :: Maybe Int32
   } deriving (Show, Generic)
-    deriving anyclass (DBRepr sc)
+    deriving anyclass (DBRepr db)
 
 data NewCustomer = NewCustomer
   { storeId :: Int16
@@ -261,6 +246,7 @@ data NewCustomer = NewCustomer
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Customer where
+  type TableId (DVDRentalDB db) Customer = 6
   type PrimaryKey (DVDRentalDB db) Customer = '["customerId"]
   type HasDefault (DVDRentalDB db) Customer = '["customerId"]
   type NewRow (DVDRentalDB db) Customer = NewCustomer

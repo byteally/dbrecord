@@ -24,7 +24,7 @@ import Data.Vector (Vector)
 import DBRecord.Internal.Types (DbK (..))
 import qualified DBRecord.Internal.Types as Type
 -- import DBRecord.Internal.Types (Sing (..), SingE (..))
--- import DBRecord.Internal.Common
+import DBRecord.Internal.Common
 import qualified Data.Text as T
 import GHC.Generics
 import Data.Kind
@@ -504,22 +504,19 @@ class ( -- Break (NoGeneric db) (Rep db)
                           'Text "Hint: add following to the Database instance for type "       ':<>: 'ShowType db ':$$:
                           'Text "type DB " ':<>: 'ShowType db ':<>: 'Text " = " ':<>: 'ShowType 'Postgres
                          )
-  type DatabaseName db :: Symbol
 
-class ( -- TypeCxts db (Types db)
-        Database (SchemaDB sc)
+  databaseName :: DatabaseName db
+  default databaseName :: (Generic db, KnownSymbol (GenTyCon (Rep db))) => DatabaseName db
+  databaseName = DatabaseName $ defHSNameToDBName $ T.pack (symbolVal (Proxy @(GenTyCon (Rep db))))
+
+newtype DatabaseName db = DatabaseName Text
+  deriving newtype (Show, Eq, IsString)
+
+_getDatabaseName :: DatabaseName db -> Text
+_getDatabaseName (DatabaseName db) = db
+
+class ( Database (SchemaDB sc)
       ) => Schema (sc :: Type) where
-  type SchemaName sc :: Symbol
-  type SchemaName sc = "public"
-
-  type Tables sc :: [Type]
-
-  type Types sc :: [Type]
-  type Types sc = '[]
-
-  type TabIgnore sc :: [Type]
-  type TabIgnore sc = '[]
-
   type Baseline sc :: Nat
   type Baseline sc = 0
 
@@ -528,14 +525,24 @@ class ( -- TypeCxts db (Types db)
 
   type SchemaDB sc :: Type
 
+  schemaName :: SchemaName sc
+  default schemaName :: (Generic sc, KnownSymbol (GenTyCon (Rep sc))) => SchemaName sc
+  schemaName = SchemaName $ defHSNameToDBName $ T.pack (symbolVal (Proxy @(GenTyCon (Rep sc))))
+
+newtype SchemaName sc = SchemaName Text
+  deriving newtype (Show, Eq, IsString)
+
+_getSchemaName :: SchemaName sc -> Text
+_getSchemaName (SchemaName sc) = sc
+
 class DBCatalog (db :: Type) where
   type Schemas db :: [Type]
   type Roles db :: [Type]
   type Extensions db :: [Type]
 
 class SchemaCatalog (sc :: Type) where
-  type Tables' sc :: [Type]
-  type Types' sc :: [Type]
+  type Tables sc :: [Type]
+  type Types sc :: [Type]
   type Views sc :: [Type]
   type MaterializedViews sc :: [Type]
   type Functions sc :: [(Symbol, Type)]

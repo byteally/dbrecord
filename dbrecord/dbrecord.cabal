@@ -109,7 +109,6 @@ library
                   DBRecord.Internal.Common
                              
                   DBRecord.Internal.Types
-                  DBRecord.Internal.DBTypeValidation
                   DBRecord.Internal.DDL
                   DBRecord.Internal.DBTypes
                   DBRecord.Internal.Schema
