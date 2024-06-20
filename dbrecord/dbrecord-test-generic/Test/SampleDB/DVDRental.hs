@@ -34,10 +34,11 @@ data DVDRentalDB (db :: DbK)
 
 instance Database (DVDRentalDB db) where
   type DB (DVDRentalDB db) = db
-  type DatabaseName (DVDRentalDB db) = "dbr_dvdrental"
+  databaseName = "dbr_dvdrental"
   
 instance Schema (DVDRentalDB db) where
   type SchemaDB (DVDRentalDB db) = DVDRentalDB db
+  schemaName = "dvdrental"
 
 -- ^ stores film’s categories data
 data Category = Category
@@ -66,7 +67,7 @@ data FilmCategory = FilmCategory
     deriving anyclass (DBRepr db)
 
 newtype YearI32 = YearI32 Int32
-  deriving newtype (Show, DBRepr db)
+  deriving newtype (Show, DBRepr db, ConstExpr sc)
 
 data MPAA = G | PG | PG'13 | R | NC'17
   deriving (Show, Generic)

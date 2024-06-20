@@ -22,7 +22,7 @@ import qualified Data.Text as T
 import GHC.Generics
 import GHC.Exts
 import Data.Generics.Uniplate.Direct
--- import GHC.Records
+import GHC.Records
 import GHC.TypeLits
 --import qualified DBRecord.Internal.Types as Type
 import DBRecord.Internal.DBTypes  (SchemaDB, DB, DBRepr (..), DBObjK(..), DBType, UDType(..))
@@ -517,11 +517,9 @@ instance ReifyTypeName sc e dbObj => ReifyTypeName sc opt ('NullableObjOf e dbOb
   reifyTypeName _ = reifyTypeName (Proxy @'(sc, e, dbObj))  
 
 
-{- TODO: Need to check who is using these instance
-       : Without Region Parameter it is not safe to have these instance
+-- TODO: Without Region Parameter it is not safe to have these instance
 instance (DBRepr (DB (SchemaDB sc)) t, HasField '(fn, ToDBType (DB (SchemaDB sc)) t) (Expr sc t) a) => HasField (fn :: Symbol) (Expr sc t) a where
   getField e = getField @'(fn, ToDBType (DB (SchemaDB sc)) t) e
-
 
 instance (HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'TableObj) (Expr sc t) (Expr sc a) where
   getField (Expr (FlatComposite es)) =
@@ -533,7 +531,7 @@ instance (HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'TableObj
   getField (Expr _e) = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
 
 
-instance (HasField '(fn, dbrepr) (Expr sc t) (Expr sc a), HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'NullableObjOf a dbrepr) (Expr sc (Maybe t)) (Expr sc (Maybe a)) where
+instance (HasField '(fn, dbrepr) (Expr sc t) (Expr sc a), HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'NullableObjOf t dbrepr) (Expr sc (Maybe t)) (Expr sc (Maybe a)) where
   getField e = toMaybe $ getField @'(fn, dbrepr) (unsafeUnMaybe e)
     where
       unsafeUnMaybe :: Expr sc (Maybe x) -> Expr sc x
@@ -541,10 +539,11 @@ instance (HasField '(fn, dbrepr) (Expr sc t) (Expr sc a), HasField fn t a, Known
       toMaybe :: Expr sc x -> Expr sc (Maybe x)
       toMaybe (Expr ex) = Expr ex
 
-
-instance (HasField '(fn, GetDBTypeRep sc t) (Expr sc t) a, UDType sc t) => HasField '(fn :: Symbol, 'UDTypeObj) (Expr sc t) a where
+{-
+instance (HasField '(fn, GetDBTypeRep sc t) (Expr sc t) a, UDType sc t) => HasField '(fn :: Symbol, 'UDTypeObj udobj) (Expr sc t) a where
   getField e = getField @'(fn, GetDBTypeRep sc t) e  
-  
+
+
 instance (HasField fn t a, KnownSymbol fn, UDType sc t) => HasField '(fn :: Symbol, 'DBCustomType scn udt ('DBTypeName tn targs ('Flat fs))) (Expr sc t) (Expr sc a) where
   getField (Expr (FlatComposite es)) =
     let

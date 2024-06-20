@@ -29,7 +29,7 @@ type family Break0 (c :: Constraint) (rep :: Type) :: Constraint where
   Break0 _ _  = ()
 
 type family NoGeneric t where
-  NoGeneric x = TypeError ('Text "No instance for " ':<>: 'ShowType (Generic x))
+  NoGeneric x = TypeError ('Text "[DBR-00100] No instance for " ':<>: 'ShowType (Generic x))
 
 defHSNameToDBName :: Text -> Text
 defHSNameToDBName = LT.toStrict . LTB.toLazyText .  T.foldl'

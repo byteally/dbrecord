@@ -506,7 +506,7 @@ class ( -- Break (NoGeneric db) (Rep db)
                          )
 
   databaseName :: DatabaseName db
-  default databaseName :: (Generic db, KnownSymbol (GenTyCon (Rep db))) => DatabaseName db
+  default databaseName :: (KnownSymbol (GenTyCon (Rep db)), Break (NoGeneric db) (Rep db)) => DatabaseName db
   databaseName = DatabaseName $ defHSNameToDBName $ T.pack (symbolVal (Proxy @(GenTyCon (Rep db))))
 
 newtype DatabaseName db = DatabaseName Text
@@ -526,7 +526,7 @@ class ( Database (SchemaDB sc)
   type SchemaDB sc :: Type
 
   schemaName :: SchemaName sc
-  default schemaName :: (Generic sc, KnownSymbol (GenTyCon (Rep sc))) => SchemaName sc
+  default schemaName :: (KnownSymbol (GenTyCon (Rep sc)), Break (NoGeneric sc) (Rep sc)) => SchemaName sc
   schemaName = SchemaName $ defHSNameToDBName $ T.pack (symbolVal (Proxy @(GenTyCon (Rep sc))))
 
 newtype SchemaName sc = SchemaName Text
