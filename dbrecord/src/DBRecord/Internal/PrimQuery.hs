@@ -24,11 +24,13 @@ import GHC.Exts
 import Data.Generics.Uniplate.Direct
 import GHC.Records
 import GHC.TypeLits
---import qualified DBRecord.Internal.Types as Type
-import DBRecord.Internal.DBTypes  (SchemaDB, DB, DBRepr (..), DBObjK(..), DBType, UDType(..))
+import qualified DBRecord.Internal.Types as Type
+import DBRecord.Internal.DBTypes  (SchemaDB, DB, DBRepr (..), DBObjK(..), DBType, UDType(..), getAliasedFieldName)
 import DBRecord.Internal.DBTypes (DBTypeName(..))
 import Data.Kind
 import Data.Proxy
+import Data.Void
+import Data.Functor.Const
 
 type TableName  = Text
 type WindowName = Text
@@ -539,29 +541,39 @@ instance (HasField '(fn, dbrepr) (Expr sc t) (Expr sc a), HasField fn t a, Known
       toMaybe :: Expr sc x -> Expr sc (Maybe x)
       toMaybe (Expr ex) = Expr ex
 
-{-
-instance (HasField '(fn, GetDBTypeRep sc t) (Expr sc t) a, UDType sc t) => HasField '(fn :: Symbol, 'UDTypeObj udobj) (Expr sc t) a where
-  getField e = getField @'(fn, GetDBTypeRep sc t) e  
+instance (UDType sc t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.UDRec 'Type.CompositeRec)) (Expr sc t) (Expr sc a) where
+  getField (Expr (FlatComposite _es)) = error "Panic: Unexpected Flat Composite"
+  getField (Expr e) =
+    let
+      fldN = getConst $ getAliasedFieldName @fn @t @sc @a fieldAliases
+    in Expr (CompositeExpr e fldN)
 
-
-instance (HasField fn t a, KnownSymbol fn, UDType sc t) => HasField '(fn :: Symbol, 'DBCustomType scn udt ('DBTypeName tn targs ('Flat fs))) (Expr sc t) (Expr sc a) where
+instance (UDType sc t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.UDRec 'Type.FlatRec)) (Expr sc t) (Expr sc a) where
   getField (Expr (FlatComposite es)) =
     let
-      fname = T.pack $ symbolVal (Proxy @fn)
-      cname = maybe fname id $ _lookupTyFieldAliases fname $ _tyFieldAliases @sc @t 
-    in case lookup cname es of
+      fldN = getConst $ getAliasedFieldName @fn @t @sc @a fieldAliases
+    in case lookup fldN es of
          Just t -> Expr t
          _      -> error "Panic: Impossible case! Field not found"
   getField (Expr _e) = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
 
-instance (HasField fn t a, KnownSymbol fn, UDType sc t) => HasField '(fn :: Symbol, 'DBCustomType scn udt ('DBTypeName tn targs ('Composite ctyAs fs))) (Expr sc t) (Expr sc a) where
-  getField (Expr (FlatComposite _es)) = error "Panic: Unexpected Flat Composite"
-  getField (Expr e) =
-    let
-      fname = T.pack $ symbolVal (Proxy @fn)
-      cname = maybe fname id $ _lookupTyFieldAliases fname $ _tyFieldAliases @sc @t 
-    in Expr (CompositeExpr e cname)
--}
+instance (UDType sc t, HasField fn t a, TypeError ('Text "TODO @ HasField 'Type.UDRec 'Type.JsonRec")) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.UDRec 'Type.JsonRec)) (Expr sc t) (Expr sc a) where
+  getField = error "Panic: TODO"
+
+instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.UDEnum enk)) (Expr sc t) Void where
+  getField = error "Panic: Unreachable code"
+
+instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.TaggedSum enk lay)) (Expr sc t) Void where
+  getField = error "Panic: Unreachable code"
+
+instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.TaggedSumMono enk ct lay)) (Expr sc t) Void where
+  getField = error "Panic: Unreachable code"
+
+instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.SumOfCol enk)) (Expr sc t) Void where
+  getField = error "Panic: Unreachable code"
+
+instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.SerializedBlob ct)) (Expr sc t) Void where
+  getField = error "Panic: Unreachable code"  
 
 newtype AggExpr (sc :: Type) (t :: Type) =
   AggExpr { getAggExpr :: Expr sc t }
