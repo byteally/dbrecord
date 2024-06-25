@@ -615,16 +615,16 @@ order ordFn = scoped $ \(clau, inp) -> (clau {PQ.orderbys = PQ.orderbys clau <> 
 
 -- * Where
 restrict :: forall i sc s.(Scoped s sc i -> Expr sc Bool) -> Clause s sc i ()
-restrict filtFn = scoped $ \(clau, inp) -> (clau {PQ.criteria = PQ.criteria clau <> [PQ.getExpr (filtFn inp)]}, ())
+restrict filtFn = scoped $ \(clau, inp) -> (clau {PQ.criteria = PQ.criteria clau <> [getExpr (filtFn inp)]}, ())
 
 
-data SelectList sc os = SelectList [TypeRep] (HRec (PQ.Expr sc) os)
+data SelectList sc os = SelectList [TypeRep] (HRec (Expr sc) os)
 
 instance AnonRec (SelectList sc) where
-  type FieldKind (SelectList sc) = FieldKind (HRec (PQ.Expr sc))
-  type IsHKRec (SelectList sc) = IsHKRec (HRec (PQ.Expr sc))
-  type FieldNameConstraint (SelectList sc) = FieldNameConstraint (HRec (PQ.Expr sc))
-  type FieldConstraint (SelectList sc) = FieldConstraint (HRec (PQ.Expr sc))
+  type FieldKind (SelectList sc) = FieldKind (HRec (Expr sc))
+  type IsHKRec (SelectList sc) = IsHKRec (HRec (Expr sc))
+  type FieldNameConstraint (SelectList sc) = FieldNameConstraint (HRec (Expr sc))
+  type FieldConstraint (SelectList sc) = FieldConstraint (HRec (Expr sc))
   endRec = SelectList [] endRec
   {-# INLINE endRec #-}
   consRec fld (SelectList fsix r) =
@@ -640,13 +640,13 @@ instance AnonRec (SelectList sc) where
     in (fld, SelectList (L.delete (fldTyTRep fld) fsix) r')
   
 
-data AggSelectList sc os = AggSelectList [TypeRep] (HRec (PQ.AggExpr sc) os)
+data AggSelectList sc os = AggSelectList [TypeRep] (HRec (AggExpr sc) os)
 
 instance AnonRec (AggSelectList sc) where
-  type FieldKind (AggSelectList sc) = FieldKind (HRec (PQ.AggExpr sc))
-  type IsHKRec (AggSelectList sc) = IsHKRec (HRec (PQ.AggExpr sc))
-  type FieldNameConstraint (AggSelectList sc) = FieldNameConstraint (HRec (PQ.AggExpr sc))
-  type FieldConstraint (AggSelectList sc) = FieldConstraint (HRec (PQ.AggExpr sc))
+  type FieldKind (AggSelectList sc) = FieldKind (HRec (AggExpr sc))
+  type IsHKRec (AggSelectList sc) = IsHKRec (HRec (AggExpr sc))
+  type FieldNameConstraint (AggSelectList sc) = FieldNameConstraint (HRec (AggExpr sc))
+  type FieldConstraint (AggSelectList sc) = FieldConstraint (HRec (AggExpr sc))
   endRec = AggSelectList [] endRec
   {-# INLINE endRec #-}
   consRec fld (AggSelectList fsix r) =
@@ -670,10 +670,10 @@ aggSelectListToTable (AggSelectList fsix selRec) = TableValue (fromListToFieldIn
   
 newtype SelectScope s sc i = SelectScope (Scoped s sc i)
 
-instance (R.HasField fn i t, KnownSymbol fn, Typeable t) => R.HasField (fn :: Symbol) (SelectScope s sc i) (Field fn (PQ.Expr sc t)) where
+instance (R.HasField fn i t, KnownSymbol fn, Typeable t) => R.HasField (fn :: Symbol) (SelectScope s sc i) (Field fn (Expr sc t)) where
   getField (SelectScope scope) = fromLabel @fn .= R.getField @fn scope
 
-instance R.HasField fn (HRec (PQ.Expr sc) os) (PQ.Expr sc t) => R.HasField (fn :: Symbol) (SelectList sc os) (PQ.Expr sc t) where
+instance R.HasField fn (HRec (Expr sc) os) (Expr sc t) => R.HasField (fn :: Symbol) (SelectList sc os) (Expr sc t) where
   getField (SelectList _ r) = R.getField @fn r
   
   
@@ -730,10 +730,10 @@ fromGroup (Grouped g) f = f g
 groupBy :: forall a i sc s.(Scoped s sc i -> Expr sc a) -> Clause s sc i (Grouped s sc a)
 groupBy grpFn = scoped $ \(clau, inp) ->
   let gpVal = grpFn inp
-  in (clau {PQ.groupbys = PQ.groupbys clau <> [PQ.getExpr gpVal]}, Grouped (AggExpr gpVal))
+  in (clau {PQ.groupbys = PQ.groupbys clau <> [getExpr gpVal]}, Grouped (AggExpr gpVal))
 
 having :: forall i sc s.(Scoped s sc i -> AggExpr sc Bool) -> Clause s sc i ()
-having filtFn = scoped $ \(clau, inp) -> (clau {PQ.havings = PQ.havings clau <> [PQ.getExpr (getAggExpr (filtFn inp))]}, ())
+having filtFn = scoped $ \(clau, inp) -> (clau {PQ.havings = PQ.havings clau <> [getExpr (getAggExpr (filtFn inp))]}, ())
 
 -- * LIMIT & OFFSET
 {-
@@ -744,10 +744,10 @@ SELECT select_list
 -}
 
 limit :: forall i sc s.Maybe Word -> Clause s sc i ()
-limit lmtMay = scoped $ \(clau, _) -> (clau {PQ.limit = getExpr . constExpr <$> lmtMay}, ())
+limit lmtMay = scoped $ \(clau, _) -> (clau {PQ.limit = getExpr . constExpr @Int64 . fromIntegral <$> lmtMay}, ())
 
 offset :: forall i sc s.Maybe Word -> Clause s sc i ()
-offset osMay = scoped $ \(clau, _) -> (clau {PQ.offset = getExpr . constExpr <$> osMay}, ())
+offset osMay = scoped $ \(clau, _) -> (clau {PQ.offset = getExpr . constExpr @Int64 . fromIntegral <$> osMay}, ())
 
 
 -- * CTE
@@ -854,9 +854,9 @@ instance (R.HasField fn tab a, KnownSymbol fn, Typeable a) => SetField (fn :: Sy
         let
           colE = R.getField @fn tv
           colN = case colE of
-            PQ.Expr (PQ.BaseTableAttrExpr a) -> a
-            PQ.Expr e -> error $ "Panic: Invariant violated! Expected only `BaseTableAttrExpr` " <> (show e)
-        in (colN, PQ.getExpr (upd colE)) : updr btv
+            Expr (PQ.BaseTableAttrExpr a) -> a
+            Expr e -> error $ "Panic: Invariant violated! Expected only `BaseTableAttrExpr` " <> (show e)
+        in (colN, getExpr (upd colE)) : updr btv
     in UpdatingRow tv newUpdr
   modifyField _ (UpdatingRow _ _) = error "Panic: Invariant of UpdatingRow violated! Expected only base table"
 

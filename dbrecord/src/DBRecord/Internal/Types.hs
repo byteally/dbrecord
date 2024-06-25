@@ -2,50 +2,13 @@
 {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, TypeFamilies, UndecidableInstances, UndecidableSuperClasses, ScopedTypeVariables, FunctionalDependencies, AllowAmbiguousTypes, RankNTypes, FlexibleContexts, TypeApplications #-}
 module DBRecord.Internal.Types where
 
-import GHC.Generics
 import GHC.TypeLits
-import GHC.OverloadedLabels
 import qualified Data.Text as T
 import Data.Kind
 import Data.Typeable
 import GHC.Exts
 -- import Data.Text (Text)
 -- import qualified Data.HashMap.Strict as HM
-
-
-data DBTag (db :: Type) (tab :: Type) (v :: k)
-
-newtype (f :: Symbol) ::: t = Field { getField :: t }
-  deriving (Show, Eq, Generic, Num)
-
-instance (fn ~ fn1, s ~ t) => IsLabel fn (s -> (fn1 ::: t)) where
-#if __GLASGOW_HASKELL__ > 800
-  fromLabel = Field
-#else
-  fromLabel _ = Field
-#endif
-
-
-valOf :: (s ::: t) -> t
-valOf (Field v) = v
-
-newtype CustomType a = CustomType a
-
-data HList :: (k -> Type) -> [k] -> Type where
-  Nil  :: HList f '[]
-  (:&) :: f t -> HList f ts -> HList f (t ': ts)
-
-infixr 7 :&
-
-instance (Show (f x), Show (HList f xs)) => Show (HList f (x ': xs)) where
-  show (x :& xs) = show x ++ ", " ++ show xs
-
-instance Show (HList f '[]) where
-  show Nil = "Done"
-
-hnat :: (forall a. f a -> g a) -> HList f xs -> HList g xs
-hnat f (a :& as) = f a :& hnat f as
-hnat _ Nil       = Nil
 
 data DbK = Postgres
          | MySQL
@@ -90,7 +53,7 @@ data DBTypeK
   | DBJsonB
   | DBArray DBTypeK
   | DBLTree
-  | DBCustomType Symbol Type DBTypeNameK
+  -- | DBCustomType Symbol Type DBTypeNameK
 
 data DBTypeNameK = DBTypeName Symbol [TypeArgK]
 
@@ -340,7 +303,7 @@ data instance Sing (t :: DBTypeK) where
   SDBJsonB       :: Sing 'DBJsonB
   SDBArray       :: Sing a -> Sing ('DBArray a)
   SDBLTree       :: Sing 'DBLTree
-  SDBCustomType  :: Sing sc -> Sing t -> Sing dbt -> Sing ('DBCustomType sc t dbt)
+  -- SDBCustomType  :: Sing sc -> Sing t -> Sing dbt -> Sing ('DBCustomType sc t dbt)
 
 data instance Sing (t :: DBTypeNameK) where
   SDBTypeName :: Sing s -> Sing args -> Sing ('DBTypeName s args)
@@ -439,9 +402,9 @@ instance (SingI n) => SingI ('DBArray n) where
 instance SingI ('DBLTree) where
   sing = SDBLTree
 
-instance ( SingI t, SingI dbt, SingI sc
-         ) => SingI ('DBCustomType sc t dbt) where
-  sing = SDBCustomType sing sing sing
+-- instance ( SingI t, SingI dbt, SingI sc
+--          ) => SingI ('DBCustomType sc t dbt) where
+--   sing = SDBCustomType sing sing sing
 
 instance (SingI s, SingI args) => SingI ('DBTypeName s args) where
   sing = SDBTypeName sing sing

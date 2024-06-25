@@ -486,7 +486,7 @@ whereWithIn :: forall db.
                                , '("lastName", Text)
                                ])
 whereWithIn = rel @(DVDRentalDB db) @Customer $ do
-  restrict $ \customer ->  ["Ann","Anne","Annie"] `in_` customer.firstName
+  restrict $ \customer -> customer.firstName `in_` ["Ann","Anne","Annie"]
   select $ \customer ->
     customer.firstName
     .& customer.lastName

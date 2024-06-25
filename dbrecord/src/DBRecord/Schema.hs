@@ -8,7 +8,6 @@ module DBRecord.Schema
        , UniqueCT (..)
        , Uq (..)
        , ForeignRef (..)
-       , HList (..)
        , Serial
        , Owned
        , Json (..)

@@ -22,15 +22,17 @@ import qualified Data.Text as T
 import GHC.Generics
 import GHC.Exts
 import Data.Generics.Uniplate.Direct
-import GHC.Records
-import GHC.TypeLits
-import qualified DBRecord.Internal.Types as Type
-import DBRecord.Internal.DBTypes  (SchemaDB, DB, DBRepr (..), DBObjK(..), DBType, UDType(..), getAliasedFieldName)
-import DBRecord.Internal.DBTypes (DBTypeName(..))
-import Data.Kind
-import Data.Proxy
-import Data.Void
-import Data.Functor.Const
+
+-- import qualified DBRecord.Internal.Types as Type
+import DBRecord.Internal.DBTypes  (DBType)
+
+-- import GHC.Records
+-- import GHC.TypeLits
+-- import DBRecord.Internal.DBTypes (DBTypeName(..))
+-- import Data.Kind
+-- import Data.Proxy
+-- import Data.Void
+-- import Data.Functor.Const
 
 type TableName  = Text
 type WindowName = Text
@@ -240,6 +242,7 @@ data PrimExpr = AttrExpr Sym -- Eg?
                                     -- here.  Perhaps a special type is
                                     -- needed for insert expressions.
               | ArrayExpr [PrimExpr] -- ^ ARRAY[..]
+              | RowExpr [PrimExpr]
               | NamedWindowExpr WindowName PrimExpr -- OVER
               | AnonWindowExpr [PrimExpr] [OrderExpr] PrimExpr -- OVER
               | TableExpr PQFun PrimExpr
@@ -276,6 +279,7 @@ instance Uniplate PrimExpr where
   uniplate (CastExpr n pe)        = plate CastExpr |- n |* pe
   uniplate (DefaultInsertExpr)    = plate DefaultInsertExpr
   uniplate (ArrayExpr pes)        = plate ArrayExpr ||* pes
+  uniplate (RowExpr pes)          = plate RowExpr ||* pes
   uniplate (TableExpr {})         = error "Panic: not implemented for TableExpr"
   uniplate (NamedWindowExpr n pe) = plate NamedWindowExpr |- n |* pe
   uniplate (AnonWindowExpr p o e) = plate AnonWindowExpr ||* p |- o |* e
@@ -462,125 +466,6 @@ instance IsString Sym where
         
 transformPE :: (PrimExpr -> PrimExpr) -> PrimExpr -> PrimExpr
 transformPE = transform
-
-newtype Expr (sc :: Type) (t :: Type) =
-  Expr PrimExpr
-  deriving Show
-
-getExpr :: Expr (sc :: Type) (t :: Type) -> PrimExpr
-getExpr (Expr e) = e
-
-unsafeCast :: DBType -> Expr sc a -> Expr sc b
-unsafeCast castTo (Expr expr) = Expr $ CastExpr castTo expr
-
--- TODO: Reimplement this
--- annotateType :: forall sc a.
---                  ( DBTypeCtx (GetDBTypeRep sc a)
---                  , SingI (GetDBTypeRep sc a)
---                  ) => Expr sc a -> Expr sc a
--- annotateType = unsafeCast tyRep
---   where tyRep = fromSing (sing :: Sing (GetDBTypeRep sc a))
-annotateType :: forall sc a.
-  ( DBTypeOf sc a
-  ) => Expr sc a -> Expr sc a
-annotateType e =
-  let _dbt = dbTypeOf e
-  in undefined
-
-unsafeCoerceExpr :: Expr sc a -> Expr sc b
-unsafeCoerceExpr (Expr e) = Expr e
-
-type DBTypeOf sc a = ( DBRepr (DB (SchemaDB sc)) a
-                     , ReifyTypeName sc a (ToDBType (DB (SchemaDB sc)) a)
-                     )
-
-dbTypeOf :: forall a sc.DBTypeOf sc a => Expr sc a -> DBTypeName
-dbTypeOf _ = reifyTypeName (Proxy :: Proxy '(sc, a, ToDBType (DB (SchemaDB sc)) a))
-
-class ReifyTypeName (sc :: Type) (a :: Type) (dbObj :: DBObjK) where
-  reifyTypeName :: Proxy '(sc, a, dbObj) -> DBTypeName
-
-instance (TypeError ('Text "Table is used as Type")) => ReifyTypeName sc a 'TableObj where
-  reifyTypeName = error "Panic: Unreachable code"
-
-instance UDType sc a => ReifyTypeName sc a ('UDTypeObj udt) where
-  reifyTypeName _ = undefined $ udTypeName @sc @a
-
-instance ReifyTypeName sc a ('NativeTypeObj dbt) where
-  reifyTypeName _ = undefined
-
-instance (DBTypeOf sc ty, DBRepr (DB (SchemaDB sc)) ty, ReifyTypeName sc ty (ToDBType (DB (SchemaDB sc)) ty) ) => ReifyTypeName sc a ('NewtypeObj ty) where
-  reifyTypeName _ = dbTypeOf (undefined :: Expr sc ty)
-
-instance ReifyTypeName sc e dbObj => ReifyTypeName sc c ('ArrayObjOf e dbObj) where
-  reifyTypeName _ = reifyTypeName (Proxy @'(sc, e, dbObj))
-
-instance ReifyTypeName sc e dbObj => ReifyTypeName sc opt ('NullableObjOf e dbObj) where
-  reifyTypeName _ = reifyTypeName (Proxy @'(sc, e, dbObj))  
-
-
--- TODO: Without Region Parameter it is not safe to have these instance
-instance (DBRepr (DB (SchemaDB sc)) t, HasField '(fn, ToDBType (DB (SchemaDB sc)) t) (Expr sc t) a) => HasField (fn :: Symbol) (Expr sc t) a where
-  getField e = getField @'(fn, ToDBType (DB (SchemaDB sc)) t) e
-
-instance (HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'TableObj) (Expr sc t) (Expr sc a) where
-  getField (Expr (FlatComposite es)) =
-    let
-      cname = T.pack $ symbolVal (Proxy @fn)
-    in case lookup cname es of
-         Just t -> Expr t
-         _      -> error $ "Panic: Impossible case! Field not found: " ++ show (cname, fmap fst es)
-  getField (Expr _e) = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
-
-
-instance (HasField '(fn, dbrepr) (Expr sc t) (Expr sc a), HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'NullableObjOf t dbrepr) (Expr sc (Maybe t)) (Expr sc (Maybe a)) where
-  getField e = toMaybe $ getField @'(fn, dbrepr) (unsafeUnMaybe e)
-    where
-      unsafeUnMaybe :: Expr sc (Maybe x) -> Expr sc x
-      unsafeUnMaybe (Expr ex) = Expr ex
-      toMaybe :: Expr sc x -> Expr sc (Maybe x)
-      toMaybe (Expr ex) = Expr ex
-
-instance (UDType sc t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.UDRec 'Type.CompositeRec)) (Expr sc t) (Expr sc a) where
-  getField (Expr (FlatComposite _es)) = error "Panic: Unexpected Flat Composite"
-  getField (Expr e) =
-    let
-      fldN = getConst $ getAliasedFieldName @fn @t @sc @a fieldAliases
-    in Expr (CompositeExpr e fldN)
-
-instance (UDType sc t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.UDRec 'Type.FlatRec)) (Expr sc t) (Expr sc a) where
-  getField (Expr (FlatComposite es)) =
-    let
-      fldN = getConst $ getAliasedFieldName @fn @t @sc @a fieldAliases
-    in case lookup fldN es of
-         Just t -> Expr t
-         _      -> error "Panic: Impossible case! Field not found"
-  getField (Expr _e) = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
-
-instance (UDType sc t, HasField fn t a, TypeError ('Text "TODO @ HasField 'Type.UDRec 'Type.JsonRec")) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.UDRec 'Type.JsonRec)) (Expr sc t) (Expr sc a) where
-  getField = error "Panic: TODO"
-
-instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.UDEnum enk)) (Expr sc t) Void where
-  getField = error "Panic: Unreachable code"
-
-instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.TaggedSum enk lay)) (Expr sc t) Void where
-  getField = error "Panic: Unreachable code"
-
-instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.TaggedSumMono enk ct lay)) (Expr sc t) Void where
-  getField = error "Panic: Unreachable code"
-
-instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.SumOfCol enk)) (Expr sc t) Void where
-  getField = error "Panic: Unreachable code"
-
-instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('Type.SerializedBlob ct)) (Expr sc t) Void where
-  getField = error "Panic: Unreachable code"  
-
-newtype AggExpr (sc :: Type) (t :: Type) =
-  AggExpr { getAggExpr :: Expr sc t }
-  deriving Show
-
-unsafeCol :: [T.Text] -> Expr sc a
-unsafeCol = Expr . unsafeAttrExpr
 
 unsafeAttrExpr :: [T.Text] -> PrimExpr
 unsafeAttrExpr = AttrExpr . sym

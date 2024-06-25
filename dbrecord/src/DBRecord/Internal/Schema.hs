@@ -54,7 +54,7 @@ import DBRecord.Internal.DBTypes hiding (DBType (..), DBTypeName (..))
 import qualified Data.List as L
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
-import Data.Aeson (ToJSON (..))
+-- import Data.Aeson (ToJSON (..))
 import qualified GHC.Records as R
 import Record
 import Control.Monad.Trans.State.Strict
@@ -91,9 +91,6 @@ class ( Schema sc
 
   type NewRow sc tab = (r :: Type) | r -> tab
 
-  type TableColumns sc tab :: [(Symbol, Type)]
-  type TableColumns sc tab = GGetFields tab (Rep tab)
-
   type Extension sc tab :: Type
   type Extension sc tab = ()
 
@@ -104,26 +101,26 @@ class ( Schema sc
   columnAliases :: FieldAliases sc tab
   columnAliases = mempty
 
-  checks :: TableValue sc Identity tab -> [(Text, PQ.Expr sc Bool)]
+  checks :: TableValue sc Identity tab -> [(Text, Expr sc Bool)]
   checks _ = []
 
   rel :: (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o
   -- (Sub tab (GetGenIdCols (Generated sc tab)))
   default rel ::
     ( GConstructHK tab (HasColumn sc tab) (TypeFields tab)
-    , MkFieldInvIx (TableColumns sc tab)
+    , MkFieldInvIx (Fields tab)
     ) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o
   rel (Clause clau) = Query' (TableValue fsix $ constructHK @(HasColumn sc tab) (ExprF . toExprId . coerceExpr . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)), ReadQType ManyR)
     where tabId = getTableId @sc @tab Proxy Proxy
-          fsix = mkFieldInvIx (Proxy @(TableColumns sc tab)) emptyFieldInvIx
+          fsix = mkFieldInvIx (Proxy @(Fields tab)) emptyFieldInvIx
 
   fromNewRow :: NewRow sc tab -> TableValue sc Identity tab
   default fromNewRow ::
     ( GConstructHK tab (HasConstColumn sc tab (HasDefault sc tab) (Generated sc tab) (NewRow sc tab)) (TypeFields tab)
-    , MkFieldInvIx (TableColumns sc tab)
+    , MkFieldInvIx (Fields tab)
     ) => NewRow sc tab -> TableValue sc Identity tab
   fromNewRow r = TableValue fsix $ constructHK @(HasConstColumn sc tab (HasDefault sc tab) (Generated sc tab) (NewRow sc tab)) (ExprF . toExprId . coerceExpr . getConstCol (Proxy @'(sc, tab, (HasDefault sc tab), (Generated sc tab))) r)
-    where fsix = mkFieldInvIx (Proxy @(TableColumns sc tab)) emptyFieldInvIx
+    where fsix = mkFieldInvIx (Proxy @(Fields tab)) emptyFieldInvIx
 
 newtype TableName sc ty = TableName Text
 
@@ -172,6 +169,7 @@ type family GetGenIdCols (fs :: [(Symbol, GenerationType)]) :: [Symbol] where
   GetGenIdCols (_ ': fs) = GetGenIdCols fs
   GetGenIdCols '[] = '[]
 
+
 getMutQ :: forall o tab sc.(Table sc tab) => (PQ.TableId -> TableValue sc Identity tab -> MQuery sc o) -> MQuery sc o
 getMutQ k =
   let
@@ -206,125 +204,25 @@ type family IsDefFld (odefs :: [Symbol]) (ndefs :: [Symbol]) (fs :: [(Symbol, Ty
   IsDefFld defs defs (f ': fs) = f ': NonDefFields fs defs
   IsDefFld odefs ndefs (f ': fs) = NonDefFields fs ndefs
 
-toExprId :: PQ.Expr sc a -> PQ.Expr sc (Identity a)
-toExprId (PQ.Expr e) = PQ.Expr e
+toExprId :: Expr sc a -> Expr sc (Identity a)
+toExprId (Expr e) = Expr e
 
 class HasConstColumn (sc :: Type) (tab :: Type) (defs :: [Symbol]) (gens :: [(Symbol, GenerationType)]) (r :: Type) (col :: Symbol) (a :: Type) where
-  getConstCol :: Proxy '(sc, tab, defs, gens) -> r -> Proxy '(col, a) -> PQ.Expr sc (Field col a)
+  getConstCol :: Proxy '(sc, tab, defs, gens) -> r -> Proxy '(col, a) -> Expr sc (Field col a)
 
 instance (HasConstOrDefCol (IsDefCol col defs gens) sc tab r col a) => HasConstColumn sc tab defs gens r col a where
   getConstCol _ _r px = getConstOrDefCol (Proxy @'(sc, tab, (IsDefCol col defs gens))) _r px
 
 
 class HasConstOrDefCol (isDef :: Either Bool GenerationType) (sc :: Type) (tab :: Type) (r :: Type) (col :: Symbol) (a :: Type) where
-  getConstOrDefCol :: Proxy '(sc, tab, isDef) -> r -> Proxy '(col, a) -> PQ.Expr sc (Field col a)
+  getConstOrDefCol :: Proxy '(sc, tab, isDef) -> r -> Proxy '(col, a) -> Expr sc (Field col a)
 
 instance HasConstOrDefCol ('Left 'True) sc tab r col a where
-  getConstOrDefCol _ _ _ = PQ.Expr PQ.DefaultInsertExpr
+  getConstOrDefCol _ _ _ = Expr PQ.DefaultInsertExpr
 
-instance (R.HasField col r a, AutoConstExpr sc a (ToDBType (DB (SchemaDB sc)) a) (AutoCodec (DB (SchemaDB sc)) a)) => HasConstOrDefCol ('Left 'False) sc tab r col a where
-  getConstOrDefCol _ r _ = coerceExpr $ autoConstExpr (Proxy @'(ToDBType (DB (SchemaDB sc)) a, AutoCodec (DB (SchemaDB sc)) a)) $ R.getField @col r
+instance (R.HasField col r a, DBRepr (DB (SchemaDB sc)) a, AutoConstExpr sc a (ToDBType (DB (SchemaDB sc)) a) (AutoCodec (DB (SchemaDB sc)) a)) => HasConstOrDefCol ('Left 'False) sc tab r col a where
+  getConstOrDefCol _ r _ = coerceExpr $ constExpr $ R.getField @col r
 
-class AutoConstExpr sc t (dbObj :: DBObjK) (isAuto :: Bool) where
-  autoConstExpr :: Proxy '(dbObj, isAuto) -> t -> PQ.Expr sc t
-
--- TODO: Add TypeError for `'TableObj`
-instance ConstExpr sc t => AutoConstExpr sc t dbObj 'False where
-  autoConstExpr _ = constExpr
-
-instance TypeError ('Text "Unexpected Table in place of Type" ':<>: 'ShowType t) => AutoConstExpr sc t 'TableObj 'True where
-  autoConstExpr = error "Panic: Unreachable code"
-
-instance ConstExpr sc t => AutoConstExpr sc t ('NativeTypeObj nat) 'True where
-  autoConstExpr _ = constExpr
-
-instance (Generic t, GConstExprFlat sc t (Rep t)) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'CompositeRec)) 'True where
-  autoConstExpr _ _t = undefined
-
-instance (Generic t, GConstExprFlat sc t (Rep t)) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'FlatRec)) 'True where
-  autoConstExpr _ t = gconstExprFlat (from t)
-
-instance (ToJSON t, UDType sc t) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'JsonRec)) 'True where
-  autoConstExpr _ t = unsafeCoerceExpr $ constExpr $ toJSON t
-
-instance (Generic t, UDType sc t, GenEnumExpr sc t (Rep t) (GetTagEnumK (ToDBType (DB (SchemaDB sc)) t))) => AutoConstExpr sc t ('UDTypeObj ('UDEnum enum)) 'True where
-  autoConstExpr _ t = genEnumExpr t
-
-instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'FlatRec)) 'True where
-  autoConstExpr _ _t = PQ.Expr (PQ.FlatComposite [(undefined, undefined)])
-
-instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'CompositeRec)) 'True where
-  autoConstExpr _ _t = undefined
-
-instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr TaggedSum")) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'JsonRec)) 'True where
-  autoConstExpr _ _t = error "Panic: TODO"
-
-instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'FlatRec)) 'True where
-  autoConstExpr _ _t = PQ.Expr (PQ.FlatComposite [(undefined, undefined)])
-
-instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'CompositeRec)) 'True where
-  autoConstExpr _ _t = undefined
-
-instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr TaggedSumMono")) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'JsonRec)) 'True where
-  autoConstExpr _ _t = error "Panic: TODO"
-
-instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('SumOfCol 'FlatRec)) 'True where
-  autoConstExpr _ _t = PQ.Expr (PQ.FlatComposite [(undefined, undefined)])
-
-instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('SumOfCol 'CompositeRec)) 'True where
-  autoConstExpr _ _t = undefined
-
-instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr SumOfCol")) => AutoConstExpr sc t ('UDTypeObj ('SumOfCol 'JsonRec)) 'True where
-  autoConstExpr _ _t = error "Panic: TODO"
-
-instance (ToJSON t) => AutoConstExpr sc t ('UDTypeObj ('SerializedBlob ('JsonContent 'Nothing))) 'True where
-  autoConstExpr _ _t = undefined
-
-instance (Show t) => AutoConstExpr sc t ('UDTypeObj ('SerializedBlob ('TextContent 'Nothing))) 'True where
-  autoConstExpr _ _t = undefined  
-
-instance (t ~ ety, AutoConstExpr sc ety edbk 'True) => AutoConstExpr sc (Maybe t) ('NullableObjOf ety edbk) 'True where
-  autoConstExpr _ = \case
-    Nothing -> nothing
-    Just t -> toNullable $ autoConstExpr (Proxy @'(edbk, 'True)) t
-
-instance (t ~ ety, AutoConstExpr sc ety edbk 'True, Foldable f) => AutoConstExpr sc (f t) ('ArrayObjOf ety edbk) 'True where
-  autoConstExpr _ = error "Panic: TODO"
-
-
-class GConstExprFlat sc a (rep :: Type -> Type) where
-  gconstExprFlat :: rep x -> PQ.Expr sc a
-
-instance GConstExprFlat sc a f => GConstExprFlat sc a (D1 m f) where
-  gconstExprFlat (M1 f) = gconstExprFlat f
-
-instance (TypeError ('Text "Sum Type cannot be used as Flat Composite Record" ':<>: 'ShowType a)) => GConstExprFlat sc a (f :+: g) where
-  gconstExprFlat = error "Panic: Unreachable code"
-
-instance GConstExprFlat sc a f => GConstExprFlat sc a (C1 m f) where
-  gconstExprFlat (M1 f) = gconstExprFlat f
-
-instance (GConstExprFlat sc a f, GConstExprFlat sc a g) => GConstExprFlat sc a (f :*: g) where
-  gconstExprFlat (f :*: g) = PQ.unsafeCoerceExpr (gconstExprFlat f `appendFlatComposite` gconstExprFlat g)
-
-    where appendFlatComposite :: PQ.Expr sc a -> PQ.Expr sc a -> PQ.Expr sc a
-          appendFlatComposite (PQ.Expr (PQ.FlatComposite xs)) (PQ.Expr (PQ.FlatComposite ys)) = PQ.Expr (PQ.FlatComposite (xs ++ ys))
-          appendFlatComposite a b = error $ "Panic: expecting only flatcomposite @appendFlatComposite" ++ show (a, b)
-
-instance ( UDType sc a
-         , R.HasField n a t
-         , AutoConstExpr sc t (ToDBType (DB (SchemaDB sc)) t) (AutoCodec (DB (SchemaDB sc)) t)
-         , KnownSymbol n
-         ) => GConstExprFlat sc a (S1 ('MetaSel ('Just n) su ss ds) (K1 i t)) where
-  gconstExprFlat (M1 (K1 v)) =
-    PQ.unsafeCoerceExpr (flatComposite (autoConstExpr (Proxy @'(ToDBType (DB (SchemaDB sc)) t, AutoCodec (DB (SchemaDB sc)) t)) v))
-
-    where flatComposite :: PQ.Expr sc t -> PQ.Expr sc t
-          flatComposite (PQ.Expr v0) = PQ.Expr (PQ.FlatComposite (pure (fldN, v0)))
-          fldN = getConst $ getAliasedFieldName @n @a @sc @t fieldAliases
-
-instance (TypeError ('Text "Only Record Types can be used as Flat Composite Record" ':<>: 'ShowType a)) => GConstExprFlat sc a (S1 ('MetaSel 'Nothing su ss ds) k) where
-  gconstExprFlat = error "Panic: Unreachable code"
 
 type family IsDefCol (c :: Symbol) (defs :: [Symbol]) (gens :: [(Symbol, GenerationType)]) :: Either Bool GenerationType where
   IsDefCol c (c ': _) gs = 'Left 'True
@@ -516,13 +414,13 @@ tableToProjections = tableToListWith getPrjs
 {-# INLINE tableToProjections #-}
 
 getPrjs :: forall a f sc.(Typeable a) => [Text] -> SomeSymbol -> ExprF sc f a -> (T.Text, PQ.PrimExpr)
-getPrjs pfxs ssym e = (T.intercalate "_" ((reverse pfxs) ++ [aliasedExprName ssym]), PQ.getExpr $ getExprF e)
+getPrjs pfxs ssym e = (T.intercalate "_" ((reverse pfxs) ++ [aliasedExprName ssym]), getExpr $ getExprF e)
 
-toIdExpr :: PQ.Expr sc x -> PQ.Expr sc (Identity x)
+toIdExpr :: Expr sc x -> Expr sc (Identity x)
 toIdExpr = coerceExpr
 {-# INLINE toIdExpr #-}
 
-fromIdExpr :: PQ.Expr sc (Identity x) -> PQ.Expr sc x
+fromIdExpr :: Expr sc (Identity x) -> Expr sc x
 fromIdExpr = coerceExpr
 {-# INLINE fromIdExpr #-}
 
@@ -563,26 +461,26 @@ hoistMaybeTable fn (OptTable tv) = OptTable (hoistMaybeTable fn tv)
 hoistMaybeTable _ EmptyTable = EmptyTable
 
 toNullExprF :: ExprF sc g x -> ExprF sc Maybe x
-toNullExprF (ExprF (PQ.Expr x)) = (ExprF (PQ.Expr x))
+toNullExprF (ExprF (Expr x)) = (ExprF (Expr x))
 
 
 getScopeOfTable :: TableValue sc Identity i -> Scoped s sc i
 getScopeOfTable tab = Scoped tab
 
-maybeExprsToExpr :: HK (ExprF sc Maybe) r -> PQ.Expr sc (Maybe r)
-maybeExprsToExpr hk = PQ.Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym e -> (aliasedExprName ssym, PQ.getExpr $ getExprF e)) hk
+maybeExprsToExpr :: HK (ExprF sc Maybe) r -> Expr sc (Maybe r)
+maybeExprsToExpr hk = Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym e -> (aliasedExprName ssym, getExpr $ getExprF e)) hk
 
-maybeTableToExpr :: TableValue sc Maybe i -> PQ.Expr sc (Maybe i)
+maybeTableToExpr :: TableValue sc Maybe i -> Expr sc (Maybe i)
 maybeTableToExpr = unsafeTableToExpr
 
-idTableToExpr :: TableValue sc Identity i -> PQ.Expr sc i
+idTableToExpr :: TableValue sc Identity i -> Expr sc i
 idTableToExpr = unsafeTableToExpr
 
-unsafeTableToExpr :: TableValue sc f i -> PQ.Expr sc o
-unsafeTableToExpr (TableValue _ hk) = PQ.Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym e -> (aliasedExprName ssym, PQ.getExpr $ getExprF e)) hk
-unsafeTableToExpr (JoinedTables _ tvals) = PQ.Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym tv -> (aliasedExprName ssym, PQ.getExpr $ unsafeTableToExpr tv)) tvals
+unsafeTableToExpr :: TableValue sc f i -> Expr sc o
+unsafeTableToExpr (TableValue _ hk) = Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym e -> (aliasedExprName ssym, getExpr $ getExprF e)) hk
+unsafeTableToExpr (JoinedTables _ tvals) = Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym tv -> (aliasedExprName ssym, getExpr $ unsafeTableToExpr tv)) tvals
 unsafeTableToExpr (OptTable tv) = unsafeTableToExpr tv
-unsafeTableToExpr EmptyTable = PQ.Expr unitExpr
+unsafeTableToExpr EmptyTable = Expr unitExpr
 
 unitExpr :: PQ.PrimExpr
 unitExpr = PQ.ConstExpr $ PQ.Integer 1
@@ -597,11 +495,11 @@ typeRepOfSomeSym (SomeSymbol pxn) = typeRep pxn
 {-# INLINE typeRepOfSomeSym #-}
 
 aliasedExprWithPrefix :: forall a f sc.[Text] -> SomeSymbol -> ExprF sc f a -> ExprF sc f a
-aliasedExprWithPrefix pfxs ssym _ = ExprF $ PQ.unsafeCol ((reverse pfxs) ++ [aliasedExprName ssym])
+aliasedExprWithPrefix pfxs ssym _ = ExprF $ unsafeCol ((reverse pfxs) ++ [aliasedExprName ssym])
 {-# INLINE aliasedExprWithPrefix #-}
 
 aliasedExpr :: forall a f sc.SomeSymbol -> ExprF sc f a
-aliasedExpr ssym = ExprF $ PQ.unsafeCol [aliasedExprName ssym]
+aliasedExpr ssym = ExprF $ unsafeCol [aliasedExprName ssym]
 {-# INLINE aliasedExpr #-}
 
 aliasedExprName :: SomeSymbol -> Text
@@ -616,9 +514,9 @@ symStrToText s = T.pack $ init $ tail s
 
 newtype Scoped s sc t = Scoped (TableValue sc Identity t)
 
-newtype ExprF sc f t = ExprF (PQ.Expr sc (f t))
+newtype ExprF sc f t = ExprF (Expr sc (f t))
 
-getExprF :: ExprF sc f t -> PQ.Expr sc (f t)
+getExprF :: ExprF sc f t -> Expr sc (f t)
 getExprF (ExprF e) = e
 
 data FieldInvIx = FieldInvIx !Int !(Map.Map Data.Typeable.TypeRep Int)
@@ -658,24 +556,24 @@ tableRecAsType :: ValidateRecToType os t => TableValue sc f (Rec os) -> TableVal
 tableRecAsType (TableValue fsix hk) = TableValue fsix (fromHKOfRec hk)
 tableRecAsType (JoinedTables fsix hk) = JoinedTables fsix (fromHKOfRec hk)
 
-newtype Scalar sc t = Scalar (PQ.Expr sc t)
+newtype Scalar sc t = Scalar (Expr sc t)
 
-instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (Scoped s sc i) (PQ.Expr sc t) where
+instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (Scoped s sc i) (Expr sc t) where
   getField (Scoped hk) = R.getField @f hk
 
-instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (TableValue sc Identity i) (PQ.Expr sc t) where
+instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (TableValue sc Identity i) (Expr sc t) where
   getField (TableValue _ hk) = fromIdExpr $ getExprF $ R.getField @f hk
-  getField EmptyTable = PQ.Expr unitExpr
+  getField EmptyTable = Expr unitExpr
   getField optv@(OptTable tv) = go tv optv
     where
-      go :: forall r.(Typeable r) => TableValue sc Identity r -> TableValue sc Identity (Maybe r) -> PQ.Expr sc t
+      go :: forall r.(Typeable r) => TableValue sc Identity r -> TableValue sc Identity (Maybe r) -> Expr sc t
       go tv' _ = case eqT @t @(Maybe r) of
         Just Refl -> DBRecord.Internal.Expr.toNullable $ idTableToExpr tv'
         Nothing -> error "Panic"
   getField (JoinedTables _ tvals) = idTableToExpr $ R.getField @f tvals
 
 class HasColumn sc tab (col :: Symbol) (a :: Type) where
-  getCol :: Proxy '(sc, tab) -> Proxy '(col, a) -> PQ.Expr sc (Field col a)
+  getCol :: Proxy '(sc, tab) -> Proxy '(col, a) -> Expr sc (Field col a)
 
 instance
   ( Table sc tab
@@ -685,11 +583,11 @@ instance
   , HasColumnByDBType sc tab col a dbTypeRep
   , dbTypeRep ~ ToDBType (DB (SchemaDB sc)) a
   ) => HasColumn sc tab col a where
-  getCol _ _ = PQ.Expr $ PQ.getExpr $ getColByDBTypeRep @sc @tab @col @a @dbTypeRep Proxy
+  getCol _ _ = Expr $ getExpr $ getColByDBTypeRep @sc @tab @col @a @dbTypeRep Proxy
 
 
 class HasColumnByDBType sc tab (col :: Symbol) (a :: Type) (dbObj :: DBObjK) where
-  getColByDBTypeRep :: Proxy '(sc, tab, col, a, atrep) -> PQ.Expr sc a
+  getColByDBTypeRep :: Proxy '(sc, tab, col, a, atrep) -> Expr sc a
 
 
 instance
@@ -792,14 +690,14 @@ getColumnName :: forall sc tab (fn :: Symbol) a.
   ( Table sc tab
   , R.HasField fn tab a
   , KnownSymbol fn
-  ) => PQ.Expr sc a
+  ) => Expr sc a
 getColumnName =
   let
     FieldAliases caliases = columnAliases @sc @tab
     fname = T.pack $ symbolVal (Proxy @fn)
     cname = maybe (defHSNameToDBName fname) id $ HM.lookup fname caliases
     cexpr = PQ.BaseTableAttrExpr $ cname
-  in PQ.Expr cexpr
+  in Expr cexpr
 {-# INLINE getColumnName #-}
 
 

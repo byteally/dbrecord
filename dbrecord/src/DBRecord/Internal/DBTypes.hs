@@ -68,9 +68,9 @@ data DBType = DBInt4
             | DBArray DBType
             | DBLTree
             | OtherBuiltInType DBTypeName
-            | DBCustomType
-                T.Text -- Schema name
-                DBTypeName
+            -- | DBCustomType
+            --     T.Text -- Schema name
+            --     DBTypeName
             deriving (Show, Eq, Ord, Read)
 
 data DBTypeName = DBTypeName T.Text [TypeArg]
@@ -171,53 +171,6 @@ type family ValidateConName (ty :: Type) (k :: Symbol) (rep :: Type -> Type) (un
   ValidateConName _ _ _ 'Nothing = TypeError ('Text "Invalid Constructor Name: " ':<>: 'Text " for type " ':<>: 'Text "")
   ValidateConName ty k rep unconsedConName = ()
 
-newtype UDTypeName sc ty = UDTypeName Text
-
-instance IsString (UDTypeName sc ty) where
-  fromString s = UDTypeName $ T.pack s
-
-class ( DBRepr (DB (SchemaDB sc)) ty
-      ) => UDType (sc :: Type) (ty :: Type) where
-  type TypeId sc ty = (oid :: Nat) | oid -> ty
-
-  udTypeName :: UDTypeName sc ty
-  default udTypeName :: (Generic ty) => UDTypeName sc ty
-  udTypeName = ""
-
-  fieldAliases :: FieldAliases sc ty
-  fieldAliases = mempty
-
-  conAliases :: ConAliases sc ty
-  conAliases = mempty
-
-  discriminatorTagName :: DiscriminatorTagName sc ty
-  default discriminatorTagName :: (Type.SingI (Type.IsTaggedSum (GetUDTypeKind (DB (SchemaDB sc)) ty (ToDBType (DB (SchemaDB sc)) ty)))) => DiscriminatorTagName sc ty
-  discriminatorTagName = case (Type.fromSing (Type.sing :: Type.Sing (Type.IsTaggedSum (GetUDTypeKind (DB (SchemaDB sc)) ty (ToDBType (DB (SchemaDB sc)) ty))))) of
-    True -> let UDTypeName tn = udTypeName @sc @ty
-            in DiscriminatorTagName (tn <> "_tag")
-    False -> let UDTypeName tn = udTypeName @sc @ty
-            in DiscriminatorTagName tn
-
-  discriminatorTypeName :: UDTypeName sc ty
-  default discriminatorTypeName :: (Type.SingI (Type.IsTaggedSum (GetUDTypeKind (DB (SchemaDB sc)) ty (ToDBType (DB (SchemaDB sc)) ty)))) => UDTypeName sc ty
-  discriminatorTypeName = case (Type.fromSing (Type.sing :: Type.Sing (Type.IsTaggedSum (GetUDTypeKind (DB (SchemaDB sc)) ty (ToDBType (DB (SchemaDB sc)) ty))))) of
-    True -> let UDTypeName tn = udTypeName @sc @ty
-            in UDTypeName (tn <> "_tag")
-    False -> udTypeName @sc @ty
-
-  -- TODO: Explore
-  -- udConstExpr :: ty -> Expr sc ty
-
-newtype DiscriminatorTagName sc ty = DiscriminatorTagName Text
-  deriving newtype (Show, IsString)
-
-_getDiscriminatorTagName :: DiscriminatorTagName sc ty -> Text
-_getDiscriminatorTagName (DiscriminatorTagName t) = t
-
-type family GetUDTypeKind (dbk :: DbK) (ty :: Type) (dbt :: DBObjK) :: Type.UDTypeK where
-  GetUDTypeKind _ _ ('UDTypeObj udt) = udt
-  GetUDTypeKind dbk ty _ = TypeError ('ShowType ty ':<>: 'Text " is not a User Defined Type for database " ':<>: 'ShowType ty)
-
 data DBObjK
   = TableObj
   | NativeTypeObj Type.DBTypeK
@@ -233,6 +186,12 @@ class DBRepr (dbk :: DbK) (t :: Type) where
   type ToDBType dbk t = 'TableObj
   type AutoCodec dbk t :: Bool
   type AutoCodec dbk t = 'True
+
+  -- Invariant: Empty for Sum Types. All the fields of rec types.
+  -- Also used to fix field position independent of it's position in Haskell Declaration 
+  type Fields t :: [(Symbol, Type)]
+  type Fields t = GGetFields t (Rep t)
+
 
   type UnLifted dbk t :: Type
   type UnLifted dbk t = t
@@ -495,6 +454,54 @@ instance DBRepr dbk (a, b) where
 instance DBRepr dbk LTree where
   type ToDBType dbk LTree = 'NativeTypeObj 'Type.DBText -- TODO: Fix
 
+-- UD Type
+newtype UDTypeName sc ty = UDTypeName Text
+
+instance IsString (UDTypeName sc ty) where
+  fromString s = UDTypeName $ T.pack s
+
+class ( DBRepr (DB (SchemaDB sc)) ty
+      ) => UDType (sc :: Type) (ty :: Type) where
+  type TypeId sc ty = (oid :: Nat) | oid -> ty
+
+  udTypeName :: UDTypeName sc ty
+  default udTypeName :: (KnownSymbol (GenTyCon (Rep ty)), Break (NoGeneric ty) (Rep ty)) => UDTypeName sc ty
+  udTypeName = UDTypeName $ defHSNameToDBName $ T.pack (symbolVal (Proxy @(GenTyCon (Rep ty))))
+
+  fieldAliases :: FieldAliases sc ty
+  fieldAliases = mempty
+
+  conAliases :: ConAliases sc ty
+  conAliases = mempty
+
+  discriminatorTagName :: DiscriminatorTagName sc ty
+  default discriminatorTagName :: (Type.SingI (Type.IsTaggedSum (GetUDTypeKind (DB (SchemaDB sc)) ty (ToDBType (DB (SchemaDB sc)) ty)))) => DiscriminatorTagName sc ty
+  discriminatorTagName = case (Type.fromSing (Type.sing :: Type.Sing (Type.IsTaggedSum (GetUDTypeKind (DB (SchemaDB sc)) ty (ToDBType (DB (SchemaDB sc)) ty))))) of
+    True -> let UDTypeName tn = udTypeName @sc @ty
+            in DiscriminatorTagName (tn <> "_tag")
+    False -> let UDTypeName tn = udTypeName @sc @ty
+            in DiscriminatorTagName tn
+
+  discriminatorTypeName :: UDTypeName sc ty
+  default discriminatorTypeName :: (Type.SingI (Type.IsTaggedSum (GetUDTypeKind (DB (SchemaDB sc)) ty (ToDBType (DB (SchemaDB sc)) ty)))) => UDTypeName sc ty
+  discriminatorTypeName = case (Type.fromSing (Type.sing :: Type.Sing (Type.IsTaggedSum (GetUDTypeKind (DB (SchemaDB sc)) ty (ToDBType (DB (SchemaDB sc)) ty))))) of
+    True -> let UDTypeName tn = udTypeName @sc @ty
+            in UDTypeName (tn <> "_tag")
+    False -> udTypeName @sc @ty
+
+newtype DiscriminatorTagName sc ty = DiscriminatorTagName Text
+  deriving newtype (Show, IsString)
+
+_getDiscriminatorTagName :: DiscriminatorTagName sc ty -> Text
+_getDiscriminatorTagName (DiscriminatorTagName t) = t
+
+type family GetUDTypeKind (dbk :: DbK) (ty :: Type) (dbt :: DBObjK) :: Type.UDTypeK where
+  GetUDTypeKind _ _ ('UDTypeObj udt) = udt
+  GetUDTypeKind dbk ty _ = TypeError ('ShowType ty ':<>: 'Text " is not a User Defined Type for database " ':<>: 'ShowType ty)
+
+--
+  
+
 
 class ( -- Break (NoGeneric db) (Rep db)
       -- TypeCxts db (Types db)
@@ -548,21 +555,3 @@ class SchemaCatalog (sc :: Type) where
   type Functions sc :: [(Symbol, Type)]
   type AggFunctions sc :: [(Symbol, Type)]
 --  type Sequences sc :: [Type]
-
--- toNullable :: DBType -> DBType
--- toNullable = DBNullable
-
--- removeNullable :: DBType -> DBType
--- removeNullable (DBNullable t) = t
--- removeNullable _ = error "Panic: Remove nullable failed"
-
--- isNullable :: DBType -> Bool
--- isNullable (DBNullable _) = True
--- isNullable _              = False
-
--- enumType :: T.Text -> DBType
--- enumType v = DBCustomType (DBTypeName v []) False
-
--- NOTE: newtype handling.
-
--- type TPair (a :: Symbol) (b :: Symbol) = '(a, b)

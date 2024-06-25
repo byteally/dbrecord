@@ -3,17 +3,14 @@
 {-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP, PolyKinds, TypeFamilies, DefaultSignatures, DerivingStrategies, LambdaCase #-}
 module DBRecord.Internal.Expr
        ( module DBRecord.Internal.Expr
-       , module DBRecord.Internal.PrimQuery
        ) where
 
-import           DBRecord.Internal.PrimQuery ( Expr (..), AggExpr (..), getExpr
-                                             , unsafeCast, annotateType, unsafeCoerceExpr
-                                             )
 import qualified DBRecord.Internal.PrimQuery as PQ
 import           DBRecord.Types
 import qualified Data.Foldable as F
 import           Data.Functor.Identity (Identity)
 import qualified Data.Functor.Identity as I
+import           Data.Functor.Const
 import qualified Data.HashMap.Strict as HM
 import           Data.String
 import qualified Data.Text as T
@@ -30,6 +27,7 @@ import qualified Data.Text.Lazy as LT
 import           Data.Time
 import           Data.Text (Text)
 import           Data.Scientific
+import           Data.Void
 import           DBRecord.Internal.Types
 import           DBRecord.Internal.DBTypes
 import           Data.UUID (UUID)
@@ -37,11 +35,129 @@ import qualified Data.UUID as UUID
 import           Data.CaseInsensitive (CI, foldedCase, mk)
 import           Data.Coerce
 import           Data.Kind
---import           DBRecord.Internal.Schema (UDTargetType (..), GTarget)
--- import           DBRecord.Internal.Common (FindAlias, NewtypeRep, FromJust)
 import           GHC.Generics
+import           GHC.Records
 import           GHC.TypeLits
--- import           GHC.OverloadedLabels
+
+
+newtype Expr (sc :: Type) (t :: Type) =
+  Expr PQ.PrimExpr
+  deriving Show
+
+getExpr :: Expr (sc :: Type) (t :: Type) -> PQ.PrimExpr
+getExpr (Expr e) = e
+
+unsafeCast :: DBType -> Expr sc a -> Expr sc b
+unsafeCast castTo (Expr expr) = Expr $ PQ.CastExpr castTo expr
+
+-- TODO: Reimplement this
+-- annotateType :: forall sc a.
+--                  ( DBTypeCtx (GetDBTypeRep sc a)
+--                  , SingI (GetDBTypeRep sc a)
+--                  ) => Expr sc a -> Expr sc a
+-- annotateType = unsafeCast tyRep
+--   where tyRep = fromSing (sing :: Sing (GetDBTypeRep sc a))
+annotateType :: forall a sc.
+  ( DBTypeOf sc a
+  ) => Expr sc a -> Expr sc a
+annotateType e =
+  let _dbt = dbTypeOf e
+  in undefined
+
+unsafeCoerceExpr :: Expr sc a -> Expr sc b
+unsafeCoerceExpr (Expr e) = Expr e
+
+type DBTypeOf sc a = ( DBRepr (DB (SchemaDB sc)) a
+                     , ReifyTypeName sc a (ToDBType (DB (SchemaDB sc)) a)
+                     )
+
+dbTypeOf :: forall a sc.DBTypeOf sc a => Expr sc a -> DBTypeName
+dbTypeOf _ = reifyTypeName (Proxy :: Proxy '(sc, a, ToDBType (DB (SchemaDB sc)) a))
+
+class ReifyTypeName (sc :: Type) (a :: Type) (dbObj :: DBObjK) where
+  reifyTypeName :: Proxy '(sc, a, dbObj) -> DBTypeName
+
+instance (TypeError ('Text "Table is used as Type")) => ReifyTypeName sc a 'TableObj where
+  reifyTypeName = error "Panic: Unreachable code"
+
+instance UDType sc a => ReifyTypeName sc a ('UDTypeObj udt) where
+  reifyTypeName _ = undefined $ udTypeName @sc @a
+
+instance ReifyTypeName sc a ('NativeTypeObj dbt) where
+  reifyTypeName _ = undefined
+
+instance (DBTypeOf sc ty, DBRepr (DB (SchemaDB sc)) ty, ReifyTypeName sc ty (ToDBType (DB (SchemaDB sc)) ty) ) => ReifyTypeName sc a ('NewtypeObj ty) where
+  reifyTypeName _ = dbTypeOf (undefined :: Expr sc ty)
+
+instance ReifyTypeName sc e dbObj => ReifyTypeName sc c ('ArrayObjOf e dbObj) where
+  reifyTypeName _ = reifyTypeName (Proxy @'(sc, e, dbObj))
+
+instance ReifyTypeName sc e dbObj => ReifyTypeName sc opt ('NullableObjOf e dbObj) where
+  reifyTypeName _ = reifyTypeName (Proxy @'(sc, e, dbObj))  
+
+
+-- TODO: Without Region Parameter it is not safe to have these instance
+instance (DBRepr (DB (SchemaDB sc)) t, HasField '(fn, ToDBType (DB (SchemaDB sc)) t) (Expr sc t) a) => HasField (fn :: Symbol) (Expr sc t) a where
+  getField e = getField @'(fn, ToDBType (DB (SchemaDB sc)) t) e
+
+instance (HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'TableObj) (Expr sc t) (Expr sc a) where
+  getField (Expr (PQ.FlatComposite es)) =
+    let
+      cname = T.pack $ symbolVal (Proxy @fn)
+    in case lookup cname es of
+         Just t -> Expr t
+         _      -> error $ "Panic: Impossible case! Field not found: " ++ show (cname, fmap fst es)
+  getField (Expr _e) = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
+
+
+instance (HasField '(fn, dbrepr) (Expr sc t) (Expr sc a), HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'NullableObjOf t dbrepr) (Expr sc (Maybe t)) (Expr sc (Maybe a)) where
+  getField e = toMaybe $ getField @'(fn, dbrepr) (unsafeUnMaybe e)
+    where
+      unsafeUnMaybe :: Expr sc (Maybe x) -> Expr sc x
+      unsafeUnMaybe (Expr ex) = Expr ex
+      toMaybe :: Expr sc x -> Expr sc (Maybe x)
+      toMaybe (Expr ex) = Expr ex
+
+instance (UDType sc t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'UDTypeObj ('UDRec 'CompositeRec)) (Expr sc t) (Expr sc a) where
+  getField (Expr (PQ.FlatComposite _es)) = error "Panic: Unexpected Flat Composite"
+  getField (Expr e) =
+    let
+      fldN = getConst $ getAliasedFieldName @fn @t @sc @a fieldAliases
+    in Expr (PQ.CompositeExpr e fldN)
+
+instance (UDType sc t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'UDTypeObj ('UDRec 'FlatRec)) (Expr sc t) (Expr sc a) where
+  getField (Expr (PQ.FlatComposite es)) =
+    let
+      fldN = getConst $ getAliasedFieldName @fn @t @sc @a fieldAliases
+    in case lookup fldN es of
+         Just t -> Expr t
+         _      -> error "Panic: Impossible case! Field not found"
+  getField (Expr _e) = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
+
+instance (UDType sc t, HasField fn t a, TypeError ('Text "TODO @ HasField 'UDRec 'JsonRec")) => HasField '(fn :: Symbol, 'UDTypeObj ('UDRec 'JsonRec)) (Expr sc t) (Expr sc a) where
+  getField = error "Panic: TODO"
+
+instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('UDEnum enk)) (Expr sc t) Void where
+  getField = error "Panic: Unreachable code"
+
+instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('TaggedSum enk lay)) (Expr sc t) Void where
+  getField = error "Panic: Unreachable code"
+
+instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('TaggedSumMono enk ct lay)) (Expr sc t) Void where
+  getField = error "Panic: Unreachable code"
+
+instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('SumOfCol enk)) (Expr sc t) Void where
+  getField = error "Panic: Unreachable code"
+
+instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('SerializedBlob ct)) (Expr sc t) Void where
+  getField = error "Panic: Unreachable code"  
+
+newtype AggExpr (sc :: Type) (t :: Type) =
+  AggExpr { getAggExpr :: Expr sc t }
+  deriving Show
+
+unsafeCol :: [T.Text] -> Expr sc a
+unsafeCol = Expr . PQ.unsafeAttrExpr
 
 
 match :: forall r t sc.
@@ -67,68 +183,68 @@ instance (UDType sc ty, Typeable ty, HasDiscriminator enumk sc ty) => Match ('UD
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
                      discPE = getDiscriminator (Proxy @'(enumk, sc, ty)) undefined cn cpos
-                   in (PQ.Expr (PQ.BinExpr PQ.OpEq (PQ.getExpr scrut) discPE), caseF c)
+                   in (Expr (PQ.BinExpr PQ.OpEq (getExpr scrut) discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
 
 
 instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSum enk 'FlatRec)) sc ty where
-  match' _ allCons (PQ.Expr (PQ.FlatComposite es)) caseF =
+  match' _ allCons (Expr (PQ.FlatComposite es)) caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
                      discFld = case es of
                        [] -> error $ "Panic: Impossible case! Discriminator not found: " ++ T.unpack cn
                        ((_, e) : _) -> e
                      discPE = getDiscriminator (Proxy @'(enk, sc, ty)) undefined cn cpos
-                   in (PQ.Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
+                   in (Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
-  match' _ _ (PQ.Expr _e) _ = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
+  match' _ _ (Expr _e) _ = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
 
 instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSum enk 'CompositeRec)) sc ty where
   match' _ allCons scrut caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
-                     discFld = PQ.CompositeExpr (PQ.getExpr scrut) (_getDiscriminatorTagName $ discriminatorTagName @sc @ty)
+                     discFld = PQ.CompositeExpr (getExpr scrut) (_getDiscriminatorTagName $ discriminatorTagName @sc @ty)
                      discPE = getDiscriminator (Proxy @'(enk, sc, ty)) undefined cn cpos
-                   in (PQ.Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
+                   in (Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
 
 instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty, TypeError ('Text "TODO: @Match ('UDTypeObj ('TaggedSum enk 'JsonRec))")) => Match ('UDTypeObj ('TaggedSum enk 'JsonRec)) sc ty where
   match' = error "Panic: TODO"
 
 instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSumMono enk at 'FlatRec)) sc ty where
-  match' _ allCons (PQ.Expr (PQ.FlatComposite es)) caseF =
+  match' _ allCons (Expr (PQ.FlatComposite es)) caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
                      (discFld, _arg) = case es of
                        ((_, e) : (_, a) :[]) -> (e, a)
                        _ -> error $ "Panic: Impossible case! Expecting (tag, value) pair: " ++ T.unpack cn
                      discPE = getDiscriminator (Proxy @'(enk, sc, ty)) undefined cn cpos
-                   in (PQ.Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
+                   in (Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
-  match' _ _ (PQ.Expr _e) _ = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
+  match' _ _ (Expr _e) _ = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
 
 instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSumMono enk at 'CompositeRec)) sc ty where
   match' _ allCons scrut caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
-                     discFld = PQ.CompositeExpr (PQ.getExpr scrut) (_getDiscriminatorTagName $ discriminatorTagName @sc @ty)
+                     discFld = PQ.CompositeExpr (getExpr scrut) (_getDiscriminatorTagName $ discriminatorTagName @sc @ty)
                      discPE = getDiscriminator (Proxy @'(enk, sc, ty)) undefined cn cpos
-                   in (PQ.Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
+                   in (Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
 
 instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty, TypeError ('Text "TODO: @Match ('UDTypeObj ('TaggedSumMono enk 'JsonRec))")) => Match ('UDTypeObj ('TaggedSumMono enk at 'JsonRec)) sc ty where
   match' = error "Panic: TODO"
 
 instance (UDType sc ty, Typeable ty) => Match ('UDTypeObj ('SumOfCol 'FlatRec)) sc ty where
-  match' _ allCons (PQ.Expr (PQ.FlatComposite es)) caseF =
+  match' _ allCons (Expr (PQ.FlatComposite es)) caseF =
     case_ (fmap (\(esMay, (cn, c)) ->
                    let
                      discFld = case esMay of
                        Just (_, e) -> e
                        Nothing -> error $ "Panic: Impossible case! Unable to find expr for tag: " ++ T.unpack cn
-                   in (PQ.Expr (PQ.PostfixExpr PQ.OpIsNotNull discFld), caseF c)
+                   in (Expr (PQ.PostfixExpr PQ.OpIsNotNull discFld), caseF c)
                 ) (zip ((fmap Just es) ++ (repeat Nothing)) allCons)) (Expr $ PQ.ConstExpr PQ.Null)
-  match' _ _ (PQ.Expr _e) _ = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
+  match' _ _ (Expr _e) _ = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
 
 instance (UDType sc ty, Typeable ty) => Match ('UDTypeObj ('SumOfCol 'CompositeRec)) sc ty where
   match' _ allCons scrut caseF =
@@ -137,8 +253,8 @@ instance (UDType sc ty, Typeable ty) => Match ('UDTypeObj ('SumOfCol 'CompositeR
                      cname = case lookupConName cn Nothing (conAliases @sc @ty) of
                        Left cn' -> cn'
                        Right _ -> error $ "Panic: Expecting only Text, not Int64 as tag for: " ++ (show $ typeRep (Proxy @ty))
-                     discFld = PQ.CompositeExpr (PQ.getExpr scrut) cname
-                   in (PQ.Expr (PQ.PostfixExpr PQ.OpIsNotNull discFld), caseF c)
+                     discFld = PQ.CompositeExpr (getExpr scrut) cname
+                   in (Expr (PQ.PostfixExpr PQ.OpIsNotNull discFld), caseF c)
                 ) allCons) (Expr $ PQ.ConstExpr PQ.Null)
 
 instance (UDType sc ty, Typeable ty, TypeError ('Text "TODO: @Match ('UDTypeObj ('SumOfCol 'JsonRec))")) => Match ('UDTypeObj ('SumOfCol 'JsonRec)) sc ty where
@@ -177,8 +293,113 @@ instance (UDType sc ty, Typeable ty) => HasDiscriminator 'EnumNum sc ty where
                Right ct -> ct
     in PQ.ConstExpr (PQ.Integer $ toInteger ctag)
 
+constExpr :: forall t sc.(DBRepr (DB (SchemaDB sc)) t, AutoConstExpr sc t (ToDBType (DB (SchemaDB sc)) t) (AutoCodec (DB (SchemaDB sc)) t)) => t -> Expr sc t
+constExpr = autoConstExpr (Proxy @'(ToDBType (DB (SchemaDB sc)) t, AutoCodec (DB (SchemaDB sc)) t))
+
 class ConstExpr sc t where
-  constExpr :: t -> PQ.Expr sc t
+  toConstExpr :: t -> Expr sc t
+
+class AutoConstExpr sc t (dbObj :: DBObjK) (isAuto :: Bool) where
+  autoConstExpr :: Proxy '(dbObj, isAuto) -> t -> Expr sc t
+
+-- TODO: Add TypeError for `'TableObj`
+instance ConstExpr sc t => AutoConstExpr sc t dbObj 'False where
+  autoConstExpr _ = toConstExpr
+
+instance TypeError ('Text "Unexpected Table in place of Type" ':<>: 'ShowType t) => AutoConstExpr sc t 'TableObj 'True where
+  autoConstExpr = error "Panic: Unreachable code"
+
+instance ConstExpr sc t => AutoConstExpr sc t ('NativeTypeObj nat) 'True where
+  autoConstExpr _ = toConstExpr
+
+instance (Generic t, GConstExprFlat sc t (Rep t), DBTypeOf sc t) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'CompositeRec)) 'True where
+  autoConstExpr _ _t = annotateType @t (Expr $ PQ.RowExpr []) -- TODO: Fix empty list
+
+instance (Generic t, GConstExprFlat sc t (Rep t)) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'FlatRec)) 'True where
+  autoConstExpr _ t = gconstExprFlat (from t)
+
+instance (A.ToJSON t, UDType sc t) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'JsonRec)) 'True where
+  autoConstExpr _ t = unsafeCoerceExpr $ constExpr $ A.toJSON t
+
+instance (Generic t, UDType sc t, GenEnumExpr sc t (Rep t) (GetTagEnumK (ToDBType (DB (SchemaDB sc)) t))) => AutoConstExpr sc t ('UDTypeObj ('UDEnum enum)) 'True where
+  autoConstExpr _ t = genEnumExpr t
+
+instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'FlatRec)) 'True where
+  autoConstExpr _ _t = Expr (PQ.FlatComposite [(undefined, undefined)])
+
+instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'CompositeRec)) 'True where
+  autoConstExpr _ _t = undefined
+
+instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr TaggedSum")) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'JsonRec)) 'True where
+  autoConstExpr _ _t = error "Panic: TODO"
+
+instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'FlatRec)) 'True where
+  autoConstExpr _ _t = Expr (PQ.FlatComposite [(undefined, undefined)])
+
+instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'CompositeRec)) 'True where
+  autoConstExpr _ _t = undefined
+
+instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr TaggedSumMono")) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'JsonRec)) 'True where
+  autoConstExpr _ _t = error "Panic: TODO"
+
+instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('SumOfCol 'FlatRec)) 'True where
+  autoConstExpr _ _t = Expr (PQ.FlatComposite [(undefined, undefined)])
+
+instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('SumOfCol 'CompositeRec)) 'True where
+  autoConstExpr _ _t = undefined
+
+instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr SumOfCol")) => AutoConstExpr sc t ('UDTypeObj ('SumOfCol 'JsonRec)) 'True where
+  autoConstExpr _ _t = error "Panic: TODO"
+
+instance (A.ToJSON t, DBTypeOf sc t) => AutoConstExpr sc t ('UDTypeObj ('SerializedBlob ('JsonContent 'Nothing))) 'True where
+  autoConstExpr _ t = jsonOf t
+
+instance (Show t) => AutoConstExpr sc t ('UDTypeObj ('SerializedBlob ('TextContent 'Nothing))) 'True where
+  autoConstExpr _ t = Expr . PQ.ConstExpr . PQ.String . T.pack . show $ t  
+
+instance (t ~ ety, AutoConstExpr sc ety edbk 'True) => AutoConstExpr sc (Maybe t) ('NullableObjOf ety edbk) 'True where
+  autoConstExpr _ = \case
+    Nothing -> nothing
+    Just t -> toNullable $ autoConstExpr (Proxy @'(edbk, 'True)) t
+
+instance (t ~ ety, AutoConstExpr sc ety edbk 'True, Foldable f, Functor f, DBTypeOf sc (f ety)) => AutoConstExpr sc (f t) ('ArrayObjOf ety edbk) 'True where
+  autoConstExpr _ ts = arrayF (fmap (autoConstExpr (Proxy @'(edbk, 'True))) ts)
+
+
+class GConstExprFlat sc a (rep :: Type -> Type) where
+  gconstExprFlat :: rep x -> Expr sc a
+
+instance GConstExprFlat sc a f => GConstExprFlat sc a (D1 m f) where
+  gconstExprFlat (M1 f) = gconstExprFlat f
+
+instance (TypeError ('Text "Sum Type cannot be used as Flat Composite Record" ':<>: 'ShowType a)) => GConstExprFlat sc a (f :+: g) where
+  gconstExprFlat = error "Panic: Unreachable code"
+
+instance GConstExprFlat sc a f => GConstExprFlat sc a (C1 m f) where
+  gconstExprFlat (M1 f) = gconstExprFlat f
+
+instance (GConstExprFlat sc a f, GConstExprFlat sc a g) => GConstExprFlat sc a (f :*: g) where
+  gconstExprFlat (f :*: g) = unsafeCoerceExpr (gconstExprFlat f `appendFlatComposite` gconstExprFlat g)
+
+    where appendFlatComposite :: Expr sc a -> Expr sc a -> Expr sc a
+          appendFlatComposite (Expr (PQ.FlatComposite xs)) (Expr (PQ.FlatComposite ys)) = Expr (PQ.FlatComposite (xs ++ ys))
+          appendFlatComposite a b = error $ "Panic: expecting only flatcomposite @appendFlatComposite" ++ show (a, b)
+
+instance ( UDType sc a
+         , HasField n a t
+         , AutoConstExpr sc t (ToDBType (DB (SchemaDB sc)) t) (AutoCodec (DB (SchemaDB sc)) t)
+         , KnownSymbol n
+         ) => GConstExprFlat sc a (S1 ('MetaSel ('Just n) su ss ds) (K1 i t)) where
+  gconstExprFlat (M1 (K1 v)) =
+    unsafeCoerceExpr (flatComposite (autoConstExpr (Proxy @'(ToDBType (DB (SchemaDB sc)) t, AutoCodec (DB (SchemaDB sc)) t)) v))
+
+    where flatComposite :: Expr sc t -> Expr sc t
+          flatComposite (Expr v0) = Expr (PQ.FlatComposite (pure (fldN, v0)))
+          fldN = getConst $ getAliasedFieldName @n @a @sc @t fieldAliases
+
+instance (TypeError ('Text "Only Record Types can be used as Flat Composite Record" ':<>: 'ShowType a)) => GConstExprFlat sc a (S1 ('MetaSel 'Nothing su ss ds) k) where
+  gconstExprFlat = error "Panic: Unreachable code"
+  
 
 genEnumExpr :: forall sc t.
   ( Generic t, UDType sc t
@@ -217,107 +438,102 @@ instance (TypeError ('Text "Expected Only Unary Constructor " ':<>: 'ShowType t)
 
 
 instance ConstExpr sc Text where
-  constExpr = fromString . T.unpack
+  toConstExpr = fromString . T.unpack
 
 instance ConstExpr sc Int where
-  constExpr = exprFromInteger . fromIntegral
+  toConstExpr = exprFromInteger . fromIntegral
 
 instance ConstExpr sc Int8 where
-  constExpr = exprFromInteger . fromIntegral
+  toConstExpr = exprFromInteger . fromIntegral
 
 instance ConstExpr sc Int16 where
-  constExpr = exprFromInteger . fromIntegral
+  toConstExpr = exprFromInteger . fromIntegral
 
 instance ConstExpr sc Int32 where
-  constExpr = exprFromInteger . fromIntegral
+  toConstExpr = exprFromInteger . fromIntegral
 
 instance ConstExpr sc Int64 where
-  constExpr = exprFromInteger . fromIntegral
+  toConstExpr = exprFromInteger . fromIntegral
 
 instance ConstExpr sc Word where
-  constExpr = exprFromInteger . fromIntegral
+  toConstExpr = exprFromInteger . fromIntegral
 
 instance ConstExpr sc Word8 where
-  constExpr = exprFromInteger . fromIntegral
+  toConstExpr = exprFromInteger . fromIntegral
 
 instance ConstExpr sc Word16 where
-  constExpr = exprFromInteger . fromIntegral
+  toConstExpr = exprFromInteger . fromIntegral
 
 instance ConstExpr sc Word32 where
-  constExpr = exprFromInteger . fromIntegral
+  toConstExpr = exprFromInteger . fromIntegral
 
 instance ConstExpr sc Word64 where
-  constExpr = exprFromInteger . fromIntegral
+  toConstExpr = exprFromInteger . fromIntegral
 
 instance ConstExpr sc SB.ByteString where
-  constExpr = bytes
-
-instance ConstExpr sc t => ConstExpr sc (fn ::: t) where
-  constExpr (DBRecord.Internal.Types.Field v) = unwrap $ constExpr v
-    where unwrap :: PQ.Expr sc t -> PQ.Expr sc (fn ::: t)
-          unwrap = PQ.unsafeCoerceExpr
+  toConstExpr = bytes
 
 instance ConstExpr sc Double where
-  constExpr = literalExpr . PQ.Double
+  toConstExpr = literalExpr . PQ.Double
 
 instance ConstExpr sc Float where
-  constExpr = literalExpr . PQ.Double . fromRational . toRational
+  toConstExpr = literalExpr . PQ.Double . fromRational . toRational
 
 instance ConstExpr sc Rational where
-  constExpr = literalExpr . PQ.Double . fromRational
+  toConstExpr = literalExpr . PQ.Double . fromRational
 
 instance ConstExpr sc Scientific where
-  constExpr = literalExpr . PQ.Double . toRealFloat -- (flip toRationalRepetend 2)
+  toConstExpr = literalExpr . PQ.Double . toRealFloat -- (flip toRationalRepetend 2)
 
 instance (
          ) => ConstExpr sc (CI T.Text) where
-  constExpr = citext
+  toConstExpr = citext
 
 instance (
          ) => ConstExpr sc Day where
-  constExpr = date
+  toConstExpr = date
 
 instance () => ConstExpr sc UTCTime where
-  constExpr = utcTime
+  toConstExpr = utcTime
 
 instance () => ConstExpr sc LocalTime where
-  constExpr = localTime
+  toConstExpr = localTime
 
 instance () => ConstExpr sc TimeOfDay where
-  constExpr = timeOfDay
+  toConstExpr = timeOfDay
 
 instance (ConstExpr sc a) => ConstExpr sc (Identity a) where
-  constExpr = toIdentity . constExpr . I.runIdentity
+  toConstExpr = toIdentity . toConstExpr . I.runIdentity
 
 instance ( ConstExpr sc a
-         , PQ.DBTypeOf sc a
+         , DBTypeOf sc a
          ) => ConstExpr sc [a] where
-  constExpr = array . map constExpr
+  toConstExpr = array . map toConstExpr
 
 instance ConstExpr sc Bool where
-  constExpr = literalExpr . PQ.Bool
+  toConstExpr = literalExpr . PQ.Bool
 
 instance ( ) => ConstExpr sc A.Value where
-  constExpr = jsonb
+  toConstExpr = jsonValue
 
 instance ( ) => ConstExpr sc UUID where
-  constExpr = uuid
+  toConstExpr = uuid
 
 instance (ConstExpr sc a) => ConstExpr sc (Maybe a) where
-  constExpr =
-    maybe (literalExpr PQ.Null) (toNullable . constExpr)
+  toConstExpr =
+    maybe (literalExpr PQ.Null) (toNullable . toConstExpr)
 
 instance ConstExpr sc LTree where
-  constExpr = ltree
+  toConstExpr = ltree
 
-ltree :: LTree -> PQ.Expr sc LTree
+ltree :: LTree -> Expr sc LTree
 ltree (LTree vs) = go vs
     where
       go = literalExpr . PQ.String . dotSep
       dotSep = T.intercalate "."
 
-literalExpr :: PQ.Lit -> PQ.Expr sc a
-literalExpr = PQ.Expr . PQ.ConstExpr
+literalExpr :: PQ.Lit -> Expr sc a
+literalExpr = Expr . PQ.ConstExpr
 
 
 instance (OrdExpr db v) => OrdExpr db (Key t v) where
@@ -333,10 +549,10 @@ deriving newtype instance (EqExpr db v) => EqExpr db (Key t v)
 --          coerceExprTo = coerceExpr
 
 instance (ConstExpr db v) => ConstExpr db (Key t v) where
-  constExpr (Key a) = coerceExpr . constExpr $ a
+  toConstExpr (Key a) = coerceExpr . toConstExpr $ a
 
 -- instance (ToJSON a, Typeable a) => ConstExpr sc (Json a) where
---   constExpr =
+--   toConstExpr =
 --     toJson . getJson
 
 
@@ -467,7 +683,7 @@ class EqExpr sc a where
 
 (./=) :: EqExpr sc a => Expr sc a -> Expr sc a -> Expr sc Bool
 (./=) a b = case (a .== b) of
-  PQ.Expr (PQ.BinExpr PQ.OpEq x y) -> PQ.Expr (PQ.BinExpr PQ.OpNotEq x y)
+  Expr (PQ.BinExpr PQ.OpEq x y) -> Expr (PQ.BinExpr PQ.OpNotEq x y)
   e -> not_ e
 
 infix 4 .==
@@ -530,12 +746,6 @@ pattern FALSE = Expr (PQ.ConstExpr (PQ.Bool False))
 --     snd (udTargetType (Proxy @'(fld, 'Flat als)) e1) .==
 --     snd (udTargetType (Proxy @'(fld, 'Flat als)) e2)
 
-instance (EqExpr sc t) => EqExpr sc (fld ::: t) where
-  a .== b = coerceExprTo a .== coerceExprTo b
-
-    where coerceExprTo :: Expr sc (fld ::: a) -> Expr sc a
-          coerceExprTo = coerceExpr
-
 instance EqExpr sc () where
   _ .== _ = true
 
@@ -582,7 +792,7 @@ append arrl arrr =
   let fun = PQ.FunExpr "array_cat" [getExpr arrl, getExpr arrr]
   in  Expr fun
 
-nil :: (PQ.DBTypeOf sc a) => Expr sc [a]
+nil :: (DBTypeOf sc a) => Expr sc [a]
 nil = array []
 
 class (EqExpr sc a) => OrdExpr sc a where
@@ -706,8 +916,8 @@ upper = prefixOp PQ.OpUpper
 ors :: Foldable f => f (Expr sc Bool) -> Expr sc Bool
 ors = F.foldl' (.||) false
 
-in_ :: (Functor f, Foldable f, EqExpr sc a) => f (Expr sc a) -> Expr sc a -> Expr sc Bool
-in_ exprs e = ors . fmap (e .==) $ exprs
+in_ :: (Functor f, Foldable f, EqExpr sc a) => Expr sc a -> f (Expr sc a) -> Expr sc Bool
+in_ e exprs = ors . fmap (e .==) $ exprs
 
 true :: Expr sc Bool
 true = Expr $ PQ.ConstExpr $ PQ.Bool True
@@ -715,9 +925,14 @@ true = Expr $ PQ.ConstExpr $ PQ.Bool True
 false :: Expr sc Bool
 false = Expr $ PQ.ConstExpr $ PQ.Bool False
 
-array :: ( PQ.DBTypeOf sc a
+array :: ( DBTypeOf sc a
          ) => [Expr sc a] -> Expr sc [a]
 array = annotateType . Expr . PQ.ArrayExpr . coerce
+
+arrayF :: ( DBTypeOf sc (f a)
+          , Foldable f
+          ) => f (Expr sc a) -> Expr sc (f a)
+arrayF = annotateType . Expr . PQ.ArrayExpr . coerce . F.toList
 
 iscontainedBy :: Expr sc [a] -> Expr sc [a] -> Expr sc Bool
 iscontainedBy a b = binOp (PQ.OpOther "<@") a b
@@ -725,11 +940,19 @@ iscontainedBy a b = binOp (PQ.OpOther "<@") a b
 -- any :: Expr sc [a] -> Expr sc a
 -- any (Expr e) = Expr (PQ.UnExpr (PQ.UnOpOtherFun "ANY") e)
 
-jsonb ::
+jsonOf ::
+  forall sc a.
+  ( A.ToJSON a
+  , DBTypeOf sc a
+  ) => a -> Expr sc a
+jsonOf = annotateType . Expr . PQ.ConstExpr . PQ.String . jsonify
+  where jsonify = T.pack . lazyDecodeUtf8 . A.encode
+
+jsonValue ::
   forall sc a.
   ( A.ToJSON a
   ) => a -> Expr sc A.Value
-jsonb = annotateType . Expr . PQ.ConstExpr . PQ.String . jsonify
+jsonValue = annotateType . Expr . PQ.ConstExpr . PQ.String . jsonify
   where jsonify = T.pack . lazyDecodeUtf8 . A.encode
 
 text :: T.Text -> Expr sc T.Text
@@ -891,10 +1114,10 @@ jsonbSet col vs val =
   where
     args =
       [ getExpr col
-      , getExpr (constExpr @sc vs)
+      , getExpr (toConstExpr @sc vs)
       , json0
       ]
-    json0 = coerce $ jsonb @sc val
+    json0 = coerce $ jsonValue @sc val
 
 instance EqExpr sc Bool where
   a .== b = binOp PQ.OpEq a b
