@@ -486,7 +486,7 @@ ppPGType = go
         go (DBArray t)                  = go t ++ "[]"
         go (DBNullable t)               = go t
         go (OtherBuiltInType tn)        = ppDbTypeName tn
-        go (DBCustomType scn tn)        = T.unpack (doubleQuote scn) <> dot <> ppDbTypeName tn
+        -- go (DBCustomType scn tn)        = T.unpack (doubleQuote scn) <> dot <> ppDbTypeName tn
 
         ppDbTypeName (DBTypeName t args) = T.unpack (doubleQuote t) ++ ppArgs args
 
@@ -496,7 +496,7 @@ ppPGType = go
         ppArg (TextArg t)    = T.unpack t
         ppArg (IntegerArg i) = show i
 
-        dot = "."
+        _dot = "."
 
 
 ppPGOIDType :: PGOIDType -> String

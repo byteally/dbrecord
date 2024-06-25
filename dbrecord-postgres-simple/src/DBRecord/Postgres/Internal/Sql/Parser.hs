@@ -289,7 +289,7 @@ defSizeInfo :: SizeInfo
 defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
                                     
 parsePGType :: String -> Bool -> SizeInfo -> String -> DBType
-parsePGType scn nullInfo sz = wrapNullable nullInfo . go
+parsePGType _scn nullInfo sz = wrapNullable nullInfo . go
   where go "smallint"                  = DBInt2
         go "integer"                   = DBInt4
         go "bigint"                    = DBInt8
@@ -360,7 +360,7 @@ parsePGType scn nullInfo sz = wrapNullable nullInfo . go
         go "regconfig"                 = OtherBuiltInType (DBTypeName "regconfig" [])
         go "regdictionary"             = OtherBuiltInType (DBTypeName "regdictionary" [])
         go v | isArray v               = DBArray (parseArray v)
-             | otherwise               = DBCustomType (T.pack scn) (DBTypeName (T.pack v) [])
+             | otherwise               = OtherBuiltInType (DBTypeName (T.pack v) [])
 
 
         isArray v = case splitAt 2 v of

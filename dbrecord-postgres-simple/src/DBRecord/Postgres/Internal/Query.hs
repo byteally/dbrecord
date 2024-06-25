@@ -273,22 +273,11 @@ instance (FromField a) => FromField (Identity a) where
   fromField f m = Identity <$> fromField f m
 #endif
 
-instance (FromField a) => FromField (fld ::: a) where
-  fromField f m = Field <$> fromField f m
-
 instance (FromField v) => FromField (Key (t :: k) v) where
   fromField f m = Key <$> fromField f m
 
 instance (FromField a) => FromRow (Identity a) where
   fromRow = Identity <$> field
-
-instance ( FromField (f x)
-         , FromRow (HList f a)
-         ) => FromRow (HList f (x ': a)) where
-  fromRow = (:&) <$> field <*> fromRow
-
-instance FromRow (HList f '[]) where
-  fromRow = pure Nil
 
 -- | Implementation based on MonadUnliftIO
 withResource :: (U.MonadUnliftIO m) => P.Pool a -> (a -> m r) -> m r
