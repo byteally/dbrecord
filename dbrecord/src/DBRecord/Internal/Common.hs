@@ -10,6 +10,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as LT
 import qualified Data.Text.Lazy.Builder as LTB
+import Record
 
 type family GenTyCon (rep :: Type -> Type) :: Symbol where
   GenTyCon (D1 ('MetaData tyName _ _ _) _) = tyName
@@ -17,6 +18,11 @@ type family GenTyCon (rep :: Type -> Type) :: Symbol where
 
 type family GetTypeName (t :: Type) :: Symbol where
   GetTypeName t              = GenTyCon (Rep t)
+
+type family GGetFieldsOrEmpty (t :: Type) (rep :: Type -> Type) :: [(Symbol, Type)] where
+  GGetFieldsOrEmpty t (D1 _ f) = GGetFieldsOrEmpty t f
+  GGetFieldsOrEmpty t (f :+: g) = '[]
+  GGetFieldsOrEmpty t _ = GGetFields t (Rep t)
 
 data T1 (t :: Type)
 type family Break (c :: Constraint) (rep :: Type -> Type) :: Constraint where

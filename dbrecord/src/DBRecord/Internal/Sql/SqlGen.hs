@@ -313,6 +313,7 @@ sqlBinOp  PQ.OpAnd        = OpAnd
 sqlBinOp  PQ.OpOr         = OpOr
 sqlBinOp  PQ.OpLike       = OpLike
 sqlBinOp  PQ.OpIn         = OpIn
+sqlBinOp  PQ.OpBetween    = OpBetween
 sqlBinOp  (PQ.OpOther s)  = OpOther s
 sqlBinOp  PQ.OpCat        = OpCat
 sqlBinOp  PQ.OpPlus       = OpPlus

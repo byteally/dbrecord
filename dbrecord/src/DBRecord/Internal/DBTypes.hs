@@ -23,7 +23,7 @@ import qualified DBRecord.Types as DBR
 import Data.Vector (Vector)
 import DBRecord.Internal.Types (DbK (..))
 import qualified DBRecord.Internal.Types as Type
--- import DBRecord.Internal.Types (Sing (..), SingE (..))
+import DBRecord.Internal.Types (Sing (..), SingE (..))
 import DBRecord.Internal.Common
 import qualified Data.Text as T
 import GHC.Generics
@@ -67,22 +67,70 @@ data DBType = DBInt4
             | DBJsonB
             | DBArray DBType
             | DBLTree
-            | OtherBuiltInType DBTypeName
-            -- | DBCustomType
-            --     T.Text -- Schema name
-            --     DBTypeName
+            | OtherType DBTypeName
             deriving (Show, Eq, Ord, Read)
 
-data DBTypeName = DBTypeName T.Text [TypeArg]
+data DBTypeName = DBTypeName TypeNameQual T.Text [TypeArg]
                 deriving (Show, Eq, Ord, Read)
 
 data TypeArg = TextArg    T.Text
              | IntegerArg Integer
              deriving (Show, Eq, Ord, Read)
 
-instance Type.SingE 'Type.DBInt4 where
-  type Demote 'Type.DBInt4 = DBType
-  fromSing Type.SDBInt4 = undefined
+data TypeNameQual
+  = SchemaQualified Text
+  | DBQualified Text Text
+  | NoQualification
+  deriving (Show, Eq, Ord, Read)
+
+type family DBTypeCtx (t :: Type.DBTypeK) :: Constraint where
+  DBTypeCtx ('Type.DBFloat v)             = SingE v
+  DBTypeCtx ('Type.DBNumeric v1 v2)       = (SingE v1, SingE v2)
+  DBTypeCtx ('Type.DBChar v)              = SingE v
+  DBTypeCtx ('Type.DBVarchar v)           = Type.EitherCtx SingE SingE v
+  DBTypeCtx ('Type.DBTime v)              = SingE v
+  DBTypeCtx ('Type.DBTimetz v)            = SingE v
+  DBTypeCtx ('Type.DBTimestamp v)         = SingE v
+  DBTypeCtx ('Type.DBTimestamptz v)       = SingE v
+  DBTypeCtx ('Type.DBInterval _ v)        = SingE v
+  DBTypeCtx ('Type.DBNullable v)          = SingE v
+  DBTypeCtx ('Type.DBBinary v)            = SingE v
+  DBTypeCtx ('Type.DBVarbinary v)         = Type.EitherCtx SingE SingE v
+  DBTypeCtx ('Type.DBBit v)               = SingE v
+  DBTypeCtx ('Type.DBVarbit v)            = SingE v
+  DBTypeCtx ('Type.DBArray v)             = SingE v
+  DBTypeCtx _                             = ()
+  
+instance (DBTypeCtx t) => SingE (t :: Type.DBTypeK) where
+  type Demote t = DBType
+  
+  fromSing SDBInt4                 = DBInt4
+  fromSing SDBInt8                 = DBInt8
+  fromSing SDBInt2                 = DBInt2
+  fromSing (SDBFloat v)            = DBFloat (fromSing v)
+  fromSing (SDBNumeric n1 n2)      = DBNumeric (fromSing n1) (fromSing n2)
+  fromSing (SDBChar n)             = DBChar (fromSing n)
+  fromSing (SDBVarchar n)          = DBVarchar (fromSing n)
+  fromSing SDBBool                 = DBBool
+  fromSing SDBDate                 = DBDate
+  fromSing (SDBTime n)             = DBTime (fromSing n)
+  fromSing (SDBTimetz n)           = DBTimetz (fromSing n)
+  fromSing (SDBTimestamp n)        = DBTimestamp (fromSing n)
+  fromSing (SDBTimestamptz n)      = DBTimestamptz (fromSing n)
+  fromSing (SDBInterval _ n2)      = DBInterval Nothing (fromSing n2)
+  fromSing (SDBNullable n)         = DBNullable (fromSing n)
+  fromSing SDBXml                  = DBXml
+  fromSing (SDBBinary n)           = DBBinary (fromSing n)
+  fromSing (SDBVarbinary n)        = DBVarbinary (fromSing n)
+  fromSing SDBText                 = DBText
+  fromSing SDBCiText               = DBCiText
+  fromSing SDBUuid                 = DBUuid
+  fromSing (SDBBit n)              = DBBit (fromSing n)
+  fromSing (SDBVarbit n)           = DBVarbit (fromSing n)
+  fromSing SDBJson                 = DBJson  
+  fromSing SDBJsonB                = DBJsonB
+  fromSing (SDBArray a)            = DBArray (fromSing a)
+  fromSing SDBLTree                = DBLTree
 
 doubleQuote :: T.Text -> T.Text
 doubleQuote = quoteBy '"' (Just '"')
@@ -190,7 +238,7 @@ class DBRepr (dbk :: DbK) (t :: Type) where
   -- Invariant: Empty for Sum Types. All the fields of rec types.
   -- Also used to fix field position independent of it's position in Haskell Declaration 
   type Fields t :: [(Symbol, Type)]
-  type Fields t = GGetFields t (Rep t)
+  type Fields t = GGetFieldsOrEmpty t (Rep t)
 
 
   type UnLifted dbk t :: Type
@@ -202,6 +250,17 @@ class DBRepr (dbk :: DbK) (t :: Type) where
 
   -- lift :: UnLifted dbk ty -> Expr sc ty
   -- unlift :: Expr sc ty -> UnLifted dbk ty
+
+data SumRepr (dbk :: DbK) (t :: Type) = SumRepr
+  { ctors :: [(Text, UnLifted dbk t)]
+  , ctorTagOf :: t -> Text
+  }
+
+data Ctor (dbk :: DbK) (t :: Type) where
+  Ctor :: Text -> (a -> t) -> (UnLifted dbk t -> f a) -> Ctor dbk t
+
+data DeCtor (dbk :: DbK) (t :: Type) where
+  DeCtor :: Text -> (t -> a) -> (a -> f a) -> (f a -> UnLifted dbk t) -> DeCtor dbk t  
 
 class UnivOfUnLifted (dbObjK :: DBObjK) (dbk :: DbK) (t :: Type) where
   univOfUnLifted' :: Proxy '(dbObjK, dbk, t) -> [(Text, UnLifted dbk t)]
@@ -346,24 +405,6 @@ newtype AsEnum t = AsEnum t
 instance DBRepr db (AsEnum t) where
   type ToDBType db (AsEnum t) = 'UDTypeObj ('Type.UDEnum (Type.GetDBEnumK db))
 
--- instance DBRepr 'Postgres (AsEnum t) where
---   type ToDBType 'Postgres (AsEnum t) = 'UDTypeObj ('Type.UDEnum 'Type.EnumType)
-
--- instance DBRepr 'SQLite (AsEnum t) where
---   type ToDBType 'SQLite (AsEnum t) = 'UDTypeObj ('Type.UDEnum 'Type.EnumText)
-
--- instance DBRepr 'MySQL (AsEnum t) where
---   type ToDBType 'MySQL (AsEnum t) = 'UDTypeObj ('Type.UDEnum 'Type.EnumType)
-
--- instance DBRepr 'MSSQL (AsEnum t) where
---   type ToDBType 'MSSQL (AsEnum t) = 'UDTypeObj ('Type.UDEnum 'Type.EnumText)
-
--- instance DBRepr 'Cassandra (AsEnum t) where
---   type ToDBType 'Cassandra (AsEnum t) = 'UDTypeObj ('Type.UDEnum 'Type.EnumText)
-
--- instance DBRepr 'Presto (AsEnum t) where
---   type ToDBType 'Presto (AsEnum t) = 'UDTypeObj ('Type.UDEnum 'Type.EnumText)
-
 newtype AsEnumText t = AsEnumText t
 
 instance DBRepr 'Postgres (AsEnumText t) where
@@ -456,6 +497,9 @@ instance DBRepr dbk LTree where
 
 -- UD Type
 newtype UDTypeName sc ty = UDTypeName Text
+
+_getUDTypeName :: UDTypeName sc ty -> Text
+_getUDTypeName (UDTypeName ty) = ty
 
 instance IsString (UDTypeName sc ty) where
   fromString s = UDTypeName $ T.pack s

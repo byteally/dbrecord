@@ -13,7 +13,7 @@ import qualified Data.Text as T
 import Data.Text (Text)
 import Control.Applicative
 import qualified Data.List.NonEmpty as NEL
-import DBRecord.Internal.DBTypes (DBType (..), DBTypeName (..))
+import DBRecord.Internal.DBTypes (DBType (..), DBTypeName (..), TypeNameQual (..))
 import DBRecord.Internal.Types (Max (..))
 import Data.Functor (($>))
 
@@ -289,7 +289,7 @@ defSizeInfo :: SizeInfo
 defSizeInfo = SizeInfo Nothing Nothing Nothing Nothing Nothing
                                     
 parsePGType :: String -> Bool -> SizeInfo -> String -> DBType
-parsePGType _scn nullInfo sz = wrapNullable nullInfo . go
+parsePGType scn nullInfo sz = wrapNullable nullInfo . go
   where go "smallint"                  = DBInt2
         go "integer"                   = DBInt4
         go "bigint"                    = DBInt8
@@ -348,19 +348,19 @@ parsePGType _scn nullInfo sz = wrapNullable nullInfo . go
         go "xml"                       = DBXml
         go "jsonb"                     = DBJsonB
         go "json"                      = DBJson
-        go "oid"                       = OtherBuiltInType (DBTypeName "oid" [])
-        go "regclass"                  = OtherBuiltInType (DBTypeName "regclass" [])
-        go "regproc"                   = OtherBuiltInType (DBTypeName "regproc" [])
-        go "regprocedure"              = OtherBuiltInType (DBTypeName "regprocedure" [])
-        go "regoper"                   = OtherBuiltInType (DBTypeName "regoper" [])
-        go "regoperator"               = OtherBuiltInType (DBTypeName "regoperator" [])
-        go "regtype"                   = OtherBuiltInType (DBTypeName "regtype" [])
-        go "regrole"                   = OtherBuiltInType (DBTypeName "regrole" [])
-        go "regnamespace"              = OtherBuiltInType (DBTypeName "regnamespace" [])
-        go "regconfig"                 = OtherBuiltInType (DBTypeName "regconfig" [])
-        go "regdictionary"             = OtherBuiltInType (DBTypeName "regdictionary" [])
+        go "oid"                       = OtherType (DBTypeName NoQualification "oid" [])
+        go "regclass"                  = OtherType (DBTypeName NoQualification "regclass" [])
+        go "regproc"                   = OtherType (DBTypeName NoQualification "regproc" [])
+        go "regprocedure"              = OtherType (DBTypeName NoQualification "regprocedure" [])
+        go "regoper"                   = OtherType (DBTypeName NoQualification "regoper" [])
+        go "regoperator"               = OtherType (DBTypeName NoQualification "regoperator" [])
+        go "regtype"                   = OtherType (DBTypeName NoQualification "regtype" [])
+        go "regrole"                   = OtherType (DBTypeName NoQualification "regrole" [])
+        go "regnamespace"              = OtherType (DBTypeName NoQualification "regnamespace" [])
+        go "regconfig"                 = OtherType (DBTypeName NoQualification "regconfig" [])
+        go "regdictionary"             = OtherType (DBTypeName NoQualification "regdictionary" [])
         go v | isArray v               = DBArray (parseArray v)
-             | otherwise               = OtherBuiltInType (DBTypeName (T.pack v) [])
+             | otherwise               = OtherType (DBTypeName (SchemaQualified $ T.pack scn) (T.pack v) [])
 
 
         isArray v = case splitAt 2 v of

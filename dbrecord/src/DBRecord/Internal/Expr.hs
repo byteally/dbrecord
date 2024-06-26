@@ -11,7 +11,7 @@ import qualified Data.Foldable as F
 import           Data.Functor.Identity (Identity)
 import qualified Data.Functor.Identity as I
 import           Data.Functor.Const
-import qualified Data.HashMap.Strict as HM
+-- import qualified Data.HashMap.Strict as HM
 import           Data.String
 import qualified Data.Text as T
 import           Data.Typeable
@@ -28,13 +28,15 @@ import           Data.Time
 import           Data.Text (Text)
 import           Data.Scientific
 import           Data.Void
-import           DBRecord.Internal.Types
+import           DBRecord.Internal.Types hiding (DBTypeK (..), DBTypeNameK(..)) 
 import           DBRecord.Internal.DBTypes
 import           Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import           Data.CaseInsensitive (CI, foldedCase, mk)
 import           Data.Coerce
 import           Data.Kind
+import           Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import           GHC.Generics
 import           GHC.Records
 import           GHC.TypeLits
@@ -50,19 +52,11 @@ getExpr (Expr e) = e
 unsafeCast :: DBType -> Expr sc a -> Expr sc b
 unsafeCast castTo (Expr expr) = Expr $ PQ.CastExpr castTo expr
 
--- TODO: Reimplement this
--- annotateType :: forall sc a.
---                  ( DBTypeCtx (GetDBTypeRep sc a)
---                  , SingI (GetDBTypeRep sc a)
---                  ) => Expr sc a -> Expr sc a
--- annotateType = unsafeCast tyRep
---   where tyRep = fromSing (sing :: Sing (GetDBTypeRep sc a))
 annotateType :: forall a sc.
   ( DBTypeOf sc a
   ) => Expr sc a -> Expr sc a
-annotateType e =
-  let _dbt = dbTypeOf e
-  in undefined
+annotateType te@(Expr e) = Expr $ PQ.CastExpr (dbTypeOf te) e
+{-# INLINE annotateType #-}
 
 unsafeCoerceExpr :: Expr sc a -> Expr sc b
 unsafeCoerceExpr (Expr e) = Expr e
@@ -71,29 +65,33 @@ type DBTypeOf sc a = ( DBRepr (DB (SchemaDB sc)) a
                      , ReifyTypeName sc a (ToDBType (DB (SchemaDB sc)) a)
                      )
 
-dbTypeOf :: forall a sc.DBTypeOf sc a => Expr sc a -> DBTypeName
+dbTypeOf :: forall a sc.DBTypeOf sc a => Expr sc a -> DBType
 dbTypeOf _ = reifyTypeName (Proxy :: Proxy '(sc, a, ToDBType (DB (SchemaDB sc)) a))
 
 class ReifyTypeName (sc :: Type) (a :: Type) (dbObj :: DBObjK) where
-  reifyTypeName :: Proxy '(sc, a, dbObj) -> DBTypeName
+  reifyTypeName :: Proxy '(sc, a, dbObj) -> DBType
 
 instance (TypeError ('Text "Table is used as Type")) => ReifyTypeName sc a 'TableObj where
   reifyTypeName = error "Panic: Unreachable code"
 
-instance UDType sc a => ReifyTypeName sc a ('UDTypeObj udt) where
-  reifyTypeName _ = undefined $ udTypeName @sc @a
+instance (UDType sc a, Database (SchemaDB sc), Schema sc) => ReifyTypeName sc a ('UDTypeObj udt) where
+  reifyTypeName _ = OtherType $ DBTypeName qual (_getUDTypeName $ udTypeName @sc @a) []
+    where
+      qual = DBQualified
+             (_getDatabaseName $ databaseName @(SchemaDB sc))
+             (_getSchemaName $ schemaName @sc)
 
-instance ReifyTypeName sc a ('NativeTypeObj dbt) where
-  reifyTypeName _ = undefined
+instance (SingI dbt, DBTypeCtx dbt) => ReifyTypeName sc a ('NativeTypeObj dbt) where
+  reifyTypeName _ = fromSing (sing :: Sing dbt)
 
 instance (DBTypeOf sc ty, DBRepr (DB (SchemaDB sc)) ty, ReifyTypeName sc ty (ToDBType (DB (SchemaDB sc)) ty) ) => ReifyTypeName sc a ('NewtypeObj ty) where
   reifyTypeName _ = dbTypeOf (undefined :: Expr sc ty)
 
 instance ReifyTypeName sc e dbObj => ReifyTypeName sc c ('ArrayObjOf e dbObj) where
-  reifyTypeName _ = reifyTypeName (Proxy @'(sc, e, dbObj))
+  reifyTypeName _ = DBArray $ reifyTypeName (Proxy @'(sc, e, dbObj))
 
 instance ReifyTypeName sc e dbObj => ReifyTypeName sc opt ('NullableObjOf e dbObj) where
-  reifyTypeName _ = reifyTypeName (Proxy @'(sc, e, dbObj))  
+  reifyTypeName _ = DBNullable $ reifyTypeName (Proxy @'(sc, e, dbObj))  
 
 
 -- TODO: Without Region Parameter it is not safe to have these instance
@@ -269,13 +267,17 @@ instance TypeError ('Text "Pattern match not supported for record type") => Matc
 class HasDiscriminator (enumk :: UDEnumK) (sc :: Type) (ty :: Type) where
   getDiscriminator :: Proxy '(enumk, sc, ty) -> UDTypeName sc ty -> Text -> Int64 -> PQ.PrimExpr
 
-instance (UDType sc ty, Typeable ty) => HasDiscriminator 'EnumType sc ty where
+instance (UDType sc ty, Typeable ty, Database (SchemaDB sc), Schema sc) => HasDiscriminator 'EnumType sc ty where
   getDiscriminator _ _disN cn _ =
     let
       cname = case lookupConName cn Nothing (conAliases @sc @ty) of
                 Left cn' -> cn'
                 Right _ -> error $ "Panic: Expecting only Text, not Int64 as tag for: " ++ (show $ typeRep (Proxy @ty))
-    in PQ.CastExpr undefined (PQ.ConstExpr (PQ.String cname))
+      qual = DBQualified
+             (_getDatabaseName $ databaseName @(SchemaDB sc))
+             (_getSchemaName $ schemaName @sc)                
+      discTyN = DBTypeName qual (_getUDTypeName $ discriminatorTypeName @sc @ty) []
+    in PQ.CastExpr (OtherType discTyN) (PQ.ConstExpr (PQ.String cname))
 
 instance (UDType sc ty, Typeable ty) => HasDiscriminator 'EnumText sc ty where
   getDiscriminator _ _ cn _ =
@@ -312,11 +314,12 @@ instance TypeError ('Text "Unexpected Table in place of Type" ':<>: 'ShowType t)
 instance ConstExpr sc t => AutoConstExpr sc t ('NativeTypeObj nat) 'True where
   autoConstExpr _ = toConstExpr
 
-instance (Generic t, GConstExprFlat sc t (Rep t), DBTypeOf sc t) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'CompositeRec)) 'True where
-  autoConstExpr _ _t = annotateType @t (Expr $ PQ.RowExpr []) -- TODO: Fix empty list
+instance (DBTypeOf sc t, TypeConstExpr sc t (Fields t)) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'CompositeRec)) 'True where
+  autoConstExpr _ t =
+    typeConstExpr t (\fs -> annotateType @t (Expr $ PQ.RowExpr (fmap snd $ NE.toList fs)))
 
-instance (Generic t, GConstExprFlat sc t (Rep t)) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'FlatRec)) 'True where
-  autoConstExpr _ t = gconstExprFlat (from t)
+instance (DBRepr (DB (SchemaDB sc)) t, TypeConstExpr sc t (Fields t)) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'FlatRec)) 'True where
+  autoConstExpr _ t = typeConstExpr t (\fs -> Expr $ PQ.FlatComposite $ NE.toList fs)
 
 instance (A.ToJSON t, UDType sc t) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'JsonRec)) 'True where
   autoConstExpr _ t = unsafeCoerceExpr $ constExpr $ A.toJSON t
@@ -365,41 +368,40 @@ instance (t ~ ety, AutoConstExpr sc ety edbk 'True) => AutoConstExpr sc (Maybe t
 instance (t ~ ety, AutoConstExpr sc ety edbk 'True, Foldable f, Functor f, DBTypeOf sc (f ety)) => AutoConstExpr sc (f t) ('ArrayObjOf ety edbk) 'True where
   autoConstExpr _ ts = arrayF (fmap (autoConstExpr (Proxy @'(edbk, 'True))) ts)
 
+typeConstExpr :: forall a sc.(DBRepr (DB (SchemaDB sc)) a, TypeConstExpr sc a (Fields a)) => a -> (NonEmpty (Text, PQ.PrimExpr) -> Expr sc a) -> Expr sc a
+typeConstExpr = typeConstExpr_ (Proxy @(Fields a)) []
 
-class GConstExprFlat sc a (rep :: Type -> Type) where
-  gconstExprFlat :: rep x -> Expr sc a
+class TypeConstExpr sc a (flds :: [(Symbol, Type)]) where
+  typeConstExpr_ :: Proxy flds -> [(Text, PQ.PrimExpr)] -> a -> (NonEmpty (Text, PQ.PrimExpr) -> Expr sc a) -> Expr sc a
 
-instance GConstExprFlat sc a f => GConstExprFlat sc a (D1 m f) where
-  gconstExprFlat (M1 f) = gconstExprFlat f
+instance TypeError ('Text "[DBR-123] Expecting record type with named fields! " ':<>: 'ShowType a ':<>: 'Text " does not have fields") => TypeConstExpr sc a '[] where
+  typeConstExpr_ = error "Panic: Unreachable code: [DBR-123]"
 
-instance (TypeError ('Text "Sum Type cannot be used as Flat Composite Record" ':<>: 'ShowType a)) => GConstExprFlat sc a (f :+: g) where
-  gconstExprFlat = error "Panic: Unreachable code"
+instance ( HasField f1 a ft
+         , DBRepr (DB (SchemaDB sc)) f1t
+         , UDType sc a
+         , KnownSymbol f1
+         , TypeConstExpr sc a (x2 : xs)
+         , AutoConstExpr sc f1t (ToDBType (DB (SchemaDB sc)) f1t) (AutoCodec (DB (SchemaDB sc)) f1t)
+         , ft ~ f1t
+         ) => TypeConstExpr sc a ('(f1, f1t) ': (x2 ': xs)) where
+  typeConstExpr_ _ acc a f = typeConstExpr_ (Proxy @(x2 ': xs)) ((fname, getExpr (constExpr @f1t @sc (getField @f1 a))) : acc) a f
+    where
+      fname = getConst $ getAliasedFieldName @f1 @a @sc @ft fieldAliases
 
-instance GConstExprFlat sc a f => GConstExprFlat sc a (C1 m f) where
-  gconstExprFlat (M1 f) = gconstExprFlat f
-
-instance (GConstExprFlat sc a f, GConstExprFlat sc a g) => GConstExprFlat sc a (f :*: g) where
-  gconstExprFlat (f :*: g) = unsafeCoerceExpr (gconstExprFlat f `appendFlatComposite` gconstExprFlat g)
-
-    where appendFlatComposite :: Expr sc a -> Expr sc a -> Expr sc a
-          appendFlatComposite (Expr (PQ.FlatComposite xs)) (Expr (PQ.FlatComposite ys)) = Expr (PQ.FlatComposite (xs ++ ys))
-          appendFlatComposite a b = error $ "Panic: expecting only flatcomposite @appendFlatComposite" ++ show (a, b)
-
-instance ( UDType sc a
-         , HasField n a t
-         , AutoConstExpr sc t (ToDBType (DB (SchemaDB sc)) t) (AutoCodec (DB (SchemaDB sc)) t)
-         , KnownSymbol n
-         ) => GConstExprFlat sc a (S1 ('MetaSel ('Just n) su ss ds) (K1 i t)) where
-  gconstExprFlat (M1 (K1 v)) =
-    unsafeCoerceExpr (flatComposite (autoConstExpr (Proxy @'(ToDBType (DB (SchemaDB sc)) t, AutoCodec (DB (SchemaDB sc)) t)) v))
-
-    where flatComposite :: Expr sc t -> Expr sc t
-          flatComposite (Expr v0) = Expr (PQ.FlatComposite (pure (fldN, v0)))
-          fldN = getConst $ getAliasedFieldName @n @a @sc @t fieldAliases
-
-instance (TypeError ('Text "Only Record Types can be used as Flat Composite Record" ':<>: 'ShowType a)) => GConstExprFlat sc a (S1 ('MetaSel 'Nothing su ss ds) k) where
-  gconstExprFlat = error "Panic: Unreachable code"
-  
+instance ( HasField f1 a ft
+         , DBRepr (DB (SchemaDB sc)) f1t
+         , UDType sc a
+         , KnownSymbol f1
+         , AutoConstExpr sc f1t (ToDBType (DB (SchemaDB sc)) f1t) (AutoCodec (DB (SchemaDB sc)) f1t)
+         , ft ~ f1t
+         ) => TypeConstExpr sc a ('(f1, f1t) ': '[]) where
+  typeConstExpr_ _ acc a f =
+    case reverse ((fname, getExpr (constExpr @f1t @sc (getField @f1 a))) : acc) of
+      [] -> error "Panic: Invariant [DBR-123] violated: Fields cannot be empty"
+      (e : es) -> f (e :| es)
+    where
+      fname = getConst $ getAliasedFieldName @f1 @a @sc @ft fieldAliases
 
 genEnumExpr :: forall sc t.
   ( Generic t, UDType sc t
@@ -905,7 +907,7 @@ like :: Expr sc T.Text -> Expr sc T.Text -> Expr sc Bool
 like = binOp PQ.OpLike
 
 between :: OrdExpr sc a => Expr sc a -> (Expr sc a, Expr sc a) -> Expr sc Bool
-between _v (_lb, _ub) = undefined
+between v (Expr lb, Expr ub) = binOp PQ.OpBetween v (Expr $ PQ.ArrayExpr [lb, ub])
 
 lower :: Expr sc T.Text -> Expr sc T.Text
 lower = prefixOp PQ.OpLower
@@ -992,40 +994,6 @@ atTimeZone (Expr tz) (Expr utct) = Expr (PQ.FunExpr "timezone" [tz, utct])
 
 dayTruncTZ :: Expr sc LocalTime -> Expr sc LocalTime
 dayTruncTZ (Expr utct) = Expr (PQ.FunExpr "date_trunc" [PQ.ConstExpr (PQ.String "day"), utct])
-
-{-
--- TODO: Provide a mapping to DiffTime
--- https://github.com/lpsmith/postgresql-simple/pull/115#issuecomment-48754627
-
--- From: https://github.com/lpsmith/postgresql-simple/blob/c1a3238b3bce67592fbf62c0ea0cd73708b947b3/src/Database/PostgreSQL/Simple/Time/Implementation.hs
-parseTimeInterval :: A.Parser Interval
-parseTimeInterval = do
-  h <- A.decimal
-  _ <- A.char ':'
-  m <- A.decimal
-  _ <- A.char ':'
-  s <- A.decimal
-  subsec <- A.option 0 (A.char '.' *> (A.decimal))
-  return $ undefined -- secondsToDiffTime (h*3600 + m*60 + s) + picosecondsToDiffTime (subsec * 100000000000)
-
-parseDayInterval :: A.Parser Interval
-parseDayInterval = do
-  n <- A.signed A.decimal
-  factor <- A.choice [ A.string " year" *> pure (12*30*86400)
-                     , A.string " mon"  *> pure (   30*86400)
-                     , A.string " day"  *> pure (      86400)
-                     ]
-  _ <- A.string "s " <|> A.string " "
-  return undefined -- (secondsToDiffTime (n*factor))
-
-parseInterval :: A.Parser Interval
-parseInterval = do
-  ds <- many parseDayInterval
-  timesign <- A.option 1 (A.char '+' *> pure 1 <|> A.char '-' *> pure (-1))
-  time <- parseTimeInterval
-  return undefined -- (sum ds + time*timesign)
--}
-
 
 pgOID :: PGOID t -> Expr sc (PGOID t)
 pgOID oid = go (getPGOID oid)
@@ -1149,61 +1117,6 @@ deriving instance (OrdExpr sc a) => OrdExpr sc (Identity a)
 instance EqExpr sc LTree where
   a .== b = binOp PQ.OpEq a b
 
-data ScopeRep = FieldRepNode  TypeRep
-              | ScopeRepNode  ScopeRepMap
-              deriving Show
-
-newtype ScopeRepMap = ScopeRepMap { getScopeRepMap :: HM.HashMap T.Text ScopeRep }
-                    deriving Show
-
-insertScopeRepMap :: T.Text -> ScopeRep -> ScopeRepMap -> ScopeRepMap
-insertScopeRepMap k v = ScopeRepMap . HM.insert k v . getScopeRepMap
-
-emptyScopeRepMap :: ScopeRepMap
-emptyScopeRepMap = ScopeRepMap HM.empty
-
-lookupScopeRepMap :: T.Text -> ScopeRepMap -> Maybe ScopeRep
-lookupScopeRepMap k = HM.lookup k . getScopeRepMap
-
-class ToScopeRep (sc :: [Type]) acc where
-  toScopeRep :: Proxy sc -> acc -> ScopeRepMap
-
-instance ToScopeRep '[] acc where
-  toScopeRep _ _ = emptyScopeRepMap
-
-getScopeRep :: ( ToScopeRep sc (Proxy ('[] :: [Type -> Type]))
-                ) => Proxy (sc :: [Type]) -> ScopeRepMap
-getScopeRep = flip toScopeRep (Proxy :: Proxy ('[] :: [Type -> Type]))
-
-lookupField :: [T.Text] -> ScopeRepMap -> Maybe TypeRep
-lookupField (fld : flds) scrMap = case lookupScopeRepMap fld scrMap of
-  Just (FieldRepNode tRep) -> case flds of
-    [] -> Just tRep
-    _  -> Nothing
-  Just (ScopeRepNode scs) -> lookupField flds scs
-  Nothing -> Nothing
-lookupField _ _ = Nothing
-
-checkFieldType :: (Typeable t) => [T.Text] -> Proxy t -> ScopeRepMap -> Bool
-checkFieldType colPieces t scrMap =
-  maybe False (== tyRep) (lookupField colPieces scrMap)
-  where tyRep = typeRep t
-
-type Validation = Either [ExprError]
-data ExprError  = TypeMismatch TypeRep TypeRep -- Expected, Got
-                | ParseErr
-                deriving Show
-                -- ...
-
-choice :: Validation a -> Validation a -> Validation a
-choice (Right a) _        = Right a
-choice (Left _) (Right b) = Right b
-choice (Left _) (Left b)  = Left b
-
-infixr 3 `choice`
-
-exprParseErr :: Validation a
-exprParseErr = Left [ParseErr]
 
 formatCol :: T.Text -> Maybe [T.Text]
 formatCol col'

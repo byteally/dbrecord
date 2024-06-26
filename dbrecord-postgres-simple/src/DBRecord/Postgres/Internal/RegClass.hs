@@ -44,7 +44,7 @@ regtype = mkUnsafePGOID $ T.pack $ ppPGType tyRep
   where tyRep = undefined -- TODO: Fix this -- fromSing (sing :: Sing (GetDBTypeRep sc ty))
 
 instance SingPGOIDType t => ConstExpr sc (PGOID t) where
-  toConstExpr oid = unsafeCast (OtherBuiltInType $ DBTypes.DBTypeName (T.pack $ ppPGOIDType $ singPGOIDType @t) []) $ go (getPGOID oid)
+  toConstExpr oid = unsafeCast (OtherType $ DBTypes.DBTypeName NoQualification (T.pack $ ppPGOIDType $ singPGOIDType @t) []) $ go (getPGOID oid)
     where
       go = literalExpr . String
 

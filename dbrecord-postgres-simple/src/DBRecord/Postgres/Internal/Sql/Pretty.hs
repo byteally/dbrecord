@@ -485,10 +485,14 @@ ppPGType = go
         go DBLTree                      = "LTREE"
         go (DBArray t)                  = go t ++ "[]"
         go (DBNullable t)               = go t
-        go (OtherBuiltInType tn)        = ppDbTypeName tn
-        -- go (DBCustomType scn tn)        = T.unpack (doubleQuote scn) <> dot <> ppDbTypeName tn
+        go (OtherType tn)               = ppQualDbTypeName tn
 
-        ppDbTypeName (DBTypeName t args) = T.unpack (doubleQuote t) ++ ppArgs args
+        ppQualDbTypeName (DBTypeName qual t args) = case qual of
+          NoQualification -> ppDbTypeName t args
+          SchemaQualified scn -> T.unpack (doubleQuote scn) <> dot <> ppDbTypeName t args
+          DBQualified _ scn -> T.unpack (doubleQuote scn) <> dot <> ppDbTypeName t args
+
+        ppDbTypeName t args = T.unpack (doubleQuote t) ++ ppArgs args
 
         ppArgs []  = ""
         ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"
@@ -496,7 +500,7 @@ ppPGType = go
         ppArg (TextArg t)    = T.unpack t
         ppArg (IntegerArg i) = show i
 
-        _dot = "."
+        dot = "."
 
 
 ppPGOIDType :: PGOIDType -> String

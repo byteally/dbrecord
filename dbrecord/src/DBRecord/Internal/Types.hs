@@ -53,7 +53,6 @@ data DBTypeK
   | DBJsonB
   | DBArray DBTypeK
   | DBLTree
-  -- | DBCustomType Symbol Type DBTypeNameK
 
 data DBTypeNameK = DBTypeName Symbol [TypeArgK]
 
