@@ -132,6 +132,10 @@ class UDFromField (t :: Type) (udtMap :: UDTypeK) where
 instance UDFromField t ('UDEnum enk) where
   udFromField = undefined
 
+instance UDFromField t ('TaggedSumMono enk ct 'FlatRec) where
+  udFromField = undefined
+  
+
 {-
 instance (SingI tyAliasM, SingE tyAliasM, SingI conAliases, SingE conAliases, Typeable t, Generic t, GFromEnum (Rep t)) => UDFromField t ('EnumType tyAliasM conAliases) where
   udFromField _ f =
