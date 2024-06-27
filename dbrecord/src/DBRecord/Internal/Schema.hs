@@ -98,9 +98,6 @@ class ( Schema sc
   default tableName :: (Generic tab, KnownSymbol (GenTyCon (Rep tab))) => TableName sc tab
   tableName = TableName $ defHSNameToDBName $ T.pack (symbolVal (Proxy @(GenTyCon (Rep tab))))
 
-  columnAliases :: FieldAliases sc tab
-  columnAliases = mempty
-
   checks :: TableValue sc Identity tab -> [(Text, Expr sc Bool)]
   checks _ = []
 
@@ -693,7 +690,7 @@ getColumnName :: forall sc tab (fn :: Symbol) a.
   ) => Expr sc a
 getColumnName =
   let
-    FieldAliases caliases = columnAliases @sc @tab
+    FieldAliases caliases = fieldAliases @(DB (SchemaDB sc)) @tab
     fname = T.pack $ symbolVal (Proxy @fn)
     cname = maybe (defHSNameToDBName fname) id $ HM.lookup fname caliases
     cexpr = PQ.BaseTableAttrExpr $ cname

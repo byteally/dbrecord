@@ -53,8 +53,8 @@ import           Data.Proxy
 -- import qualified Data.List as L
 -- import           Data.ByteString.Char8 as ASCII
 import           Data.Typeable
--- import qualified Data.Text as T
--- import qualified Data.Text.Encoding as T
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 -- import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 
@@ -129,8 +129,18 @@ instance (FromField t) => FromRow (AnnEntity ('UDTypeObj udRep) 'False t) where
 class UDFromField (t :: Type) (udtMap :: UDTypeK) where
   udFromField :: Proxy udtMap -> FieldParser t
 
-instance UDFromField t ('UDEnum enk) where
-  udFromField = undefined
+instance (Typeable t, DBRepr 'Postgres t) => UDFromField t ('UDEnum enk) where
+  udFromField _ fld =
+    let udTyN = _getTypeName (typeName @'Postgres @t)
+    in \case
+      Nothing -> returnError UnexpectedNull fld ""
+      Just val' -> case T.decodeUtf8' val' of
+        Left ex -> returnError Incompatible fld (show ex)
+        Right _cn -> do
+          tName <- typename fld
+          if tName == T.encodeUtf8 udTyN
+            then undefined
+            else returnError Incompatible fld ("Expected: " ++ (T.unpack udTyN) ++ ", Actual: " ++ show tName)
 
 instance UDFromField t ('TaggedSumMono enk ct 'FlatRec) where
   udFromField = undefined

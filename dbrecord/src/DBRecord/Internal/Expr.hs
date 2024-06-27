@@ -75,7 +75,7 @@ instance (TypeError ('Text "Table is used as Type")) => ReifyTypeName sc a 'Tabl
   reifyTypeName = error "Panic: Unreachable code"
 
 instance (UDType sc a, Database (SchemaDB sc), Schema sc) => ReifyTypeName sc a ('UDTypeObj udt) where
-  reifyTypeName _ = OtherType $ DBTypeName qual (_getUDTypeName $ udTypeName @sc @a) []
+  reifyTypeName _ = OtherType $ DBTypeName qual (_getTypeName $ typeName @(DB (SchemaDB sc)) @a) []
     where
       qual = DBQualified
              (_getDatabaseName $ databaseName @(SchemaDB sc))
@@ -120,13 +120,13 @@ instance (UDType sc t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symb
   getField (Expr (PQ.FlatComposite _es)) = error "Panic: Unexpected Flat Composite"
   getField (Expr e) =
     let
-      fldN = getConst $ getAliasedFieldName @fn @t @sc @a fieldAliases
+      fldN = getConst $ getAliasedFieldName @fn @t @(DB (SchemaDB sc)) @a fieldAliases
     in Expr (PQ.CompositeExpr e fldN)
 
 instance (UDType sc t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'UDTypeObj ('UDRec 'FlatRec)) (Expr sc t) (Expr sc a) where
   getField (Expr (PQ.FlatComposite es)) =
     let
-      fldN = getConst $ getAliasedFieldName @fn @t @sc @a fieldAliases
+      fldN = getConst $ getAliasedFieldName @fn @t @(DB (SchemaDB sc)) @a fieldAliases
     in case lookup fldN es of
          Just t -> Expr t
          _      -> error "Panic: Impossible case! Field not found"
@@ -180,7 +180,7 @@ instance (UDType sc ty, Typeable ty, HasDiscriminator enumk sc ty) => Match ('UD
   match' _ allCons scrut caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
-                     discPE = getDiscriminator (Proxy @'(enumk, sc, ty)) undefined cn cpos
+                     discPE = getDiscriminator (Proxy @'(enumk, sc, ty)) cn cpos
                    in (Expr (PQ.BinExpr PQ.OpEq (getExpr scrut) discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
 
@@ -192,7 +192,7 @@ instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTy
                      discFld = case es of
                        [] -> error $ "Panic: Impossible case! Discriminator not found: " ++ T.unpack cn
                        ((_, e) : _) -> e
-                     discPE = getDiscriminator (Proxy @'(enk, sc, ty)) undefined cn cpos
+                     discPE = getDiscriminator (Proxy @'(enk, sc, ty)) cn cpos
                    in (Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
   match' _ _ (Expr _e) _ = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
@@ -201,8 +201,8 @@ instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTy
   match' _ allCons scrut caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
-                     discFld = PQ.CompositeExpr (getExpr scrut) (_getDiscriminatorTagName $ discriminatorTagName @sc @ty)
-                     discPE = getDiscriminator (Proxy @'(enk, sc, ty)) undefined cn cpos
+                     discFld = PQ.CompositeExpr (getExpr scrut) (_getDiscriminatorTagName $ discriminatorTagName @(DB (SchemaDB sc)) @ty)
+                     discPE = getDiscriminator (Proxy @'(enk, sc, ty)) cn cpos
                    in (Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
 
@@ -216,7 +216,7 @@ instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTy
                      (discFld, _arg) = case es of
                        ((_, e) : (_, a) :[]) -> (e, a)
                        _ -> error $ "Panic: Impossible case! Expecting (tag, value) pair: " ++ T.unpack cn
-                     discPE = getDiscriminator (Proxy @'(enk, sc, ty)) undefined cn cpos
+                     discPE = getDiscriminator (Proxy @'(enk, sc, ty)) cn cpos
                    in (Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
   match' _ _ (Expr _e) _ = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
@@ -225,8 +225,8 @@ instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTy
   match' _ allCons scrut caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
-                     discFld = PQ.CompositeExpr (getExpr scrut) (_getDiscriminatorTagName $ discriminatorTagName @sc @ty)
-                     discPE = getDiscriminator (Proxy @'(enk, sc, ty)) undefined cn cpos
+                     discFld = PQ.CompositeExpr (getExpr scrut) (_getDiscriminatorTagName $ discriminatorTagName @(DB (SchemaDB sc)) @ty)
+                     discPE = getDiscriminator (Proxy @'(enk, sc, ty)) cn cpos
                    in (Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
 
@@ -248,7 +248,7 @@ instance (UDType sc ty, Typeable ty) => Match ('UDTypeObj ('SumOfCol 'CompositeR
   match' _ allCons scrut caseF =
     case_ (fmap (\(cn, c) ->
                    let
-                     cname = case lookupConName cn Nothing (conAliases @sc @ty) of
+                     cname = case lookupConName cn Nothing (conAliases @(DB (SchemaDB sc)) @ty) of
                        Left cn' -> cn'
                        Right _ -> error $ "Panic: Expecting only Text, not Int64 as tag for: " ++ (show $ typeRep (Proxy @ty))
                      discFld = PQ.CompositeExpr (getExpr scrut) cname
@@ -265,32 +265,32 @@ instance TypeError ('Text "Pattern match not supported for record type") => Matc
   match' = error "Panic: Unreachable code"
 
 class HasDiscriminator (enumk :: UDEnumK) (sc :: Type) (ty :: Type) where
-  getDiscriminator :: Proxy '(enumk, sc, ty) -> UDTypeName sc ty -> Text -> Int64 -> PQ.PrimExpr
+  getDiscriminator :: Proxy '(enumk, sc, ty) -> Text -> Int64 -> PQ.PrimExpr
 
 instance (UDType sc ty, Typeable ty, Database (SchemaDB sc), Schema sc) => HasDiscriminator 'EnumType sc ty where
-  getDiscriminator _ _disN cn _ =
+  getDiscriminator _ cn _ =
     let
-      cname = case lookupConName cn Nothing (conAliases @sc @ty) of
+      cname = case lookupConName cn Nothing (conAliases @(DB (SchemaDB sc)) @ty) of
                 Left cn' -> cn'
                 Right _ -> error $ "Panic: Expecting only Text, not Int64 as tag for: " ++ (show $ typeRep (Proxy @ty))
       qual = DBQualified
              (_getDatabaseName $ databaseName @(SchemaDB sc))
              (_getSchemaName $ schemaName @sc)                
-      discTyN = DBTypeName qual (_getUDTypeName $ discriminatorTypeName @sc @ty) []
+      discTyN = DBTypeName qual (_getTypeName $ discriminatorTypeName @(DB (SchemaDB sc)) @ty) []
     in PQ.CastExpr (OtherType discTyN) (PQ.ConstExpr (PQ.String cname))
 
 instance (UDType sc ty, Typeable ty) => HasDiscriminator 'EnumText sc ty where
-  getDiscriminator _ _ cn _ =
+  getDiscriminator _ cn _ =
     let
-      cname = case lookupConName cn Nothing (conAliases @sc @ty) of
+      cname = case lookupConName cn Nothing (conAliases @(DB (SchemaDB sc)) @ty) of
                 Left cn' -> cn'
                 Right _ -> error $ "Panic: Expecting only Text, not Int64 as tag for: " ++ (show $ typeRep (Proxy @ty))
     in PQ.ConstExpr (PQ.String cname)
 
 instance (UDType sc ty, Typeable ty) => HasDiscriminator 'EnumNum sc ty where
-  getDiscriminator _ _ cn cpos =
+  getDiscriminator _ cn cpos =
     let
-      ctag = case lookupConName cn (Just cpos) (conAliases @sc @ty) of
+      ctag = case lookupConName cn (Just cpos) (conAliases @(DB (SchemaDB sc)) @ty) of
                Left _ -> error $ "Panic: Expecting only Int64, not Text as tag for: " ++ (show $ typeRep (Proxy @ty))
                Right ct -> ct
     in PQ.ConstExpr (PQ.Integer $ toInteger ctag)
@@ -324,23 +324,39 @@ instance (DBRepr (DB (SchemaDB sc)) t, TypeConstExpr sc t (Fields t)) => AutoCon
 instance (A.ToJSON t, UDType sc t) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'JsonRec)) 'True where
   autoConstExpr _ t = unsafeCoerceExpr $ constExpr $ A.toJSON t
 
-instance (Generic t, UDType sc t, GenEnumExpr sc t (Rep t) (GetTagEnumK (ToDBType (DB (SchemaDB sc)) t))) => AutoConstExpr sc t ('UDTypeObj ('UDEnum enum)) 'True where
-  autoConstExpr _ t = genEnumExpr t
+instance (Generic t, UDType sc t) => AutoConstExpr sc t ('UDTypeObj ('UDEnum enum)) 'True where
+  autoConstExpr _ _t = undefined -- genEnumExpr t
 
-instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'FlatRec)) 'True where
-  autoConstExpr _ _t = Expr (PQ.FlatComposite [(undefined, undefined)])
+instance (HasDiscriminator enk sc t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'FlatRec)) 'True where
+  autoConstExpr _ _t =
+    let
+      (cn, cpos) = undefined
+      discPE = getDiscriminator (Proxy @'(enk, sc, t)) cn cpos
+    in Expr (PQ.FlatComposite [(cn, discPE), undefined])
 
-instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'CompositeRec)) 'True where
-  autoConstExpr _ _t = undefined
+instance (HasDiscriminator enk sc t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'CompositeRec)) 'True where
+  autoConstExpr _ _t =
+    let
+      (cn, cpos) = undefined
+      _discPE = getDiscriminator (Proxy @'(enk, sc, t)) cn cpos
+    in undefined
 
 instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr TaggedSum")) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'JsonRec)) 'True where
   autoConstExpr _ _t = error "Panic: TODO"
 
-instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'FlatRec)) 'True where
-  autoConstExpr _ _t = Expr (PQ.FlatComposite [(undefined, undefined)])
+instance (HasDiscriminator enk sc t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'FlatRec)) 'True where
+  autoConstExpr _ _t =
+    let
+      (cn, cpos) = undefined
+      discPE = getDiscriminator (Proxy @'(enk, sc, t)) cn cpos
+    in Expr (PQ.FlatComposite [(cn, discPE), undefined])
 
-instance (Generic t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'CompositeRec)) 'True where
-  autoConstExpr _ _t = undefined
+instance (HasDiscriminator enk sc t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'CompositeRec)) 'True where
+  autoConstExpr _ _t =
+    let
+      (cn, cpos) = undefined
+      _discPE = getDiscriminator (Proxy @'(enk, sc, t)) cn cpos
+    in undefined
 
 instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr TaggedSumMono")) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'JsonRec)) 'True where
   autoConstExpr _ _t = error "Panic: TODO"
@@ -387,7 +403,7 @@ instance ( HasField f1 a ft
          ) => TypeConstExpr sc a ('(f1, f1t) ': (x2 ': xs)) where
   typeConstExpr_ _ acc a f = typeConstExpr_ (Proxy @(x2 ': xs)) ((fname, getExpr (constExpr @f1t @sc (getField @f1 a))) : acc) a f
     where
-      fname = getConst $ getAliasedFieldName @f1 @a @sc @ft fieldAliases
+      fname = getConst $ getAliasedFieldName @f1 @a @(DB (SchemaDB sc)) @ft fieldAliases
 
 instance ( HasField f1 a ft
          , DBRepr (DB (SchemaDB sc)) f1t
@@ -401,8 +417,9 @@ instance ( HasField f1 a ft
       [] -> error "Panic: Invariant [DBR-123] violated: Fields cannot be empty"
       (e : es) -> f (e :| es)
     where
-      fname = getConst $ getAliasedFieldName @f1 @a @sc @ft fieldAliases
+      fname = getConst $ getAliasedFieldName @f1 @a @(DB (SchemaDB sc)) @ft fieldAliases
 
+{-
 genEnumExpr :: forall sc t.
   ( Generic t, UDType sc t
   , GenEnumExpr sc t (Rep t) (GetTagEnumK (ToDBType (DB (SchemaDB sc)) t))
@@ -437,6 +454,7 @@ instance (Constructor c) => GenEnumExpr sc t (C1 c U1) 'EnumNum where
 
 instance (TypeError ('Text "Expected Only Unary Constructor " ':<>: 'ShowType t)) => GenEnumExpr sc t (C1 c (f :*: g)) enk where
   genEnumExpr' = error "Panic: Unreachable code"
+-}
 
 
 instance ConstExpr sc Text where

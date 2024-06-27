@@ -102,11 +102,6 @@ type family GetDBSupportOf (udt :: UDTypeK) :: DBSupportK where
   GetDBSupportOf ('SumOfCol 'FlatRec) = 'Synthesized
   GetDBSupportOf ('SumOfCol _) = 'Native
 
-type family IsTaggedSum (udt :: UDTypeK) :: Bool where
-  IsTaggedSum ('TaggedSum _ _) = 'True
-  IsTaggedSum ('TaggedSumMono _ _ _) = 'True
-  IsTaggedSum _ = 'False
-
 type family GetDBEnumK (db :: DbK) :: UDEnumK where
   GetDBEnumK 'Postgres = 'EnumType
   GetDBEnumK 'SQLite = 'EnumText
