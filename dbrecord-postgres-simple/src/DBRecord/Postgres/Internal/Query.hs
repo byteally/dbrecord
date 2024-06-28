@@ -269,7 +269,9 @@ runPGExpr = PG.renderExpr . PG.toSqlExpr . getExpr
 
 pgDefaultPool :: ConnectInfo -> IO (P.Pool Connection)
 pgDefaultPool connectInfo =
-#if MIN_VERSION_resource_pool(0,3,0)
+#if MIN_VERSION_resource_pool(0,4,0)
+  P.newPool (P.defaultPoolConfig (PGS.connect connectInfo) PGS.close 5 10)
+#elif MIN_VERSION_resource_pool(0,3,0)
   P.newPool cfg
   where
     cfg = P.PoolConfig { P.createResource = PGS.connect connectInfo
