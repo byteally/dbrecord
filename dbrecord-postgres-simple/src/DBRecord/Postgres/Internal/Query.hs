@@ -144,6 +144,12 @@ instance (Typeable t, DBRepr 'Postgres t) => UDFromField t ('UDEnum enk) where
 
 instance UDFromField t ('TaggedSumMono enk ct 'FlatRec) where
   udFromField = undefined
+
+instance UDFromField t ('SumOfCol 'FlatRec) where
+  udFromField = undefined
+
+instance UDFromField t ('SumOfCol 'CompositeRec) where
+  udFromField = undefined  
   
 
 {-
