@@ -30,6 +30,7 @@ import           Data.Scientific
 import           Data.Void
 import           DBRecord.Internal.Types hiding (DBTypeK (..), DBTypeNameK(..)) 
 import           DBRecord.Internal.DBTypes
+import           DBRecord.Internal.Schema
 import           Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import           Data.CaseInsensitive (CI, foldedCase, mk)
@@ -74,7 +75,7 @@ class ReifyTypeName (sc :: Type) (a :: Type) (dbObj :: DBObjK) where
 instance (TypeError ('Text "Table is used as Type")) => ReifyTypeName sc a 'TableObj where
   reifyTypeName = error "Panic: Unreachable code"
 
-instance (UDType sc a, Database (SchemaDB sc), Schema sc) => ReifyTypeName sc a ('UDTypeObj udt) where
+instance (DBRepr (DB (SchemaDB sc)) a, Database (SchemaDB sc), Schema sc) => ReifyTypeName sc a ('UDTypeObj udt) where
   reifyTypeName _ = OtherType $ DBTypeName qual (_getTypeName $ typeName @(DB (SchemaDB sc)) @a) []
     where
       qual = DBQualified
@@ -116,14 +117,14 @@ instance (HasField '(fn, dbrepr) (Expr sc t) (Expr sc a), HasField fn t a, Known
       toMaybe :: Expr sc x -> Expr sc (Maybe x)
       toMaybe (Expr ex) = Expr ex
 
-instance (UDType sc t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'UDTypeObj ('UDRec 'CompositeRec)) (Expr sc t) (Expr sc a) where
+instance (DBRepr (DB (SchemaDB sc)) t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'UDTypeObj ('UDRec 'CompositeRec)) (Expr sc t) (Expr sc a) where
   getField (Expr (PQ.FlatComposite _es)) = error "Panic: Unexpected Flat Composite"
   getField (Expr e) =
     let
       fldN = getConst $ getAliasedFieldName @fn @t @(DB (SchemaDB sc)) @a fieldAliases
     in Expr (PQ.CompositeExpr e fldN)
 
-instance (UDType sc t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'UDTypeObj ('UDRec 'FlatRec)) (Expr sc t) (Expr sc a) where
+instance (DBRepr (DB (SchemaDB sc)) t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symbol, 'UDTypeObj ('UDRec 'FlatRec)) (Expr sc t) (Expr sc a) where
   getField (Expr (PQ.FlatComposite es)) =
     let
       fldN = getConst $ getAliasedFieldName @fn @t @(DB (SchemaDB sc)) @a fieldAliases
@@ -132,7 +133,7 @@ instance (UDType sc t, HasField fn t a, KnownSymbol fn) => HasField '(fn :: Symb
          _      -> error "Panic: Impossible case! Field not found"
   getField (Expr _e) = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
 
-instance (UDType sc t, HasField fn t a, TypeError ('Text "TODO @ HasField 'UDRec 'JsonRec")) => HasField '(fn :: Symbol, 'UDTypeObj ('UDRec 'JsonRec)) (Expr sc t) (Expr sc a) where
+instance (DBRepr (DB (SchemaDB sc)) t, HasField fn t a, TypeError ('Text "TODO @ HasField 'UDRec 'JsonRec")) => HasField '(fn :: Symbol, 'UDTypeObj ('UDRec 'JsonRec)) (Expr sc t) (Expr sc a) where
   getField = error "Panic: TODO"
 
 instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('UDEnum enk)) (Expr sc t) Void where
@@ -176,7 +177,7 @@ class Match (dbrep :: DBObjK) (sc :: Type) (scrut :: Type) where
 instance Match ('NativeTypeObj ty) sc Bool where
   match' _ _ scrut caseF = ifThenElse scrut (caseF True) (caseF False)
 
-instance (UDType sc ty, Typeable ty, HasDiscriminator enumk sc ty) => Match ('UDTypeObj ('UDEnum enumk)) sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty, HasDiscriminator enumk sc ty) => Match ('UDTypeObj ('UDEnum enumk)) sc ty where
   match' _ allCons scrut caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
@@ -185,7 +186,7 @@ instance (UDType sc ty, Typeable ty, HasDiscriminator enumk sc ty) => Match ('UD
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
 
 
-instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSum enk 'FlatRec)) sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSum enk 'FlatRec)) sc ty where
   match' _ allCons (Expr (PQ.FlatComposite es)) caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
@@ -197,7 +198,7 @@ instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTy
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
   match' _ _ (Expr _e) _ = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
 
-instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSum enk 'CompositeRec)) sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSum enk 'CompositeRec)) sc ty where
   match' _ allCons scrut caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
@@ -206,10 +207,10 @@ instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTy
                    in (Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
 
-instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty, TypeError ('Text "TODO: @Match ('UDTypeObj ('TaggedSum enk 'JsonRec))")) => Match ('UDTypeObj ('TaggedSum enk 'JsonRec)) sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty, HasDiscriminator enk sc ty, TypeError ('Text "TODO: @Match ('UDTypeObj ('TaggedSum enk 'JsonRec))")) => Match ('UDTypeObj ('TaggedSum enk 'JsonRec)) sc ty where
   match' = error "Panic: TODO"
 
-instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSumMono enk at 'FlatRec)) sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSumMono enk at 'FlatRec)) sc ty where
   match' _ allCons (Expr (PQ.FlatComposite es)) caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
@@ -221,7 +222,7 @@ instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTy
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
   match' _ _ (Expr _e) _ = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
 
-instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSumMono enk at 'CompositeRec)) sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTypeObj ('TaggedSumMono enk at 'CompositeRec)) sc ty where
   match' _ allCons scrut caseF =
     case_ (fmap (\(cpos, (cn, c)) ->
                    let
@@ -230,10 +231,10 @@ instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty) => Match ('UDTy
                    in (Expr (PQ.BinExpr PQ.OpEq discFld discPE), caseF c)
                 ) (zip [1..] allCons)) (Expr $ PQ.ConstExpr PQ.Null)
 
-instance (UDType sc ty, Typeable ty, HasDiscriminator enk sc ty, TypeError ('Text "TODO: @Match ('UDTypeObj ('TaggedSumMono enk 'JsonRec))")) => Match ('UDTypeObj ('TaggedSumMono enk at 'JsonRec)) sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty, HasDiscriminator enk sc ty, TypeError ('Text "TODO: @Match ('UDTypeObj ('TaggedSumMono enk 'JsonRec))")) => Match ('UDTypeObj ('TaggedSumMono enk at 'JsonRec)) sc ty where
   match' = error "Panic: TODO"
 
-instance (UDType sc ty, Typeable ty) => Match ('UDTypeObj ('SumOfCol 'FlatRec)) sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty) => Match ('UDTypeObj ('SumOfCol 'FlatRec)) sc ty where
   match' _ allCons (Expr (PQ.FlatComposite es)) caseF =
     case_ (fmap (\(esMay, (cn, c)) ->
                    let
@@ -244,7 +245,7 @@ instance (UDType sc ty, Typeable ty) => Match ('UDTypeObj ('SumOfCol 'FlatRec)) 
                 ) (zip ((fmap Just es) ++ (repeat Nothing)) allCons)) (Expr $ PQ.ConstExpr PQ.Null)
   match' _ _ (Expr _e) _ = error $ "Panic: Impossible case! Expected Flat Composite but got: " <> (show _e)
 
-instance (UDType sc ty, Typeable ty) => Match ('UDTypeObj ('SumOfCol 'CompositeRec)) sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty) => Match ('UDTypeObj ('SumOfCol 'CompositeRec)) sc ty where
   match' _ allCons scrut caseF =
     case_ (fmap (\(cn, c) ->
                    let
@@ -255,7 +256,7 @@ instance (UDType sc ty, Typeable ty) => Match ('UDTypeObj ('SumOfCol 'CompositeR
                    in (Expr (PQ.PostfixExpr PQ.OpIsNotNull discFld), caseF c)
                 ) allCons) (Expr $ PQ.ConstExpr PQ.Null)
 
-instance (UDType sc ty, Typeable ty, TypeError ('Text "TODO: @Match ('UDTypeObj ('SumOfCol 'JsonRec))")) => Match ('UDTypeObj ('SumOfCol 'JsonRec)) sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty, TypeError ('Text "TODO: @Match ('UDTypeObj ('SumOfCol 'JsonRec))")) => Match ('UDTypeObj ('SumOfCol 'JsonRec)) sc ty where
   match' = error "Panic: TODO"
 
 instance TypeError ('Text "Pattern match not supported for type which are serialzied as blob") => Match ('UDTypeObj ('SerializedBlob ct)) sc ty where
@@ -267,7 +268,7 @@ instance TypeError ('Text "Pattern match not supported for record type") => Matc
 class HasDiscriminator (enumk :: UDEnumK) (sc :: Type) (ty :: Type) where
   getDiscriminator :: Proxy '(enumk, sc, ty) -> Text -> Int64 -> PQ.PrimExpr
 
-instance (UDType sc ty, Typeable ty, Database (SchemaDB sc), Schema sc) => HasDiscriminator 'EnumType sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty, Database (SchemaDB sc), Schema sc) => HasDiscriminator 'EnumType sc ty where
   getDiscriminator _ cn _ =
     let
       cname = case lookupConName cn Nothing (conAliases @(DB (SchemaDB sc)) @ty) of
@@ -279,7 +280,7 @@ instance (UDType sc ty, Typeable ty, Database (SchemaDB sc), Schema sc) => HasDi
       discTyN = DBTypeName qual (_getTypeName $ discriminatorTypeName @(DB (SchemaDB sc)) @ty) []
     in PQ.CastExpr (OtherType discTyN) (PQ.ConstExpr (PQ.String cname))
 
-instance (UDType sc ty, Typeable ty) => HasDiscriminator 'EnumText sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty) => HasDiscriminator 'EnumText sc ty where
   getDiscriminator _ cn _ =
     let
       cname = case lookupConName cn Nothing (conAliases @(DB (SchemaDB sc)) @ty) of
@@ -287,7 +288,7 @@ instance (UDType sc ty, Typeable ty) => HasDiscriminator 'EnumText sc ty where
                 Right _ -> error $ "Panic: Expecting only Text, not Int64 as tag for: " ++ (show $ typeRep (Proxy @ty))
     in PQ.ConstExpr (PQ.String cname)
 
-instance (UDType sc ty, Typeable ty) => HasDiscriminator 'EnumNum sc ty where
+instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty) => HasDiscriminator 'EnumNum sc ty where
   getDiscriminator _ cn cpos =
     let
       ctag = case lookupConName cn (Just cpos) (conAliases @(DB (SchemaDB sc)) @ty) of
@@ -321,10 +322,10 @@ instance (DBTypeOf sc t, TypeConstExpr sc t (Fields t)) => AutoConstExpr sc t ('
 instance (DBRepr (DB (SchemaDB sc)) t, TypeConstExpr sc t (Fields t)) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'FlatRec)) 'True where
   autoConstExpr _ t = typeConstExpr t (\fs -> Expr $ PQ.FlatComposite $ NE.toList fs)
 
-instance (A.ToJSON t, UDType sc t) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'JsonRec)) 'True where
+instance (A.ToJSON t, DBRepr (DB (SchemaDB sc)) t) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'JsonRec)) 'True where
   autoConstExpr _ t = unsafeCoerceExpr $ constExpr $ A.toJSON t
 
-instance (Generic t, UDType sc t) => AutoConstExpr sc t ('UDTypeObj ('UDEnum enum)) 'True where
+instance (Generic t, DBRepr (DB (SchemaDB sc)) t) => AutoConstExpr sc t ('UDTypeObj ('UDEnum enum)) 'True where
   autoConstExpr _ _t = undefined -- genEnumExpr t
 
 instance (HasDiscriminator enk sc t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'FlatRec)) 'True where
@@ -395,7 +396,7 @@ instance TypeError ('Text "[DBR-123] Expecting record type with named fields! " 
 
 instance ( HasField f1 a ft
          , DBRepr (DB (SchemaDB sc)) f1t
-         , UDType sc a
+         , DBRepr (DB (SchemaDB sc)) a
          , KnownSymbol f1
          , TypeConstExpr sc a (x2 : xs)
          , AutoConstExpr sc f1t (ToDBType (DB (SchemaDB sc)) f1t) (AutoCodec (DB (SchemaDB sc)) f1t)
@@ -407,7 +408,7 @@ instance ( HasField f1 a ft
 
 instance ( HasField f1 a ft
          , DBRepr (DB (SchemaDB sc)) f1t
-         , UDType sc a
+         , DBRepr (DB (SchemaDB sc)) a
          , KnownSymbol f1
          , AutoConstExpr sc f1t (ToDBType (DB (SchemaDB sc)) f1t) (AutoCodec (DB (SchemaDB sc)) f1t)
          , ft ~ f1t

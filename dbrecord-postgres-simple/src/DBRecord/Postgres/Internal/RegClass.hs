@@ -19,7 +19,7 @@ module DBRecord.Postgres.Internal.RegClass
 import           DBRecord.Internal.DBTypes as DBTypes
 import           DBRecord.Internal.Expr (ConstExpr (..), unsafeCast, literalExpr)
 import           DBRecord.Internal.PrimQuery (Lit(String))
-import           DBRecord.Internal.Schema
+import           DBRecord.Internal.Table
 -- import           DBRecord.Internal.Types
 import           DBRecord.Postgres.Internal.Sql.Pretty (ppPGType, ppPGOIDType)
 import           DBRecord.Types ( PGOID, RegClass, RegType, PGOIDType(..), mkUnsafePGOID, getPGOID)

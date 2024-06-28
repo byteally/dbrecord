@@ -108,7 +108,8 @@ import DBRecord.Internal.Order hiding (order)
 import DBRecord.Internal.Expr
 import DBRecord.Internal.Predicate
 import DBRecord.Internal.Window
-import DBRecord.Internal.Schema hiding (runMQuery)
+-- import DBRecord.Internal.Schema
+import DBRecord.Internal.Table hiding (runMQuery)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import qualified Data.List as L

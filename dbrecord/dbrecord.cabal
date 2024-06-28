@@ -112,6 +112,8 @@ library
                   DBRecord.Internal.DDL
                   DBRecord.Internal.DBTypes
                   DBRecord.Internal.Schema
+                  DBRecord.Internal.Table
+                  DBRecord.Internal.UDType
                   
   build-depends:       uniplate             >= 1.6
                      , transformers      == 0.5.*

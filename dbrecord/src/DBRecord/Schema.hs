@@ -15,5 +15,7 @@ module DBRecord.Schema
 
 import DBRecord.Internal.Types 
 import DBRecord.Internal.Schema
-import DBRecord.Internal.DBTypes
+import DBRecord.Internal.Table
+import DBRecord.Internal.UDType
+-- import DBRecord.Internal.DBTypes
 import DBRecord.Types

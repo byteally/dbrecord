@@ -29,7 +29,7 @@ import           Control.Monad.Catch
 import           Control.Monad.Reader
 import qualified Control.Monad.Trans.Control as U
 import qualified DBRecord.Internal.Sql.SqlGen as PG
-import           DBRecord.Internal.Schema (MQuery, execMQuery)
+import           DBRecord.Internal.Table (MQuery, execMQuery)
 import           DBRecord.Postgres.Internal.RegClass
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
 -- import           DBRecord.Old.Query
