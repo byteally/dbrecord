@@ -7,7 +7,7 @@ import qualified Data.Text as T
 import Data.Kind
 import Data.Typeable
 import GHC.Exts
--- import Data.Text (Text)
+import Data.Text (Text)
 -- import qualified Data.HashMap.Strict as HM
 
 data DbK = Postgres
@@ -22,43 +22,87 @@ data Max = Max
          deriving (Show, Eq, Ord, Read)
 
 data DBTypeK
-  = DBInt4
-  | DBInt8
-  | DBInt2
-  -- | DBFloat4 -- float(24)
-  -- | DBFloat8 -- float(53)
-  | DBFloat Nat
-  | DBNumeric Nat Nat
-  | DBChar Nat
-  | DBVarchar (Either Max Nat)
-  | DBBool
-  | DBDate
-  | DBTime Nat
-  | DBTimetz Nat
-  | DBTimestamp Nat
-  | DBTimestamptz Nat
-  | DBInterval (Maybe Type) Nat
-  | DBNullable DBTypeK
-  | DBXml
-  | DBJson
+  = TDBInt4
+  | TDBInt8
+  | TDBInt2
+  -- | TDBFloat4 -- float(24)
+  -- | TDBFloat8 -- float(53)
+  | TDBFloat Nat
+  | TDBNumeric Nat Nat
+  | TDBChar Nat
+  | TDBVarchar (Either Max Nat)
+  | TDBBool
+  | TDBDate
+  | TDBTime Nat
+  | TDBTimetz Nat
+  | TDBTimestamp Nat
+  | TDBTimestamptz Nat
+  | TDBInterval (Maybe Type) Nat
+  | TDBNullable DBTypeK
+  | TDBXml
+  | TDBJson
   -- NOTE: Non SQL 92
-  | DBBinary Nat
-  | DBVarbinary (Either Max Nat)
+  | TDBBinary Nat
+  | TDBVarbinary (Either Max Nat)
   -- NOTE: Non standard
-  | DBText
-  | DBCiText
-  | DBUuid
-  | DBBit    Nat
-  | DBVarbit Nat
-  | DBJsonB
-  | DBArray DBTypeK
-  | DBLTree
+  | TDBText
+  | TDBCiText
+  | TDBUuid
+  | TDBBit    Nat
+  | TDBVarbit Nat
+  | TDBJsonB
+  | TDBArray DBTypeK
+  | TDBLTree
 
-data DBTypeNameK = DBTypeName Symbol [TypeArgK]
+data DBTypeNameK = TDBTypeName Symbol [TypeArgK]
 
 data TypeArgK = SymArg Symbol
               | NatArg Nat
 
+data DBType = DBInt4
+            | DBInt8
+            | DBInt2
+            | DBFloat   Integer
+            | DBNumeric Integer Integer
+            | DBChar Integer
+            | DBVarchar (Either Max Integer)
+            | DBBool
+            | DBDate
+            | DBTime Integer
+            | DBTimetz Integer
+            | DBTimestamp Integer
+            | DBTimestamptz Integer
+            | DBInterval (Maybe ()) Integer
+            | DBNullable DBType
+            | DBXml
+            | DBJson
+            | DBBinary Integer
+            | DBVarbinary (Either Max Integer)
+            | DBText
+            | DBCiText
+            | DBUuid
+            | DBBit    Integer
+            | DBVarbit Integer
+            | DBJsonB
+            | DBArray DBType
+            | DBLTree
+            | OtherType DBTypeName
+            deriving (Show, Eq, Ord, Read)
+
+data DBTypeName = DBTypeName TypeNameQual T.Text [TypeArg]
+                deriving (Show, Eq, Ord, Read)
+
+data TypeArg = TextArg    T.Text
+             | IntegerArg Integer
+             deriving (Show, Eq, Ord, Read)
+
+data TypeNameQual
+  = SchemaQualified Text
+  | DBQualified Text Text
+  | NoQualification
+  deriving (Show, Eq, Ord, Read)
+
+              
 data UDTypeK
   = UDRec UDRecK -- ^ Invariant: Haskell Record Type
   | UDEnum UDEnumK -- ^ Invariant: Haskell Sum-Of-Nullary Type
@@ -270,37 +314,37 @@ instance SingE (db :: DbK) where
   fromSing SMSSQL     = MSSQL
 
 data instance Sing (t :: DBTypeK) where
-  SDBInt4        :: Sing 'DBInt4
-  SDBInt8        :: Sing 'DBInt8
-  SDBInt2        :: Sing 'DBInt2
-  SDBFloat       :: Sing n -> Sing ('DBFloat n)
-  SDBNumeric     :: Sing n1 -> Sing n2 -> Sing ('DBNumeric n1 n2)
-  SDBChar        :: Sing n -> Sing ('DBChar n)
-  SDBVarchar     :: Sing n -> Sing ('DBVarchar n)
-  SDBBool        :: Sing 'DBBool
-  SDBDate        :: Sing 'DBDate
-  SDBTime        :: Sing n -> Sing ('DBTime n)
-  SDBTimetz      :: Sing n -> Sing ('DBTimetz n)
-  SDBTimestamp   :: Sing n -> Sing ('DBTimestamp n)
-  SDBTimestamptz :: Sing n -> Sing ('DBTimestamptz n)
-  SDBInterval    :: Sing n1 -> Sing n2 -> Sing ('DBInterval n1 n2)
-  SDBNullable    :: Sing a -> Sing ('DBNullable a)
-  SDBXml         :: Sing 'DBXml
-  SDBJson        :: Sing 'DBJson
-  SDBBinary      :: Sing n -> Sing ('DBBinary n)
-  SDBVarbinary   :: Sing n -> Sing ('DBVarbinary n)
-  SDBText        :: Sing 'DBText
-  SDBCiText      :: Sing 'DBCiText
-  SDBUuid        :: Sing 'DBUuid
-  SDBBit         :: Sing n -> Sing ('DBBit n)
-  SDBVarbit      :: Sing n -> Sing ('DBVarbit n)
-  SDBJsonB       :: Sing 'DBJsonB
-  SDBArray       :: Sing a -> Sing ('DBArray a)
-  SDBLTree       :: Sing 'DBLTree
-  -- SDBCustomType  :: Sing sc -> Sing t -> Sing dbt -> Sing ('DBCustomType sc t dbt)
+  SDBInt4        :: Sing 'TDBInt4
+  SDBInt8        :: Sing 'TDBInt8
+  SDBInt2        :: Sing 'TDBInt2
+  SDBFloat       :: Sing n -> Sing ('TDBFloat n)
+  SDBNumeric     :: Sing n1 -> Sing n2 -> Sing ('TDBNumeric n1 n2)
+  SDBChar        :: Sing n -> Sing ('TDBChar n)
+  SDBVarchar     :: Sing n -> Sing ('TDBVarchar n)
+  SDBBool        :: Sing 'TDBBool
+  SDBDate        :: Sing 'TDBDate
+  SDBTime        :: Sing n -> Sing ('TDBTime n)
+  SDBTimetz      :: Sing n -> Sing ('TDBTimetz n)
+  SDBTimestamp   :: Sing n -> Sing ('TDBTimestamp n)
+  SDBTimestamptz :: Sing n -> Sing ('TDBTimestamptz n)
+  SDBInterval    :: Sing n1 -> Sing n2 -> Sing ('TDBInterval n1 n2)
+  SDBNullable    :: Sing a -> Sing ('TDBNullable a)
+  SDBXml         :: Sing 'TDBXml
+  SDBJson        :: Sing 'TDBJson
+  SDBBinary      :: Sing n -> Sing ('TDBBinary n)
+  SDBVarbinary   :: Sing n -> Sing ('TDBVarbinary n)
+  SDBText        :: Sing 'TDBText
+  SDBCiText      :: Sing 'TDBCiText
+  SDBUuid        :: Sing 'TDBUuid
+  SDBBit         :: Sing n -> Sing ('TDBBit n)
+  SDBVarbit      :: Sing n -> Sing ('TDBVarbit n)
+  SDBJsonB       :: Sing 'TDBJsonB
+  SDBArray       :: Sing a -> Sing ('TDBArray a)
+  SDBLTree       :: Sing 'TDBLTree
+  -- SDBCustomType  :: Sing sc -> Sing t -> Sing dbt -> Sing ('TDBCustomType sc t dbt)
 
 data instance Sing (t :: DBTypeNameK) where
-  SDBTypeName :: Sing s -> Sing args -> Sing ('DBTypeName s args)
+  SDBTypeName :: Sing s -> Sing args -> Sing ('TDBTypeName s args)
 
 data instance Sing (t :: TypeArgK) where
   SSymArg :: Sing n -> Sing ('SymArg n)
@@ -315,92 +359,92 @@ instance (SingI n) => SingI ('SymArg n) where
 instance (SingI n) => SingI ('NatArg n) where
   sing = SNatArg sing
 
-instance SingI 'DBInt4 where
+instance SingI 'TDBInt4 where
   sing = SDBInt4
 
-instance SingI 'DBInt8 where
+instance SingI 'TDBInt8 where
   sing = SDBInt8
 
-instance SingI 'DBInt2 where
+instance SingI 'TDBInt2 where
   sing = SDBInt2
 
-instance (SingI n) => SingI ('DBFloat n) where
+instance (SingI n) => SingI ('TDBFloat n) where
   sing = SDBFloat sing
 
-instance (SingI n1, SingI n2) => SingI ('DBNumeric n1 n2) where
+instance (SingI n1, SingI n2) => SingI ('TDBNumeric n1 n2) where
   sing = SDBNumeric sing sing
 
-instance (SingI n) => SingI ('DBChar n) where
+instance (SingI n) => SingI ('TDBChar n) where
   sing = SDBChar sing
 
-instance (SingI n) => SingI ('DBVarchar n) where
+instance (SingI n) => SingI ('TDBVarchar n) where
   sing = SDBVarchar sing
 
-instance SingI ('DBBool) where
+instance SingI ('TDBBool) where
   sing = SDBBool
 
-instance SingI ('DBDate) where
+instance SingI ('TDBDate) where
   sing = SDBDate
 
-instance (SingI n) => SingI ('DBTime n) where
+instance (SingI n) => SingI ('TDBTime n) where
   sing = SDBTime sing
 
-instance (SingI n) => SingI ('DBTimetz n) where
+instance (SingI n) => SingI ('TDBTimetz n) where
   sing = SDBTimetz sing
 
-instance (SingI n) => SingI ('DBTimestamp n) where
+instance (SingI n) => SingI ('TDBTimestamp n) where
   sing = SDBTimestamp sing
 
-instance (SingI n) => SingI ('DBTimestamptz n) where
+instance (SingI n) => SingI ('TDBTimestamptz n) where
   sing = SDBTimestamptz sing
 
-instance (SingI n1, SingI n2) => SingI ('DBInterval n1 n2) where
+instance (SingI n1, SingI n2) => SingI ('TDBInterval n1 n2) where
   sing = SDBInterval sing sing
 
-instance (SingI n) => SingI ('DBNullable n) where
+instance (SingI n) => SingI ('TDBNullable n) where
   sing = SDBNullable sing
 
-instance SingI 'DBXml where
+instance SingI 'TDBXml where
   sing = SDBXml
 
-instance SingI 'DBJson where
+instance SingI 'TDBJson where
   sing = SDBJson
 
-instance (SingI n) => SingI ('DBBinary n) where
+instance (SingI n) => SingI ('TDBBinary n) where
   sing = SDBBinary sing
 
-instance (SingI n) => SingI ('DBVarbinary n) where
+instance (SingI n) => SingI ('TDBVarbinary n) where
   sing = SDBVarbinary sing
 
-instance SingI 'DBText where
+instance SingI 'TDBText where
   sing = SDBText
 
-instance SingI 'DBCiText where
+instance SingI 'TDBCiText where
   sing = SDBCiText
 
-instance SingI 'DBUuid where
+instance SingI 'TDBUuid where
   sing = SDBUuid
 
-instance (SingI n) => SingI ('DBBit n) where
+instance (SingI n) => SingI ('TDBBit n) where
   sing = SDBBit sing
 
-instance (SingI n) => SingI ('DBVarbit n) where
+instance (SingI n) => SingI ('TDBVarbit n) where
   sing = SDBVarbit sing
 
-instance SingI ('DBJsonB) where
+instance SingI ('TDBJsonB) where
   sing = SDBJsonB
 
-instance (SingI n) => SingI ('DBArray n) where
+instance (SingI n) => SingI ('TDBArray n) where
   sing = SDBArray sing
 
-instance SingI ('DBLTree) where
+instance SingI ('TDBLTree) where
   sing = SDBLTree
 
 -- instance ( SingI t, SingI dbt, SingI sc
---          ) => SingI ('DBCustomType sc t dbt) where
+--          ) => SingI ('TDBCustomType sc t dbt) where
 --   sing = SDBCustomType sing sing sing
 
-instance (SingI s, SingI args) => SingI ('DBTypeName s args) where
+instance (SingI s, SingI args) => SingI ('TDBTypeName s args) where
   sing = SDBTypeName sing sing
 
 instance SingI 'Max where
@@ -409,6 +453,55 @@ instance SingI 'Max where
 instance SingE (t :: Max) where
   type Demote (t :: Max) = Max
   fromSing SMax = Max
+
+type family DBTypeCtx (t :: DBTypeK) :: Constraint where
+  DBTypeCtx ('TDBFloat v)             = SingE v
+  DBTypeCtx ('TDBNumeric v1 v2)       = (SingE v1, SingE v2)
+  DBTypeCtx ('TDBChar v)              = SingE v
+  DBTypeCtx ('TDBVarchar v)           = EitherCtx SingE SingE v
+  DBTypeCtx ('TDBTime v)              = SingE v
+  DBTypeCtx ('TDBTimetz v)            = SingE v
+  DBTypeCtx ('TDBTimestamp v)         = SingE v
+  DBTypeCtx ('TDBTimestamptz v)       = SingE v
+  DBTypeCtx ('TDBInterval _ v)        = SingE v
+  DBTypeCtx ('TDBNullable v)          = SingE v
+  DBTypeCtx ('TDBBinary v)            = SingE v
+  DBTypeCtx ('TDBVarbinary v)         = EitherCtx SingE SingE v
+  DBTypeCtx ('TDBBit v)               = SingE v
+  DBTypeCtx ('TDBVarbit v)            = SingE v
+  DBTypeCtx ('TDBArray v)             = SingE v
+  DBTypeCtx _                             = ()
+  
+instance (DBTypeCtx t) => SingE (t :: DBTypeK) where
+  type Demote t = DBType
+  
+  fromSing SDBInt4                 = DBInt4
+  fromSing SDBInt8                 = DBInt8
+  fromSing SDBInt2                 = DBInt2
+  fromSing (SDBFloat v)            = DBFloat (fromSing v)
+  fromSing (SDBNumeric n1 n2)      = DBNumeric (fromSing n1) (fromSing n2)
+  fromSing (SDBChar n)             = DBChar (fromSing n)
+  fromSing (SDBVarchar n)          = DBVarchar (fromSing n)
+  fromSing SDBBool                 = DBBool
+  fromSing SDBDate                 = DBDate
+  fromSing (SDBTime n)             = DBTime (fromSing n)
+  fromSing (SDBTimetz n)           = DBTimetz (fromSing n)
+  fromSing (SDBTimestamp n)        = DBTimestamp (fromSing n)
+  fromSing (SDBTimestamptz n)      = DBTimestamptz (fromSing n)
+  fromSing (SDBInterval _ n2)      = DBInterval Nothing (fromSing n2)
+  fromSing (SDBNullable n)         = DBNullable (fromSing n)
+  fromSing SDBXml                  = DBXml
+  fromSing (SDBBinary n)           = DBBinary (fromSing n)
+  fromSing (SDBVarbinary n)        = DBVarbinary (fromSing n)
+  fromSing SDBText                 = DBText
+  fromSing SDBCiText               = DBCiText
+  fromSing SDBUuid                 = DBUuid
+  fromSing (SDBBit n)              = DBBit (fromSing n)
+  fromSing (SDBVarbit n)           = DBVarbit (fromSing n)
+  fromSing SDBJson                 = DBJson  
+  fromSing SDBJsonB                = DBJsonB
+  fromSing (SDBArray a)            = DBArray (fromSing a)
+  fromSing SDBLTree                = DBLTree
 
 --
 

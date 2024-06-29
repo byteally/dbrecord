@@ -16,13 +16,13 @@ module DBRecord.Postgres.Internal.RegClass
        , regtype
        ) where
 
-import           DBRecord.Internal.DBTypes as DBTypes
 import           DBRecord.Internal.Expr (ConstExpr (..), unsafeCast, literalExpr)
 import           DBRecord.Internal.PrimQuery (Lit(String))
 import           DBRecord.Internal.Table
 -- import           DBRecord.Internal.Types
 import           DBRecord.Postgres.Internal.Sql.Pretty (ppPGType, ppPGOIDType)
 import           DBRecord.Types ( PGOID, RegClass, RegType, PGOIDType(..), mkUnsafePGOID, getPGOID)
+import           DBRecord.Internal.Types (DBType (..), DBTypeName (..), TypeNameQual (..))
 import           Data.ByteString.Char8 as ASCII
 import qualified Data.ByteString.Char8 as B
 -- import           Data.Proxy
@@ -44,7 +44,7 @@ regtype = mkUnsafePGOID $ T.pack $ ppPGType tyRep
   where tyRep = undefined -- TODO: Fix this -- fromSing (sing :: Sing (GetDBTypeRep sc ty))
 
 instance SingPGOIDType t => ConstExpr sc (PGOID t) where
-  toConstExpr oid = unsafeCast (OtherType $ DBTypes.DBTypeName NoQualification (T.pack $ ppPGOIDType $ singPGOIDType @t) []) $ go (getPGOID oid)
+  toConstExpr oid = unsafeCast (OtherType $ DBTypeName NoQualification (T.pack $ ppPGOIDType $ singPGOIDType @t) []) $ go (getPGOID oid)
     where
       go = literalExpr . String
 

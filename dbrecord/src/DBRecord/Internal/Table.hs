@@ -49,7 +49,7 @@ import DBRecord.Internal.Expr
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
 import qualified DBRecord.Internal.PrimQuery as PQ
-import DBRecord.Internal.DBTypes hiding (DBType (..), DBTypeName (..))
+import DBRecord.Internal.DBTypes
 import qualified Data.List as L
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -590,7 +590,7 @@ instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
-  -- , UDType sc a
+  , TypeError ('Text "TODO: Should this be allowed?")
   ) => HasColumnByDBType sc tab col a 'TableObj where
   getColByDBTypeRep _ = getColumnName @sc @tab @col
 
@@ -598,7 +598,6 @@ instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
-  -- , UDType sc a
   ) => HasColumnByDBType sc tab col a ('NativeTypeObj dbk) where
   getColByDBTypeRep _ = getColumnName @sc @tab @col
 
@@ -606,7 +605,6 @@ instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
-  -- , UDType sc a
   ) => HasColumnByDBType sc tab col a ('NullableObjOf e edbk) where
   getColByDBTypeRep _ = getColumnName @sc @tab @col
 
@@ -614,7 +612,6 @@ instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
-  -- , UDType sc a
   ) => HasColumnByDBType sc tab col a ('ArrayObjOf e edbk) where
   getColByDBTypeRep _ = getColumnName @sc @tab @col
 
@@ -622,7 +619,6 @@ instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
-  -- , UDType sc a
   ) => HasColumnByDBType sc tab col a ('UDTypeObj ('SerializedBlob ct)) where
   getColByDBTypeRep _ = getColumnName @sc @tab @col
 
@@ -630,25 +626,24 @@ instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
-  -- , UDType sc a
+  , UDType sc a
+  , SynTypeToExpr (GetUDTypeKind (DB (SchemaDB sc)) a (ToDBType (DB (SchemaDB sc)) a)) sc a (Fields a)
   ) => HasColumnByDBType sc tab col a ('UDTypeObj ('UDRec 'FlatRec)) where
-  getColByDBTypeRep _ = undefined -- TODO: Make FlatComposite
+  getColByDBTypeRep _ = udtypeToExpr (Proxy @'(sc, a))
 
 instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
-  -- , UDType sc a
   ) => HasColumnByDBType sc tab col a ('UDTypeObj ('UDRec 'CompositeRec)) where
-  getColByDBTypeRep _ = undefined -- TODO: Make Composite
+  getColByDBTypeRep _ = getColumnName @sc @tab @col
 
 instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
-  -- , UDType sc a
   ) => HasColumnByDBType sc tab col a ('UDTypeObj ('UDRec 'JsonRec)) where
-  getColByDBTypeRep _ = undefined -- TODO: Make JSON
+  getColByDBTypeRep _ = getColumnName @sc @tab @col
 
 instance
   ( Table sc tab

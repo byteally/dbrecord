@@ -5,7 +5,7 @@ import Data.ByteString (ByteString)
 import qualified Data.List.NonEmpty as NEL
 import Data.Text
 import GHC.Generics (Generic)
-import DBRecord.Internal.DBTypes (DBType)
+import DBRecord.Internal.Types (DBType)
 
 type TableName = Text
 type Name      = Text

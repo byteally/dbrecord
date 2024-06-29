@@ -3,7 +3,7 @@ module DBRecord.Internal.DDL where
 
 import qualified Data.Text as T
 import qualified DBRecord.Internal.PrimQuery as PQ
-import DBRecord.Internal.DBTypes hiding (TypeName)
+import DBRecord.Internal.Types (DBType (..))
 
 type HaskName = T.Text
 type DBName   = T.Text

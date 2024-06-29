@@ -10,7 +10,7 @@ import Text.PrettyPrint.HughesPJ (Doc, (<+>), text,
                                   hsep, semi, render, char,
                                   (<>))
 import Prelude hiding ((<>))
-import DBRecord.Internal.DBTypes hiding (TypeName)
+import DBRecord.Internal.Types (DBType (..))
 import qualified Data.Text as T
 import DBRecord.Postgres.Internal.Sql.Pretty
 import DBRecord.Internal.Sql.SqlGen

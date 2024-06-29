@@ -47,3 +47,15 @@ defHSNameToDBName = LT.toStrict . LTB.toLazyText .  T.foldl'
                       else b <> LTB.singleton '_' <> LTB.singleton (toLower c)
        | otherwise -> b <> LTB.singleton c
   ) mempty
+
+doubleQuote :: T.Text -> T.Text
+doubleQuote = quoteBy '"' (Just '"')
+
+quoteBy :: Char -> Maybe Char -> T.Text -> T.Text
+quoteBy ch esc s = T.pack $ ch : go esc (T.unpack s) ++ (ch:[])
+  where
+    go Nothing s'           = s'
+    go (Just _) ""          = ""
+    go (Just esch) (ch':xs)
+      | ch' == esch          = esch : ch': go esc xs
+    go esc' (x:xs)          = x : go esc' xs

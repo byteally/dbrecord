@@ -13,8 +13,7 @@ import qualified Data.Text as T
 import Data.Text (Text)
 import Control.Applicative
 import qualified Data.List.NonEmpty as NEL
-import DBRecord.Internal.DBTypes (DBType (..), DBTypeName (..), TypeNameQual (..))
-import DBRecord.Internal.Types (Max (..))
+import DBRecord.Internal.Types (Max (..), DBType (..), DBTypeName (..), TypeNameQual (..))
 import Data.Functor (($>))
 
 sqlExpr :: Parser SqlExpr

@@ -21,10 +21,9 @@ import DBRecord.Types (PGOID(..), PGOIDType(..), LTree{-, Interval-}, Json {-, J
 import qualified DBRecord.Types as DBR
 
 import Data.Vector (Vector)
-import DBRecord.Internal.Types (DbK (..))
-import qualified DBRecord.Internal.Types as Type
-import DBRecord.Internal.Types (Sing (..), SingE (..))
+import DBRecord.Internal.Types
 import DBRecord.Internal.Common
+-- import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import GHC.Generics
 import Data.Kind
@@ -38,111 +37,6 @@ import GHC.TypeLits
 -- import qualified Path as Path
 import Record
 import Record.Setter
-
--- TODO: Very similar to DBTypeK! Try to unify.
-data DBType = DBInt4
-            | DBInt8
-            | DBInt2
-            | DBFloat   Integer
-            | DBNumeric Integer Integer
-            | DBChar Integer
-            | DBVarchar (Either Type.Max Integer)
-            | DBBool
-            | DBDate
-            | DBTime Integer
-            | DBTimetz Integer
-            | DBTimestamp Integer
-            | DBTimestamptz Integer
-            | DBInterval (Maybe ()) Integer
-            | DBNullable DBType
-            | DBXml
-            | DBJson
-            | DBBinary Integer
-            | DBVarbinary (Either Type.Max Integer)
-            | DBText
-            | DBCiText
-            | DBUuid
-            | DBBit    Integer
-            | DBVarbit Integer
-            | DBJsonB
-            | DBArray DBType
-            | DBLTree
-            | OtherType DBTypeName
-            deriving (Show, Eq, Ord, Read)
-
-data DBTypeName = DBTypeName TypeNameQual T.Text [TypeArg]
-                deriving (Show, Eq, Ord, Read)
-
-data TypeArg = TextArg    T.Text
-             | IntegerArg Integer
-             deriving (Show, Eq, Ord, Read)
-
-data TypeNameQual
-  = SchemaQualified Text
-  | DBQualified Text Text
-  | NoQualification
-  deriving (Show, Eq, Ord, Read)
-
-type family DBTypeCtx (t :: Type.DBTypeK) :: Constraint where
-  DBTypeCtx ('Type.DBFloat v)             = SingE v
-  DBTypeCtx ('Type.DBNumeric v1 v2)       = (SingE v1, SingE v2)
-  DBTypeCtx ('Type.DBChar v)              = SingE v
-  DBTypeCtx ('Type.DBVarchar v)           = Type.EitherCtx SingE SingE v
-  DBTypeCtx ('Type.DBTime v)              = SingE v
-  DBTypeCtx ('Type.DBTimetz v)            = SingE v
-  DBTypeCtx ('Type.DBTimestamp v)         = SingE v
-  DBTypeCtx ('Type.DBTimestamptz v)       = SingE v
-  DBTypeCtx ('Type.DBInterval _ v)        = SingE v
-  DBTypeCtx ('Type.DBNullable v)          = SingE v
-  DBTypeCtx ('Type.DBBinary v)            = SingE v
-  DBTypeCtx ('Type.DBVarbinary v)         = Type.EitherCtx SingE SingE v
-  DBTypeCtx ('Type.DBBit v)               = SingE v
-  DBTypeCtx ('Type.DBVarbit v)            = SingE v
-  DBTypeCtx ('Type.DBArray v)             = SingE v
-  DBTypeCtx _                             = ()
-  
-instance (DBTypeCtx t) => SingE (t :: Type.DBTypeK) where
-  type Demote t = DBType
-  
-  fromSing SDBInt4                 = DBInt4
-  fromSing SDBInt8                 = DBInt8
-  fromSing SDBInt2                 = DBInt2
-  fromSing (SDBFloat v)            = DBFloat (fromSing v)
-  fromSing (SDBNumeric n1 n2)      = DBNumeric (fromSing n1) (fromSing n2)
-  fromSing (SDBChar n)             = DBChar (fromSing n)
-  fromSing (SDBVarchar n)          = DBVarchar (fromSing n)
-  fromSing SDBBool                 = DBBool
-  fromSing SDBDate                 = DBDate
-  fromSing (SDBTime n)             = DBTime (fromSing n)
-  fromSing (SDBTimetz n)           = DBTimetz (fromSing n)
-  fromSing (SDBTimestamp n)        = DBTimestamp (fromSing n)
-  fromSing (SDBTimestamptz n)      = DBTimestamptz (fromSing n)
-  fromSing (SDBInterval _ n2)      = DBInterval Nothing (fromSing n2)
-  fromSing (SDBNullable n)         = DBNullable (fromSing n)
-  fromSing SDBXml                  = DBXml
-  fromSing (SDBBinary n)           = DBBinary (fromSing n)
-  fromSing (SDBVarbinary n)        = DBVarbinary (fromSing n)
-  fromSing SDBText                 = DBText
-  fromSing SDBCiText               = DBCiText
-  fromSing SDBUuid                 = DBUuid
-  fromSing (SDBBit n)              = DBBit (fromSing n)
-  fromSing (SDBVarbit n)           = DBVarbit (fromSing n)
-  fromSing SDBJson                 = DBJson  
-  fromSing SDBJsonB                = DBJsonB
-  fromSing (SDBArray a)            = DBArray (fromSing a)
-  fromSing SDBLTree                = DBLTree
-
-doubleQuote :: T.Text -> T.Text
-doubleQuote = quoteBy '"' (Just '"')
-
-quoteBy :: Char -> Maybe Char -> T.Text -> T.Text
-quoteBy ch esc s = T.pack $ ch : go esc (T.unpack s) ++ (ch:[])
-  where
-    go Nothing s'           = s'
-    go (Just _) ""          = ""
-    go (Just esch) (ch':xs)
-      | ch' == esch          = esch : ch': go esc xs
-    go esc' (x:xs)          = x : go esc' xs
 
 newtype FieldAliases (dbk :: DbK) ty = FieldAliases (HM.HashMap Text Text)
   deriving newtype (Show, Semigroup, Monoid)
@@ -165,8 +59,8 @@ newtype ConAliases (dbk :: DbK) ty = ConAliases (HM.HashMap Text (Either Text In
 lookupConName :: Text -> Maybe Int64 -> ConAliases dbk ty -> Either Text Int64
 lookupConName cn pos (ConAliases hmap) = HM.findWithDefault (maybe (Left cn) Right pos) cn hmap
 
-type family GetTagEnumK (dbObj :: DBObjK) = (res :: Type.UDEnumK) where
-  GetTagEnumK ('UDTypeObj ('Type.UDEnum en)) = en
+type family GetTagEnumK (dbObj :: DBObjK) = (res :: UDEnumK) where
+  GetTagEnumK ('UDTypeObj ('UDEnum en)) = en
   GetTagEnumK _ = TypeError ('Text "Expecting only enum type")
 
 instance (Generic ty
@@ -180,7 +74,7 @@ instance (Generic ty
 instance (Generic ty
          , ValidateConName ty fn (Rep ty) (UnconsSymbol fn)
          , KnownSymbol fn
-         ) => SetField '(fn :: Symbol, 'Type.EnumType) (ConAliases dbk ty) Text where
+         ) => SetField '(fn :: Symbol, 'EnumType) (ConAliases dbk ty) Text where
   modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . Left . maybe (f cname) (f . unsafeText)) cname hmap
     where
       -- Invariant: `ValidateConName` ensures that `fn` is not empty, making the use of `tail` safe
@@ -192,7 +86,7 @@ instance (Generic ty
 instance (Generic ty
          , ValidateConName ty fn (Rep ty) (UnconsSymbol fn)
          , KnownSymbol fn
-         ) => SetField '(fn :: Symbol, 'Type.EnumText) (ConAliases dbk ty) Text where
+         ) => SetField '(fn :: Symbol, 'EnumText) (ConAliases dbk ty) Text where
   modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . Left . maybe (f cname) (f . unsafeText)) cname hmap
     where
       -- Invariant: `ValidateConName` ensures that `fn` is not empty, making the use of `tail` safe
@@ -204,7 +98,7 @@ instance (Generic ty
 instance (Generic ty
          , ValidateConName ty fn (Rep ty) (UnconsSymbol fn)
          , KnownSymbol fn
-         ) => SetField '(fn :: Symbol, 'Type.EnumNum) (ConAliases dbk ty) Int64 where
+         ) => SetField '(fn :: Symbol, 'EnumNum) (ConAliases dbk ty) Int64 where
   modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . Right . maybe (f minBound) (f . unsafeNum)) cname hmap -- TODO: remove `minBound` by making ValidateConName to return `Maybe (con's-Ix)`
     where
       -- Invariant: `ValidateConName` ensures that `fn` is not empty, making the use of `tail` safe
@@ -221,8 +115,8 @@ type family ValidateConName (ty :: Type) (k :: Symbol) (rep :: Type -> Type) (un
 
 data DBObjK
   = TableObj
-  | NativeTypeObj Type.DBTypeK
-  | UDTypeObj Type.UDTypeK
+  | NativeTypeObj DBTypeK
+  | UDTypeObj UDTypeK
   | NewtypeObj Type
   | DomainType DBObjK
   | SimDomainType DBObjK
@@ -259,16 +153,16 @@ class DBRepr (dbk :: DbK) (t :: Type) where
   conAliases = mempty
 
   discriminatorTagName :: DiscriminatorTagName dbk t
-  default discriminatorTagName :: (Type.SingI (IsTaggedSum (ToDBType dbk t))) => DiscriminatorTagName dbk t
-  discriminatorTagName = case (Type.fromSing (Type.sing :: Type.Sing (IsTaggedSum (ToDBType dbk t)))) of
+  default discriminatorTagName :: (SingI (IsTaggedSum (ToDBType dbk t))) => DiscriminatorTagName dbk t
+  discriminatorTagName = case (fromSing (sing :: Sing (IsTaggedSum (ToDBType dbk t)))) of
     True -> let TypeName tn = typeName @dbk @t
             in DiscriminatorTagName (tn <> "_tag")
     False -> let TypeName tn = typeName @dbk @t
             in DiscriminatorTagName tn
 
   discriminatorTypeName :: TypeName dbk t
-  default discriminatorTypeName :: (Type.SingI (IsTaggedSum (ToDBType dbk t))) => TypeName dbk t
-  discriminatorTypeName = case (Type.fromSing (Type.sing :: Type.Sing (IsTaggedSum (ToDBType dbk t)))) of
+  default discriminatorTypeName :: (SingI (IsTaggedSum (ToDBType dbk t))) => TypeName dbk t
+  discriminatorTypeName = case (fromSing (sing :: Sing (IsTaggedSum (ToDBType dbk t)))) of
     True -> let TypeName tn = typeName @dbk @t
             in TypeName (tn <> "_tag")
     False -> typeName @dbk @t
@@ -291,22 +185,22 @@ data DeCtor (dbk :: DbK) (t :: Type) where
 class UnivOfUnLifted (dbObjK :: DBObjK) (dbk :: DbK) (t :: Type) where
   univOfUnLifted' :: Proxy '(dbObjK, dbk, t) -> [(Text, UnLifted dbk t)]
 
-instance UnivOfUnLifted ('UDTypeObj ('Type.UDEnum enk)) dbk t where
+instance UnivOfUnLifted ('UDTypeObj ('UDEnum enk)) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('UDTypeObj ('Type.TaggedSum enk lay)) dbk t where
+instance UnivOfUnLifted ('UDTypeObj ('TaggedSum enk lay)) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('UDTypeObj ('Type.TaggedSumMono enk cty lay)) dbk t where
+instance UnivOfUnLifted ('UDTypeObj ('TaggedSumMono enk cty lay)) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('UDTypeObj ('Type.SumOfCol lay)) dbk t where
+instance UnivOfUnLifted ('UDTypeObj ('SumOfCol lay)) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('UDTypeObj ('Type.UDRec rt)) dbk t where
+instance UnivOfUnLifted ('UDTypeObj ('UDRec rt)) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('UDTypeObj ('Type.SerializedBlob ct)) dbk t where
+instance UnivOfUnLifted ('UDTypeObj ('SerializedBlob ct)) dbk t where
   univOfUnLifted' _ = []
 
 instance UnivOfUnLifted ('NativeTypeObj dbt) dbk t where
@@ -332,73 +226,73 @@ instance UnivOfUnLifted ('TableObj) dbk t where
 -- test = [ConDeCons (const UTrue) (const (Proxy @())) (constExpr True)]
 
 instance DBRepr dbk Int where
-  type ToDBType dbk Int = 'NativeTypeObj 'Type.DBInt8
+  type ToDBType dbk Int = 'NativeTypeObj 'TDBInt8
   typeName = ""
 
 instance DBRepr dbk Int64 where
-  type ToDBType dbk Int64 = 'NativeTypeObj 'Type.DBInt8
+  type ToDBType dbk Int64 = 'NativeTypeObj 'TDBInt8
   typeName = ""
 
 instance DBRepr dbk Int32 where
-  type ToDBType dbk Int32 = 'NativeTypeObj 'Type.DBInt4
+  type ToDBType dbk Int32 = 'NativeTypeObj 'TDBInt4
   typeName = ""
 
 instance DBRepr dbk Int16 where
-  type ToDBType dbk Int16 = 'NativeTypeObj 'Type.DBInt2
+  type ToDBType dbk Int16 = 'NativeTypeObj 'TDBInt2
   typeName = ""
 
 instance DBRepr dbk Text where
-  type ToDBType dbk Text = 'NativeTypeObj 'Type.DBText
+  type ToDBType dbk Text = 'NativeTypeObj 'TDBText
   typeName = ""
 
 deriving newtype instance DBRepr dbk t => DBRepr dbk (Identity t)
 
 instance DBRepr dbk (CI t) where
-  type ToDBType dbk (CI t) = 'NativeTypeObj ('Type.DBCiText)
+  type ToDBType dbk (CI t) = 'NativeTypeObj ('TDBCiText)
   typeName = ""
 
 instance DBRepr dbk TimeOfDay where
-  type ToDBType dbk TimeOfDay = 'NativeTypeObj ('Type.DBTime 7)
+  type ToDBType dbk TimeOfDay = 'NativeTypeObj ('TDBTime 7)
   typeName = ""
 
 instance DBRepr dbk Bool where
-  type ToDBType dbk Bool = 'NativeTypeObj 'Type.DBBool
+  type ToDBType dbk Bool = 'NativeTypeObj 'TDBBool
   typeName = ""
 
 instance DBRepr dbk Double where
-  type ToDBType dbk Double = 'NativeTypeObj ('Type.DBFloat 53)
+  type ToDBType dbk Double = 'NativeTypeObj ('TDBFloat 53)
   typeName = ""
 
 instance DBRepr dbk Float where
-  type ToDBType dbk Float = 'NativeTypeObj ('Type.DBFloat 24)
+  type ToDBType dbk Float = 'NativeTypeObj ('TDBFloat 24)
   typeName = ""
 
 instance DBRepr dbk Rational where
-  type ToDBType dbk Rational = 'NativeTypeObj ('Type.DBNumeric 1000 1000)
+  type ToDBType dbk Rational = 'NativeTypeObj ('TDBNumeric 1000 1000)
   typeName = ""
 
 instance DBRepr dbk Scientific where
-  type ToDBType dbk Scientific = 'NativeTypeObj ('Type.DBNumeric 1000 1000)
+  type ToDBType dbk Scientific = 'NativeTypeObj ('TDBNumeric 1000 1000)
   typeName = ""
 
 instance DBRepr dbk Day where
-  type ToDBType dbk Day = 'NativeTypeObj 'Type.DBDate
+  type ToDBType dbk Day = 'NativeTypeObj 'TDBDate
   typeName = ""
 
 instance DBRepr dbk LocalTime where
-  type ToDBType dbk LocalTime = 'NativeTypeObj ('Type.DBTimestamp 6)
+  type ToDBType dbk LocalTime = 'NativeTypeObj ('TDBTimestamp 6)
   typeName = ""
 
 instance DBRepr dbk UTCTime where
-  type ToDBType dbk UTCTime = 'NativeTypeObj ('Type.DBTimestamptz 6)
+  type ToDBType dbk UTCTime = 'NativeTypeObj ('TDBTimestamptz 6)
   typeName = ""
 
 instance DBRepr dbk ByteString where
-  type ToDBType dbk ByteString = 'NativeTypeObj ('Type.DBVarbinary ('Left 'Type.Max))
+  type ToDBType dbk ByteString = 'NativeTypeObj ('TDBVarbinary ('Left 'Max))
   typeName = ""
 
 instance DBRepr dbk UUID where
-  type ToDBType dbk UUID = 'NativeTypeObj 'Type.DBUuid
+  type ToDBType dbk UUID = 'NativeTypeObj 'TDBUuid
   typeName = ""
 
 instance DBRepr dbk a => DBRepr dbk (Maybe a) where
@@ -418,11 +312,11 @@ instance DBRepr dbk a => DBRepr dbk (Vector a) where
 
 -- TODO: Json is not native is all the DB
 instance DBRepr dbk (Json a) where
-  type ToDBType dbk (Json a) = 'NativeTypeObj 'Type.DBJsonB
+  type ToDBType dbk (Json a) = 'NativeTypeObj 'TDBJsonB
   typeName = ""
 
 instance DBRepr dbk Value where
-  type ToDBType dbk Value = 'NativeTypeObj 'Type.DBJsonB
+  type ToDBType dbk Value = 'NativeTypeObj 'TDBJsonB
   typeName = ""
 
 instance DBRepr dbk (Rec xs) where
@@ -441,13 +335,13 @@ newtype TableVal t = TableVal t
 
 
 instance DBRepr dbk (Row xs) where
-  type ToDBType dbk (Row xs) = 'UDTypeObj ('Type.UDRec 'Type.FlatRec)
+  type ToDBType dbk (Row xs) = 'UDTypeObj ('UDRec 'FlatRec)
   typeName = ""
 
 newtype AsUDType t = AsUDType t
 
 instance DBRepr dbk (AsUDType t) where
-  type ToDBType dbk (AsUDType t) = 'UDTypeObj (Type.GenUDTypeRep (Rep t))
+  type ToDBType dbk (AsUDType t) = 'UDTypeObj (GenUDTypeRep (Rep t))
   univOfUnLifted _ = []
   typeName = ""
   discriminatorTypeName = ""
@@ -456,97 +350,97 @@ instance DBRepr dbk (AsUDType t) where
 newtype AsEnum t = AsEnum t
 
 instance DBRepr db (AsEnum t) where
-  type ToDBType db (AsEnum t) = 'UDTypeObj ('Type.UDEnum (Type.GetDBEnumK db))
+  type ToDBType db (AsEnum t) = 'UDTypeObj ('UDEnum (GetDBEnumK db))
   typeName = ""
 
 newtype AsEnumText t = AsEnumText t
 
 instance DBRepr dbk (AsEnumText t) where
-  type ToDBType dbk (AsEnumText t) = 'UDTypeObj ('Type.UDEnum 'Type.EnumText)
+  type ToDBType dbk (AsEnumText t) = 'UDTypeObj ('UDEnum 'EnumText)
   typeName = ""
 
 newtype AsEnumNum t = AsEnumNum t
 
 instance DBRepr dbk (AsEnumNum t) where
-  type ToDBType dbk (AsEnumNum t) = 'UDTypeObj ('Type.UDEnum 'Type.EnumNum)
+  type ToDBType dbk (AsEnumNum t) = 'UDTypeObj ('UDEnum 'EnumNum)
   typeName = ""
 
 newtype AsCompositeRec t = AsCompositeRec t
 
 instance DBRepr 'Postgres (AsCompositeRec t) where
-  type ToDBType 'Postgres (AsCompositeRec t) = 'UDTypeObj ('Type.UDRec 'Type.CompositeRec)
+  type ToDBType 'Postgres (AsCompositeRec t) = 'UDTypeObj ('UDRec 'CompositeRec)
   typeName = ""
 
 newtype AsFlatRec t = AsFlatRec t
 
 instance DBRepr dbk (AsFlatRec t) where
-  type ToDBType dbk (AsFlatRec t) = 'UDTypeObj ('Type.UDRec 'Type.FlatRec)
+  type ToDBType dbk (AsFlatRec t) = 'UDTypeObj ('UDRec 'FlatRec)
   typeName = ""
 
 newtype AsJsonRec t = AsJsonRec t
 
 instance DBRepr 'Postgres (AsJsonRec t) where
-  type ToDBType 'Postgres (AsJsonRec t) = 'UDTypeObj ('Type.UDRec 'Type.JsonRec)
+  type ToDBType 'Postgres (AsJsonRec t) = 'UDTypeObj ('UDRec 'JsonRec)
   typeName = ""
 
 newtype AsJsonBlob t = AsJsonBlob t
 
 instance DBRepr 'Postgres (AsJsonBlob t) where
-  type ToDBType 'Postgres (AsJsonBlob t) = 'UDTypeObj ('Type.SerializedBlob ('Type.JsonContent 'Nothing))
+  type ToDBType 'Postgres (AsJsonBlob t) = 'UDTypeObj ('SerializedBlob ('JsonContent 'Nothing))
   typeName = ""
 
 newtype AsTaggedSumFlat t = AsTaggedSumFlat t
 
 instance DBRepr db (AsTaggedSumFlat t) where
-  type ToDBType db (AsTaggedSumFlat t) = 'UDTypeObj ('Type.TaggedSum (Type.GetDBEnumK db) 'Type.FlatRec)
+  type ToDBType db (AsTaggedSumFlat t) = 'UDTypeObj ('TaggedSum (GetDBEnumK db) 'FlatRec)
   typeName = ""
 
 newtype AsTaggedSumComposite t = AsTaggedSumComposite t
 
 instance DBRepr 'Postgres (AsTaggedSumComposite t) where
-  type ToDBType 'Postgres (AsTaggedSumComposite t) = 'UDTypeObj ('Type.TaggedSum 'Type.EnumType 'Type.CompositeRec)
+  type ToDBType 'Postgres (AsTaggedSumComposite t) = 'UDTypeObj ('TaggedSum 'EnumType 'CompositeRec)
   typeName = ""
 
 newtype AsTaggedSumJson t = AsTaggedSumJson t
 
 instance DBRepr db (AsTaggedSumJson t) where
-  type ToDBType db (AsTaggedSumJson t) = 'UDTypeObj ('Type.TaggedSum (Type.GetDBEnumK db) 'Type.JsonRec)
+  type ToDBType db (AsTaggedSumJson t) = 'UDTypeObj ('TaggedSum (GetDBEnumK db) 'JsonRec)
   typeName = ""
 
 newtype AsTaggedSumMonoFlat colTy t = AsTaggedSumMonoFlat t
 
 instance DBRepr db cty => DBRepr db (AsTaggedSumMonoFlat cty t) where
-  type ToDBType db (AsTaggedSumMonoFlat cty t) = 'UDTypeObj ('Type.TaggedSumMono (Type.GetDBEnumK db) cty 'Type.FlatRec)
+  type ToDBType db (AsTaggedSumMonoFlat cty t) = 'UDTypeObj ('TaggedSumMono (GetDBEnumK db) cty 'FlatRec)
   typeName = ""
 
 newtype AsTaggedSumMonoComposite colTy t = AsTaggedSumMonoComposite t
 
 instance DBRepr 'Postgres cty => DBRepr 'Postgres (AsTaggedSumMonoComposite cty t) where
-  type ToDBType 'Postgres (AsTaggedSumMonoComposite cty t) = 'UDTypeObj ('Type.TaggedSumMono 'Type.EnumType cty 'Type.CompositeRec)
+  type ToDBType 'Postgres (AsTaggedSumMonoComposite cty t) = 'UDTypeObj ('TaggedSumMono 'EnumType cty 'CompositeRec)
   typeName = ""
 
 newtype AsTaggedSumMonoJson colTy t = AsTaggedSumMonoJson t
 
 instance DBRepr dbk cty => DBRepr dbk (AsTaggedSumMonoJson cty t) where
-  type ToDBType dbk (AsTaggedSumMonoJson cty t) = 'UDTypeObj ('Type.TaggedSumMono (Type.GetDBEnumK dbk) cty 'Type.JsonRec)
+  type ToDBType dbk (AsTaggedSumMonoJson cty t) = 'UDTypeObj ('TaggedSumMono (GetDBEnumK dbk) cty 'JsonRec)
   typeName = ""
 
 newtype AsSumOfColFlat t = AsSumOfColFlat t
 
 instance DBRepr db (AsSumOfColFlat t) where
-  type ToDBType db (AsSumOfColFlat t) = 'UDTypeObj ('Type.SumOfCol 'Type.FlatRec)
+  type ToDBType db (AsSumOfColFlat t) = 'UDTypeObj ('SumOfCol 'FlatRec)
   typeName = ""
 
 newtype AsSumOfColComposite t = AsSumOfColComposite t
 
 instance DBRepr 'Postgres (AsSumOfColComposite t) where
-  type ToDBType 'Postgres (AsSumOfColComposite t) = 'UDTypeObj ('Type.SumOfCol 'Type.CompositeRec)
+  type ToDBType 'Postgres (AsSumOfColComposite t) = 'UDTypeObj ('SumOfCol 'CompositeRec)
   typeName = ""
 
 newtype AsSumOfColJson t = AsSumOfColJson t
 
 instance DBRepr 'Postgres (AsSumOfColJson t) where
-  type ToDBType 'Postgres (AsSumOfColJson t) = 'UDTypeObj ('Type.SumOfCol 'Type.JsonRec)
+  type ToDBType 'Postgres (AsSumOfColJson t) = 'UDTypeObj ('SumOfCol 'JsonRec)
   typeName = ""
 
 instance DBRepr dbk (DBR.Key tab t) where
@@ -558,7 +452,7 @@ instance DBRepr dbk (DBR.Key tab t) where
   discriminatorTagName = ""
 
 instance DBRepr dbk (PGOID 'RegType) where
-  type ToDBType dbk (PGOID 'RegType) = 'NativeTypeObj 'Type.DBText -- TODO: Fix
+  type ToDBType dbk (PGOID 'RegType) = 'NativeTypeObj 'TDBText -- TODO: Fix
   typeName = ""
 
 instance DBRepr dbk (a, b) where
@@ -567,7 +461,7 @@ instance DBRepr dbk (a, b) where
 
 
 instance DBRepr dbk LTree where
-  type ToDBType dbk LTree = 'NativeTypeObj 'Type.DBText -- TODO: Fix
+  type ToDBType dbk LTree = 'NativeTypeObj 'TDBText -- TODO: Fix
   typeName = ""
 
 -- UD Type
@@ -586,8 +480,8 @@ _getDiscriminatorTagName :: DiscriminatorTagName dbk ty -> Text
 _getDiscriminatorTagName (DiscriminatorTagName t) = t
 
 type family IsTaggedSum (dbt :: DBObjK) :: Bool where
-  IsTaggedSum ('UDTypeObj ('Type.TaggedSum _ _)) = 'True
-  IsTaggedSum ('UDTypeObj ('Type.TaggedSumMono _ _ _)) = 'True
+  IsTaggedSum ('UDTypeObj ('TaggedSum _ _)) = 'True
+  IsTaggedSum ('UDTypeObj ('TaggedSumMono _ _ _)) = 'True
   IsTaggedSum _ = 'False
   
 

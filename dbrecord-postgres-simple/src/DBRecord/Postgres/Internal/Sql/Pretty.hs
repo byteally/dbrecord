@@ -19,8 +19,8 @@ import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Base16 as Base16
 -- import DBRecord.Driver
---import DBRecord.Internal.Types hiding (DBTypeK (..), TypeArgK (..), DBTypeNameK (..))
-import DBRecord.Internal.DBTypes
+import DBRecord.Internal.Common
+import DBRecord.Internal.Types (DBType (..), DBTypeName (..), TypeNameQual (..), TypeArg(..))
 import DBRecord.Internal.Sql.DML hiding (alias, criteria)
 import qualified DBRecord.Internal.Sql.DML as DML
 import qualified Data.List.NonEmpty as NEL

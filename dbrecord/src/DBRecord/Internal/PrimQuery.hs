@@ -23,8 +23,7 @@ import GHC.Generics
 import GHC.Exts
 import Data.Generics.Uniplate.Direct
 
--- import qualified DBRecord.Internal.Types as Type
-import DBRecord.Internal.DBTypes  (DBType)
+import DBRecord.Internal.Types (DBType)
 
 -- import GHC.Records
 -- import GHC.TypeLits
