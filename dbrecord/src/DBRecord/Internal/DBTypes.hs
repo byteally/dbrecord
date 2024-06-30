@@ -23,7 +23,7 @@ import qualified DBRecord.Types as DBR
 import Data.Vector (Vector)
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
--- import qualified DBRecord.Internal.PrimQuery as PQ
+import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import GHC.Generics
 import Data.Kind
@@ -32,7 +32,7 @@ import GHC.Records
 import GHC.TypeLits
 -- import GHC.Exts
 -- import Data.Type.Bool
---import Data.Type.Equality
+import Data.Type.Equality
 --import Data.Typeable
 -- import qualified Path as Path
 import Record
@@ -64,7 +64,7 @@ type family GetTagEnumK (dbObj :: DBObjK) = (res :: UDEnumK) where
   GetTagEnumK _ = TypeError ('Text "Expecting only enum type")
 
 instance (Generic ty
-         , ValidateConName ty fn (Rep ty) (UnconsSymbol fn)
+         , ValidatePfxConName ty fn '_' (Rep ty) (UnconsSymbol fn)
          , SetField '(fn, GetTagEnumK (ToDBType dbk ty)) (ConAliases dbk ty) fty
          , KnownSymbol fn
          ) => SetField (fn :: Symbol) (ConAliases dbk ty) fty where
@@ -72,46 +72,42 @@ instance (Generic ty
   {-# INLINE modifyField #-}
 
 instance (Generic ty
-         , ValidateConName ty fn (Rep ty) (UnconsSymbol fn)
+         , ValidatePfxConName ty fn '_' (Rep ty) (UnconsSymbol fn)
          , KnownSymbol fn
          ) => SetField '(fn :: Symbol, 'EnumType) (ConAliases dbk ty) Text where
   modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . Left . maybe (f cname) (f . unsafeText)) cname hmap
     where
-      -- Invariant: `ValidateConName` ensures that `fn` is not empty, making the use of `tail` safe
+      -- Invariant: `ValidatePfxConName` ensures that `fn` is not empty, making the use of `tail` safe
       cname = T.pack $ tail $ symbolVal (Proxy :: Proxy fn)
       unsafeText (Left n) = n
       unsafeText _ = error "Panic: Invariant: Expecting only Text"
   {-# INLINE modifyField #-}
 
 instance (Generic ty
-         , ValidateConName ty fn (Rep ty) (UnconsSymbol fn)
+         , ValidatePfxConName ty fn '_' (Rep ty) (UnconsSymbol fn)
          , KnownSymbol fn
          ) => SetField '(fn :: Symbol, 'EnumText) (ConAliases dbk ty) Text where
   modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . Left . maybe (f cname) (f . unsafeText)) cname hmap
     where
-      -- Invariant: `ValidateConName` ensures that `fn` is not empty, making the use of `tail` safe
+      -- Invariant: `ValidatePfxConName` ensures that `fn` is not empty, making the use of `tail` safe
       cname = T.pack $ tail $ symbolVal (Proxy :: Proxy fn)
       unsafeText (Left n) = n
       unsafeText _ = error "Panic: Invariant: Expecting only Text"
   {-# INLINE modifyField #-}
 
 instance (Generic ty
-         , ValidateConName ty fn (Rep ty) (UnconsSymbol fn)
+         , ValidatePfxConName ty fn '_' (Rep ty) (UnconsSymbol fn)
          , KnownSymbol fn
          ) => SetField '(fn :: Symbol, 'EnumNum) (ConAliases dbk ty) Int64 where
-  modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . Right . maybe (f minBound) (f . unsafeNum)) cname hmap -- TODO: remove `minBound` by making ValidateConName to return `Maybe (con's-Ix)`
+  modifyField f (ConAliases hmap) = ConAliases $ HM.alter (Just . Right . maybe (f minBound) (f . unsafeNum)) cname hmap -- TODO: remove `minBound` by making ValidatePfxConName to return `Maybe (con's-Ix)`
     where
-      -- Invariant: `ValidateConName` ensures that `fn` is not empty, making the use of `tail` safe
+      -- Invariant: `ValidatePfxConName` ensures that `fn` is not empty, making the use of `tail` safe
       cname = T.pack $ tail $ symbolVal (Proxy :: Proxy fn)
       unsafeNum (Right n) = n
       unsafeNum _ = error "Panic: Invariant: Expecting only Integer"
   {-# INLINE modifyField #-}
+  
 
-
-
-type family ValidateConName (ty :: Type) (k :: Symbol) (rep :: Type -> Type) (unconsedConName :: Maybe (Char, Symbol)) :: Constraint where
-  ValidateConName _ _ _ 'Nothing = TypeError ('Text "Invalid Constructor Name: " ':<>: 'Text " for type " ':<>: 'Text "")
-  ValidateConName ty k rep unconsedConName = ()
 
 data DBObjK
   = TableObj
@@ -135,12 +131,15 @@ class DBRepr (dbk :: DbK) (t :: Type) where
   type Fields t = GGetFieldsOrEmpty t (Rep t)
 
 
-  type UnLifted dbk t :: Type
-  type UnLifted dbk t = t
+  type Matcher dbk t :: Type
+  type Matcher dbk t = t
 
-  univOfUnLifted :: Proxy '(dbk, t) -> [(Text, UnLifted dbk t)]
-  default univOfUnLifted :: (UnivOfUnLifted (ToDBType dbk t) dbk t) => Proxy '(dbk, t) -> [(Text, UnLifted dbk t)]
-  univOfUnLifted _ = univOfUnLifted' (Proxy @'(ToDBType dbk t, dbk, t))
+  typeBaseExpr :: TypeBaseExpr dbk t
+  typeBaseExpr = undefined
+
+  univOfMatcher :: Proxy '(dbk, t) -> [(Text, Matcher dbk t)]
+  default univOfMatcher :: (UnivOfMatcher (ToDBType dbk t) dbk t) => Proxy '(dbk, t) -> [(Text, Matcher dbk t)]
+  univOfMatcher _ = univOfUnLifted' (Proxy @'(ToDBType dbk t, dbk, t))
 
   typeName :: TypeName dbk t
   default typeName :: (Break (NoGeneric t) (Rep t), KnownSymbol (GenTyCon (Rep t))) => TypeName dbk t
@@ -168,56 +167,98 @@ class DBRepr (dbk :: DbK) (t :: Type) where
     False -> typeName @dbk @t
 
 
-  -- lift :: UnLifted dbk ty -> Expr sc ty
-  -- unlift :: Expr sc ty -> UnLifted dbk ty
+  -- lift :: Matcher dbk ty -> Expr sc ty
+  -- unlift :: Expr sc ty -> Matcher dbk ty
+
+data TypeBaseExpr (dbk :: DbK) (t :: Type)
+  = RecBaseExpr [(Text, TypeBaseExpr dbk t)]
+  | SumBaseExpr [(Text, TypeBaseExpr dbk t)]
+  | PrimTypeExpr PQ.PrimExpr
 
 data SumRepr (dbk :: DbK) (t :: Type) = SumRepr
-  { ctors :: [(Text, UnLifted dbk t)]
-  , ctorTagOf :: t -> Text
+  { ctors :: [(Text, Matcher dbk t)]
+  , ctorTagOf :: (forall a r. Text -> Int -> TypeBaseExpr dbk a -> r) -> t -> ()
   }
 
 data Ctor (dbk :: DbK) (t :: Type) where
-  Ctor :: Text -> (a -> t) -> (UnLifted dbk t -> f a) -> Ctor dbk t
+  Ctor :: Text -> (a -> t) -> (Matcher dbk t -> f a) -> Ctor dbk t
 
 data DeCtor (dbk :: DbK) (t :: Type) where
-  DeCtor :: Text -> (t -> g a) -> (g a -> f a) -> (f a -> UnLifted dbk t) -> DeCtor dbk t  
+  DeCtor :: Text -> (t -> Maybe (TypeBaseExpr dbk a)) -> (TypeBaseExpr dbk a -> Matcher dbk t) -> DeCtor dbk t  
 
-class UnivOfUnLifted (dbObjK :: DBObjK) (dbk :: DbK) (t :: Type) where
-  univOfUnLifted' :: Proxy '(dbObjK, dbk, t) -> [(Text, UnLifted dbk t)]
+class UnivOfMatcher (dbObjK :: DBObjK) (dbk :: DbK) (t :: Type) where
+  univOfUnLifted' :: Proxy '(dbObjK, dbk, t) -> [(Text, Matcher dbk t)]
 
-instance UnivOfUnLifted ('UDTypeObj ('UDEnum enk)) dbk t where
+instance UnivOfMatcher ('UDTypeObj ('UDEnum enk)) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('UDTypeObj ('TaggedSum enk lay)) dbk t where
+instance UnivOfMatcher ('UDTypeObj ('TaggedSum enk lay)) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('UDTypeObj ('TaggedSumMono enk cty lay)) dbk t where
+instance UnivOfMatcher ('UDTypeObj ('TaggedSumMono enk cty lay)) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('UDTypeObj ('SumOfCol lay)) dbk t where
+instance UnivOfMatcher ('UDTypeObj ('SumOfCol lay)) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('UDTypeObj ('UDRec rt)) dbk t where
+instance UnivOfMatcher ('UDTypeObj ('UDRec rt)) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('UDTypeObj ('SerializedBlob ct)) dbk t where
+instance UnivOfMatcher ('UDTypeObj ('SerializedBlob ct)) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('NativeTypeObj dbt) dbk t where
+instance UnivOfMatcher ('NativeTypeObj dbt) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('NullableObjOf el eldbt) dbk t where
+instance UnivOfMatcher ('NullableObjOf el eldbt) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('ArrayObjOf el eldbt) dbk t where
+instance UnivOfMatcher ('ArrayObjOf el eldbt) dbk t where
   univOfUnLifted' _ = []
 
-instance UnivOfUnLifted ('TableObj) dbk t where
+instance UnivOfMatcher ('TableObj) dbk t where
   univOfUnLifted' _ = []
 
+class GenUnivOfMatcher (dbk :: DbK) (t :: Type) (rep :: Type -> Type) where
+  gUnivOfMatcher :: Proxy '(dbk, t, rep) -> [(Text, Matcher dbk t)]
+
+instance GenUnivOfMatcher dbk t f => GenUnivOfMatcher dbk t (D1 d f) where
+  gUnivOfMatcher _ = gUnivOfMatcher (Proxy @'(dbk, t, f))
+
+instance (GenUnivOfMatcher dbk t f, GenUnivOfMatcher dbk t g) => GenUnivOfMatcher dbk t (f :+: g) where
+  gUnivOfMatcher _ = gUnivOfMatcher (Proxy @'(dbk, t, f)) ++ gUnivOfMatcher (Proxy @'(dbk, t, g))
+
+instance GenUnivOfMatcher dbk t (C1 c (S1 s (K1 k t))) where
+  gUnivOfMatcher _ = undefined
+
+instance GenUnivOfMatcher dbk t (C1 c U1) where
+  gUnivOfMatcher _ = undefined
+
+instance (TypeError ('Text "[DBR-123] Multi-Arity Constructor is not supported! " ':<>: 'ShowType t)) => GenUnivOfMatcher dbk t (C1 c (f :*: g)) where
+  gUnivOfMatcher _ = undefined
+
+class GenInjUnlifted (cn :: Symbol) (carg :: Type) (dbk :: DbK) (t :: Type) (rep :: Type -> Type) where
+  gInjUnlifted :: Proxy '(cn, carg, dbk, t) -> Maybe (rep t)
+
+instance GenInjUnlifted cn carg dbk t f => GenInjUnlifted cn carg dbk t (D1 d f) where
+  gInjUnlifted _ = M1 <$> gInjUnlifted (Proxy @'(cn, carg, dbk, t))
+
+instance (GenInjUnlifted cn carg dbk t f, GenInjUnlifted cn carg dbk t x) => GenInjUnlifted cn carg dbk t ((f :+: g) :+: x) where
+  gInjUnlifted _ = R1 <$> gInjUnlifted (Proxy @'(cn, carg, dbk, t))
+
+instance GenInjUnlifted cn carg dbk t (C1 ('MetaCons cn1 f isr) (S1 s (K1 k t))) where
+  gInjUnlifted = undefined
+
+data ConMatch (mat :: Bool) (t :: Type) where
+  ConMatched :: t -> ConMatch 'True t
+  ConNotMatched :: ConMatch 'False t
+  
+deriving instance Functor (ConMatch mat)
+
+type E a b = a == b
 
 -- data ConDeCons dbk t where
---   ConDeCons :: (expr pat -> UnLifted dbk t)
+--   ConDeCons :: (expr pat -> Matcher dbk t)
 --             -> (expr t -> (expr Bool, expr pat))
 --             -> expr t
 --             -> ConDeCons dbk t
@@ -342,7 +383,7 @@ newtype AsUDType t = AsUDType t
 
 instance DBRepr dbk (AsUDType t) where
   type ToDBType dbk (AsUDType t) = 'UDTypeObj (GenUDTypeRep (Rep t))
-  univOfUnLifted _ = []
+  univOfMatcher _ = []
   typeName = ""
   discriminatorTypeName = ""
   discriminatorTagName = ""
@@ -446,7 +487,7 @@ instance DBRepr 'Postgres (AsSumOfColJson t) where
 instance DBRepr dbk (DBR.Key tab t) where
   type ToDBType dbk (DBR.Key tab t) = ToDBType dbk t
   type AutoCodec dbk (DBR.Key tab t) = AutoCodec dbk t
-  univOfUnLifted _ = []
+  univOfMatcher _ = []
   typeName = ""
   discriminatorTypeName = ""
   discriminatorTagName = ""

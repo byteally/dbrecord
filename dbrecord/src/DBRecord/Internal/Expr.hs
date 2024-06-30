@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fno-warn-redundant-constraints -Wno-orphans #-}
+-- {-# OPTIONS_GHC -fno-warn-redundant-constraints -Wno-orphans #-}
 
 {-# LANGUAGE KindSignatures, DataKinds, ViewPatterns, StandaloneDeriving, FlexibleInstances, FlexibleContexts, UndecidableInstances, GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables, MultiParamTypeClasses, TypeApplications, TypeOperators, PatternSynonyms, CPP, PolyKinds, TypeFamilies, DefaultSignatures, DerivingStrategies, LambdaCase #-}
 module DBRecord.Internal.Expr
@@ -162,17 +162,17 @@ unsafeCol = Expr . PQ.unsafeAttrExpr
 match :: forall r t sc.
   ( DBRepr (DB (SchemaDB sc)) t
   , Match (ToDBType (DB (SchemaDB sc)) t) sc t
-  ) => Expr sc t -> (UnLifted (DB (SchemaDB sc)) t -> Expr sc r) -> Expr sc r
+  ) => Expr sc t -> (Matcher (DB (SchemaDB sc)) t -> Expr sc r) -> Expr sc r
 match scrut =
   let
-    univs = univOfUnLifted (Proxy @'((DB (SchemaDB sc)), t))
+    univs = univOfMatcher (Proxy @'((DB (SchemaDB sc)), t))
   in match' (Proxy @(ToDBType (DB (SchemaDB sc)) t)) univs scrut
 
-matchTag :: Expr sc t -> UnLifted (DB (SchemaDB sc)) t -> Expr sc Bool
+matchTag :: Expr sc t -> Matcher (DB (SchemaDB sc)) t -> Expr sc Bool
 matchTag = undefined
 
 class Match (dbrep :: DBObjK) (sc :: Type) (scrut :: Type) where
-  match' :: Proxy dbrep -> [(Text, UnLifted (DB (SchemaDB sc)) scrut)] -> Expr sc scrut -> (UnLifted (DB (SchemaDB sc)) scrut -> Expr sc r) -> Expr sc r
+  match' :: Proxy dbrep -> [(Text, Matcher (DB (SchemaDB sc)) scrut)] -> Expr sc scrut -> (Matcher (DB (SchemaDB sc)) scrut -> Expr sc r) -> Expr sc r
 
 instance Match ('NativeTypeObj ty) sc Bool where
   match' _ _ scrut caseF = ifThenElse scrut (caseF True) (caseF False)

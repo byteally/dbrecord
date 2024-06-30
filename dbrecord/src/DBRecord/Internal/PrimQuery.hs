@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+-- {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, KindSignatures, TypeFamilies, DataKinds, UndecidableInstances, TypeApplications, FlexibleContexts #-}
 -- |
 -- Copyright   :  Daan Leijen (c) 1999, daan@cs.uu.nl

@@ -24,6 +24,29 @@ type family GGetFieldsOrEmpty (t :: Type) (rep :: Type -> Type) :: [(Symbol, Typ
   GGetFieldsOrEmpty t (f :+: g) = '[]
   GGetFieldsOrEmpty t _ = GGetFields t (Rep t)
 
+type family ValidatePfxConName (ty :: Type) (k :: Symbol) (pfx :: Char) (rep :: Type -> Type) (unconsedConName :: Maybe (Char, Symbol)) :: Constraint where
+  ValidatePfxConName _ _ _ _ 'Nothing = TypeError ('Text "Invalid Constructor Name: " ':<>: 'Text " for type " ':<>: 'Text "")
+  ValidatePfxConName ty k pfx rep ('Just '(pfx, cn)) = ErrorOnFalse (ConNameMatch ty cn rep) ('Text "[DBR-123] " ':<>: 'ShowType cn ':<>: 'Text " is not a valid constructor name for type " ':<>: 'ShowType ty)
+  ValidatePfxConName ty k pfx rep ('Just '(pfx', cn)) = TypeError ('Text "Invalid Constructor Name: " ':<>: 'Text " for type " ':<>: 'Text "")
+
+type ValidateConName :: Type -> Symbol -> (Type -> Type) -> Constraint
+type ValidateConName ty cn rep = ErrorOnFalse (ConNameMatch ty cn rep) ('Text "[DBR-123] " ':<>: 'ShowType cn ':<>: 'Text " is not a valid constructor name for type " ':<>: 'ShowType ty)
+
+type family ConNameMatch (ty :: Type) (cn :: Symbol) (rep :: Type -> Type) :: Bool where
+  ConNameMatch ty cn (D1 _ f) = ConNameMatch ty cn f
+  ConNameMatch ty cn (f :+: g) = ConNameMatch1 ty cn g (ConNameMatch ty cn f)
+  ConNameMatch _ cn (C1 ('MetaCons cn _ _) _) = 'True
+  ConNameMatch _ cn (C1 ('MetaCons cn' _ _) _) = 'False
+
+type family ConNameMatch1 (ty :: Type) (cn :: Symbol) (rep :: Type -> Type) (mat :: Bool) :: Bool where
+  ConNameMatch1 ty cn krep 'False = ConNameMatch ty cn krep
+  ConNameMatch1 _ _ _ 'True = 'True
+
+type family ErrorOnFalse (b :: Bool) (emsg :: ErrorMessage) :: Constraint where
+  ErrorOnFalse 'True _ = ()
+  ErrorOnFalse 'False emsg = TypeError emsg
+
+
 data T1 (t :: Type)
 type family Break (c :: Constraint) (rep :: Type -> Type) :: Constraint where
   Break _ T1 = ((), ())
