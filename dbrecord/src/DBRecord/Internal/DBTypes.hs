@@ -178,6 +178,8 @@ data MatcherK
 
 type family DefMatcher (t :: Type) (dbObj :: DBObjK) :: MatcherK where
   DefMatcher t ('UDTypeObj ('UDEnum _)) = 'EnumMatcher t
+  DefMatcher t ('UDTypeObj ('TaggedSum _ _)) = 'SumMatcher 'Nothing t Proxy
+  DefMatcher t ('UDTypeObj ('TaggedSumMono _ _ _)) = 'SumMatcher 'Nothing t Proxy
   DefMatcher t _ = 'NoMatcher
 
 data TypeBaseExpr (dbk :: DbK) (t :: Type)
@@ -221,13 +223,14 @@ instance (Generic m, GenHasEnumRepr dbk m (Rep m)) => HasSumRepr ('UDTypeObj ('U
                             , enumMatcher = \f t -> gEnumMatcher (Proxy @'(dbk, m)) f (from t)
                             }
 
-instance HasSumRepr ('UDTypeObj ('TaggedSum enk lay)) dbk t ('EnumMatcher m) where
+-- TODO: if we try to unify t ~ t1, we will hit a error
+instance HasSumRepr ('UDTypeObj ('TaggedSum enk lay)) dbk t ('SumMatcher pfx t1 mt) where
   sumRepr' _ = undefined
 
-instance HasSumRepr ('UDTypeObj ('TaggedSumMono enk cty lay)) dbk t ('SumMatcher pfx t mt) where
+instance HasSumRepr ('UDTypeObj ('TaggedSumMono enk cty lay)) dbk t ('SumMatcher pfx t1 mt) where
   sumRepr' _ = undefined
 
-instance HasSumRepr ('UDTypeObj ('SumOfCol lay)) dbk t ('SumMatcher pfx t mt) where
+instance HasSumRepr ('UDTypeObj ('SumOfCol lay)) dbk t ('SumMatcher pfx t1 mt) where
   sumRepr' _ = undefined
 
 instance HasSumRepr dbobj dbk t 'NoMatcher where
@@ -470,38 +473,44 @@ instance DBRepr 'Postgres (AsJsonBlob t) where
 
 newtype AsTaggedSumFlat t = AsTaggedSumFlat t
 
-instance DBRepr db (AsTaggedSumFlat t) where
-  type ToDBType db (AsTaggedSumFlat t) = 'UDTypeObj ('TaggedSum (GetDBEnumK db) 'FlatRec)
+instance DBRepr dbk (AsTaggedSumFlat t) where
+  type ToDBType dbk (AsTaggedSumFlat t) = 'UDTypeObj ('TaggedSum (GetDBEnumK dbk) 'FlatRec)
+  type Matcher dbk (AsTaggedSumFlat t) = 'SumMatcher 'Nothing t Proxy
   typeName = ""
 
 newtype AsTaggedSumComposite t = AsTaggedSumComposite t
 
 instance (Generic t, KnownSymbol (GenTyCon (Rep t))) => DBRepr 'Postgres (AsTaggedSumComposite t) where
   type ToDBType 'Postgres (AsTaggedSumComposite t) = 'UDTypeObj ('TaggedSum 'EnumType 'CompositeRec)
+  type Matcher 'Postgres (AsTaggedSumComposite t) = 'SumMatcher 'Nothing t Proxy
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsTaggedSumJson t = AsTaggedSumJson t
 
 instance DBRepr db (AsTaggedSumJson t) where
   type ToDBType db (AsTaggedSumJson t) = 'UDTypeObj ('TaggedSum (GetDBEnumK db) 'JsonRec)
+  type Matcher db (AsTaggedSumJson t) = 'SumMatcher 'Nothing t Proxy
   typeName = ""
 
 newtype AsTaggedSumMonoFlat colTy t = AsTaggedSumMonoFlat t
 
 instance DBRepr db cty => DBRepr db (AsTaggedSumMonoFlat cty t) where
   type ToDBType db (AsTaggedSumMonoFlat cty t) = 'UDTypeObj ('TaggedSumMono (GetDBEnumK db) cty 'FlatRec)
+  type Matcher db (AsTaggedSumMonoFlat cty t) = 'SumMatcher 'Nothing t Proxy
   typeName = ""
 
 newtype AsTaggedSumMonoComposite colTy t = AsTaggedSumMonoComposite t
 
 instance (DBRepr 'Postgres cty, Generic t, KnownSymbol (GenTyCon (Rep t))) => DBRepr 'Postgres (AsTaggedSumMonoComposite cty t) where
   type ToDBType 'Postgres (AsTaggedSumMonoComposite cty t) = 'UDTypeObj ('TaggedSumMono 'EnumType cty 'CompositeRec)
+  type Matcher 'Postgres (AsTaggedSumMonoComposite cty t) = 'SumMatcher 'Nothing t Proxy
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsTaggedSumMonoJson colTy t = AsTaggedSumMonoJson t
 
 instance DBRepr dbk cty => DBRepr dbk (AsTaggedSumMonoJson cty t) where
   type ToDBType dbk (AsTaggedSumMonoJson cty t) = 'UDTypeObj ('TaggedSumMono (GetDBEnumK dbk) cty 'JsonRec)
+  type Matcher dbk (AsTaggedSumMonoJson cty t) = 'SumMatcher 'Nothing t Proxy
   typeName = ""
 
 newtype AsSumOfColFlat t = AsSumOfColFlat t
@@ -521,6 +530,8 @@ newtype AsSumOfColJson t = AsSumOfColJson t
 instance DBRepr 'Postgres (AsSumOfColJson t) where
   type ToDBType 'Postgres (AsSumOfColJson t) = 'UDTypeObj ('SumOfCol 'JsonRec)
   typeName = ""
+
+--newtype WithMatcher (m :: Type)  
 
 instance DBRepr dbk (DBR.Key tab t) where
   type ToDBType dbk (DBR.Key tab t) = ToDBType dbk t

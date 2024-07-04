@@ -370,7 +370,10 @@ instance ( HasDiscriminator enk sc t
         in PQ.FlatComposite [(discTag, discPE), (cn, carg)]
     in Expr $ sMatcher mat t
 
-instance (HasDiscriminator enk sc t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'CompositeRec)) 'True where
+instance ( HasDiscriminator enk sc t
+         , DBRepr (DB (SchemaDB sc)) t
+         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher pfx t m
+         ) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'CompositeRec)) 'True where
   autoConstExpr _ _t =
     let
       (cn, cpos) = undefined
@@ -380,14 +383,24 @@ instance (HasDiscriminator enk sc t) => AutoConstExpr sc t ('UDTypeObj ('TaggedS
 instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr TaggedSum")) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'JsonRec)) 'True where
   autoConstExpr _ _t = error "Panic: TODO"
 
-instance (HasDiscriminator enk sc t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'FlatRec)) 'True where
-  autoConstExpr _ _t =
+instance ( HasDiscriminator enk sc t
+         , DBRepr (DB (SchemaDB sc)) t
+         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher pfx t m
+         ) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'FlatRec)) 'True where
+  autoConstExpr _ t =
     let
-      (cn, cpos) = undefined
-      discPE = getDiscriminator (Proxy @'(enk, sc, t)) cn cpos
-    in Expr (PQ.FlatComposite [(cn, discPE), undefined])
+      sMatcher = sumMatcher $ sumRepr (Proxy @'((DB (SchemaDB sc)), t))
+      mat cn cpos carg =
+        let
+          discPE = getDiscriminator (Proxy @'(enk, sc, t)) cn cpos
+          discTag = _getDiscriminatorTagName $ discriminatorTagName @(DB (SchemaDB sc)) @t
+        in PQ.FlatComposite [(discTag, discPE), ("", carg)]
+    in Expr $ sMatcher mat t
 
-instance (HasDiscriminator enk sc t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'CompositeRec)) 'True where
+instance ( HasDiscriminator enk sc t
+         , DBRepr (DB (SchemaDB sc)) t
+         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher pfx t m
+         ) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'CompositeRec)) 'True where
   autoConstExpr _ _t =
     let
       (cn, cpos) = undefined

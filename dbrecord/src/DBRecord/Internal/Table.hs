@@ -61,6 +61,7 @@ import Control.Monad.Trans.State.Strict
 type family NoSchema t where
   NoSchema x = TypeError ('Text "No instance for " ':<>: 'ShowType (Schema x))
 
+-- type Table :: forall (tab :: Type) (sc :: Type). tab -> sc -> Constraint 
 class ( Schema sc
       , ValidateTableProps sc tab
       , Generic tab
@@ -659,7 +660,14 @@ instance
   , KnownSymbol col
   , UDType sc a
   ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TaggedSumMono enk cty lay)) where
-  getColByDBTypeRep _ = undefined -- TODO:
+  getColByDBTypeRep _ =
+    let
+      discTag = _getDiscriminatorTagName $ discriminatorTagName @(DB (SchemaDB sc)) @a
+      colBE = getColumnName @sc @tab @col
+      -- cn = T.pack $ symbolVal (Proxy @col)
+    in Expr $ PQ.FlatComposite [ (discTag, PQ.BaseTableAttrExpr discTag)
+                               , ("", getExpr colBE)
+                               ]
 
 instance
   ( Table sc tab

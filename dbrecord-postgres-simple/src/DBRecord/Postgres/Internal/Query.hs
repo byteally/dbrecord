@@ -15,6 +15,7 @@
 {-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE PolyKinds                  #-}
 {-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE DuplicateRecordFields      #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 
@@ -54,6 +55,7 @@ import           Data.Proxy
 -- import qualified Data.List as L
 -- import           Data.ByteString.Char8 as ASCII
 import           Data.Typeable
+import           Data.ByteString (ByteString)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 -- import qualified Data.HashMap.Strict as HM
@@ -130,18 +132,30 @@ instance (FromField t) => FromRow (AnnEntity ('UDTypeObj udRep) 'False t) where
 class UDFromField (t :: Type) (udtMap :: UDTypeK) where
   udFromField :: Proxy udtMap -> FieldParser t
 
-instance (Typeable t, DBRepr 'Postgres t) => UDFromField t ('UDEnum enk) where
+instance (Typeable t, DBRepr 'Postgres t, Matcher 'Postgres t ~ 'EnumMatcher t, ParseEnum enk) => UDFromField t ('UDEnum enk) where
   udFromField _ fld =
     let udTyN = _getTypeName (typeName @'Postgres @t)
     in \case
       Nothing -> returnError UnexpectedNull fld ""
-      Just val' -> case T.decodeUtf8' val' of
+      Just val' -> case parseEnum (Proxy @enk) val' [] of
         Left ex -> returnError Incompatible fld (show ex)
         Right _cn -> do
           tName <- typename fld
           if tName == T.encodeUtf8 udTyN
-            then undefined
+            then do
+            let EnumMatchRep {ctors = _cs} = sumRepr (Proxy @'( 'Postgres, t))
+            undefined
             else returnError Incompatible fld ("Expected: " ++ (T.unpack udTyN) ++ ", Actual: " ++ show tName)
+
+class ParseEnum (enk :: UDEnumK) where
+  parseEnum :: Proxy enk -> ByteString -> [(T.Text, t)] -> Either String t
+
+instance ParseEnum 'EnumType where
+  parseEnum _ bs _ctors = case T.decodeUtf8' bs of
+    Left ex -> Left $ show ex
+    Right _ev -> undefined
+--  
+  
 
 instance UDFromField t ('TaggedSum enk 'FlatRec) where
   udFromField = undefined
