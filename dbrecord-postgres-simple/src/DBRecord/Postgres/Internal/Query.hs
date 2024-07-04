@@ -30,6 +30,7 @@ import           Control.Monad.Reader
 import qualified Control.Monad.Trans.Control as U
 import qualified DBRecord.Internal.Sql.SqlGen as PG
 import           DBRecord.Internal.Table (MQuery, execMQuery)
+import qualified DBRecord.Internal.Table as DBRI
 import           DBRecord.Postgres.Internal.RegClass
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
 -- import           DBRecord.Old.Query
@@ -142,6 +143,9 @@ instance (Typeable t, DBRepr 'Postgres t) => UDFromField t ('UDEnum enk) where
             then undefined
             else returnError Incompatible fld ("Expected: " ++ (T.unpack udTyN) ++ ", Actual: " ++ show tName)
 
+instance UDFromField t ('TaggedSum enk 'FlatRec) where
+  udFromField = undefined
+
 instance UDFromField t ('TaggedSumMono enk ct 'FlatRec) where
   udFromField = undefined
 
@@ -149,8 +153,8 @@ instance UDFromField t ('SumOfCol 'FlatRec) where
   udFromField = undefined
 
 instance UDFromField t ('SumOfCol 'CompositeRec) where
-  udFromField = undefined  
-  
+  udFromField = undefined
+
 
 {-
 instance (SingI tyAliasM, SingE tyAliasM, SingI conAliases, SingE conAliases, Typeable t, Generic t, GFromEnum (Rep t)) => UDFromField t ('EnumType tyAliasM conAliases) where
@@ -311,3 +315,6 @@ showMQuery mQ = execMQuery
   (PG.renderUpdate . PG.updateSql)
   (PG.renderDelete . PG.deleteSql)
   "" mQ
+
+showQuery :: DBRI.Query' qt sc r -> String
+showQuery q = PG.renderQuery $ PG.sql $ DBRI.execQuery q
