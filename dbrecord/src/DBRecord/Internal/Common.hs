@@ -10,6 +10,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as LT
 import qualified Data.Text.Lazy.Builder as LTB
+import Data.Proxy
 import Record
 
 type family GenTyCon (rep :: Type -> Type) :: Symbol where
@@ -70,6 +71,9 @@ defHSNameToDBName = LT.toStrict . LTB.toLazyText .  T.foldl'
                       else b <> LTB.singleton '_' <> LTB.singleton (toLower c)
        | otherwise -> b <> LTB.singleton c
   ) mempty
+
+genDBTypeName :: forall t.(KnownSymbol (GenTyCon (Rep t))) => Proxy t -> Text
+genDBTypeName _ = defHSNameToDBName $ T.pack (symbolVal (Proxy @(GenTyCon (Rep t))))
 
 doubleQuote :: T.Text -> T.Text
 doubleQuote = quoteBy '"' (Just '"')

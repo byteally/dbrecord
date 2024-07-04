@@ -4,7 +4,7 @@ module DBRecord
   , module Data.Word
   , module DBRecord.Types
   , module DBRecord.Schema
-  , DBRepr (..), DBObjK (..), AsUDType, AsEnum, AsEnumText, AsEnumNum, AsCompositeRec
+  , DBRepr (..), DBObjK (..), AsEnum, AsEnumText, AsEnumNum, AsCompositeRec
   , AsFlatRec, AsJsonRec, AsJsonBlob, AsTaggedSumFlat, AsTaggedSumComposite
   , AsTaggedSumJson, AsTaggedSumMonoFlat, AsTaggedSumMonoComposite, AsTaggedSumMonoJson
   , AsSumOfColFlat, AsSumOfColComposite, AsSumOfColJson
@@ -15,7 +15,7 @@ import Data.Int (Int16, Int32, Int64)
 import Data.Word (Word16, Word32, Word64)
 --import Data.UUID.Types (UUID)
 import DBRecord.Types
-import DBRecord.Internal.DBTypes ( DBRepr (..), DBObjK (..), AsUDType, AsEnum
+import DBRecord.Internal.DBTypes ( DBRepr (..), DBObjK (..), AsEnum
                                  , AsEnumText, AsEnumNum, AsCompositeRec, AsFlatRec
                                  , AsJsonRec, AsJsonBlob, AsTaggedSumFlat
                                  , AsTaggedSumComposite, AsTaggedSumJson

@@ -28,7 +28,7 @@ import           Data.Time
 import           Data.Text (Text)
 import           Data.Scientific
 import           Data.Void
-import           DBRecord.Internal.Types hiding (DBTypeK (..), DBTypeNameK(..)) 
+import           DBRecord.Internal.Types hiding (DBTypeK (..), DBTypeNameK(..))
 import           DBRecord.Internal.DBTypes
 import           DBRecord.Internal.Schema
 import           Data.UUID (UUID)
@@ -92,7 +92,7 @@ instance ReifyTypeName sc e dbObj => ReifyTypeName sc c ('ArrayObjOf e dbObj) wh
   reifyTypeName _ = DBArray $ reifyTypeName (Proxy @'(sc, e, dbObj))
 
 instance ReifyTypeName sc e dbObj => ReifyTypeName sc opt ('NullableObjOf e dbObj) where
-  reifyTypeName _ = DBNullable $ reifyTypeName (Proxy @'(sc, e, dbObj))  
+  reifyTypeName _ = DBNullable $ reifyTypeName (Proxy @'(sc, e, dbObj))
 
 
 -- TODO: Without Region Parameter it is not safe to have these instance
@@ -149,7 +149,7 @@ instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'Show
   getField = error "Panic: Unreachable code"
 
 instance (TypeError ('ShowType t ':<>: 'Text " does not have field " ':<>: 'ShowType fn)) => HasField '(fn :: Symbol, 'UDTypeObj ('SerializedBlob ct)) (Expr sc t) Void where
-  getField = error "Panic: Unreachable code"  
+  getField = error "Panic: Unreachable code"
 
 newtype AggExpr (sc :: Type) (t :: Type) =
   AggExpr { getAggExpr :: Expr sc t }
@@ -158,21 +158,42 @@ newtype AggExpr (sc :: Type) (t :: Type) =
 unsafeCol :: [T.Text] -> Expr sc a
 unsafeCol = Expr . PQ.unsafeAttrExpr
 
+type family PatArg (sc :: Type) (t :: Type) (mat :: MatcherK) :: Type where
+  PatArg sc t ('EnumMatcher mat) = mat
+  PatArg sc t ('PrimMatcher mat) = mat
+  PatArg sc _ ('SumMatcher _ _ mat) = mat sc
+  PatArg sc t 'NoMatcher = Void
 
 match :: forall r t sc.
   ( DBRepr (DB (SchemaDB sc)) t
   , Match (ToDBType (DB (SchemaDB sc)) t) sc t
-  ) => Expr sc t -> (Matcher (DB (SchemaDB sc)) t -> Expr sc r) -> Expr sc r
+  , GetPatArgs (Matcher (DB (SchemaDB sc)) t) sc t
+  ) => Expr sc t -> (PatArg sc t (Matcher (DB (SchemaDB sc)) t) -> Expr sc r) -> Expr sc r
 match scrut =
   let
-    univs = univOfMatcher (Proxy @'((DB (SchemaDB sc)), t))
-  in match' (Proxy @(ToDBType (DB (SchemaDB sc)) t)) univs scrut
+    srepr = getPatArgs (Proxy @'(Matcher (DB (SchemaDB sc)) t, sc , t)) $ sumRepr (Proxy @'((DB (SchemaDB sc)), t))
+  in match' (Proxy @(ToDBType (DB (SchemaDB sc)) t)) srepr scrut
 
-matchTag :: Expr sc t -> Matcher (DB (SchemaDB sc)) t -> Expr sc Bool
+matchTag :: Expr sc t -> (PatArg sc t (Matcher (DB (SchemaDB sc)) t) -> Bool) -> Expr sc Bool
 matchTag = undefined
 
+class GetPatArgs (matK :: MatcherK) (sc :: Type) (t :: Type) where
+  getPatArgs :: Proxy '(matK, sc, t) -> GetMatcherRep matK -> [(Text, PatArg sc t matK)]
+
+instance GetPatArgs ('EnumMatcher m) sc t where
+  getPatArgs _ EnumMatchRep {ctors = ectors} = ectors
+
+instance GetPatArgs ('SumMatcher pfx t m) sc t where
+  getPatArgs _ SumMatchRep {ctors = sctors} = (fmap . fmap) (\m -> m) sctors
+
+instance GetPatArgs ('PrimMatcher m) sc t where
+  getPatArgs _ _ = []
+
+instance GetPatArgs ('NoMatcher) sc t where
+  getPatArgs _ _ = []
+
 class Match (dbrep :: DBObjK) (sc :: Type) (scrut :: Type) where
-  match' :: Proxy dbrep -> [(Text, Matcher (DB (SchemaDB sc)) scrut)] -> Expr sc scrut -> (Matcher (DB (SchemaDB sc)) scrut -> Expr sc r) -> Expr sc r
+  match' :: Proxy dbrep -> [(Text, PatArg sc scrut (Matcher (DB (SchemaDB sc)) scrut))] -> Expr sc scrut -> (PatArg sc scrut (Matcher (DB (SchemaDB sc)) scrut) -> Expr sc r) -> Expr sc r
 
 instance Match ('NativeTypeObj ty) sc Bool where
   match' _ _ scrut caseF = ifThenElse scrut (caseF True) (caseF False)
@@ -276,7 +297,7 @@ instance (DBRepr (DB (SchemaDB sc)) ty, Typeable ty, Database (SchemaDB sc), Sch
                 Right _ -> error $ "Panic: Expecting only Text, not Int64 as tag for: " ++ (show $ typeRep (Proxy @ty))
       qual = DBQualified
              (_getDatabaseName $ databaseName @(SchemaDB sc))
-             (_getSchemaName $ schemaName @sc)                
+             (_getSchemaName $ schemaName @sc)
       discTyN = DBTypeName qual (_getTypeName $ discriminatorTypeName @(DB (SchemaDB sc)) @ty) []
     in PQ.CastExpr (OtherType discTyN) (PQ.ConstExpr (PQ.String cname))
 
@@ -325,15 +346,29 @@ instance (DBRepr (DB (SchemaDB sc)) t, TypeConstExpr sc t (Fields t)) => AutoCon
 instance (A.ToJSON t, DBRepr (DB (SchemaDB sc)) t) => AutoConstExpr sc t ('UDTypeObj ('UDRec 'JsonRec)) 'True where
   autoConstExpr _ t = unsafeCoerceExpr $ constExpr $ A.toJSON t
 
-instance (Generic t, DBRepr (DB (SchemaDB sc)) t) => AutoConstExpr sc t ('UDTypeObj ('UDEnum enum)) 'True where
-  autoConstExpr _ _t = undefined -- genEnumExpr t
-
-instance (HasDiscriminator enk sc t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'FlatRec)) 'True where
-  autoConstExpr _ _t =
+instance ( DBRepr (DB (SchemaDB sc)) t
+         , HasDiscriminator enk sc t
+         , Matcher (DB (SchemaDB sc)) t ~ 'EnumMatcher t
+         ) => AutoConstExpr sc t ('UDTypeObj ('UDEnum enk)) 'True where
+  autoConstExpr _ t =
     let
-      (cn, cpos) = undefined
-      discPE = getDiscriminator (Proxy @'(enk, sc, t)) cn cpos
-    in Expr (PQ.FlatComposite [(cn, discPE), undefined])
+      eMatcher = enumMatcher $ sumRepr (Proxy @'((DB (SchemaDB sc)), t))
+      mat cn cpos = getDiscriminator (Proxy @'(enk, sc, t)) cn cpos
+    in Expr $ eMatcher mat t
+
+instance ( HasDiscriminator enk sc t
+         , DBRepr (DB (SchemaDB sc)) t
+         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher pfx t m
+         ) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'FlatRec)) 'True where
+  autoConstExpr _ t =
+    let
+      sMatcher = sumMatcher $ sumRepr (Proxy @'((DB (SchemaDB sc)), t))
+      mat cn cpos carg =
+        let
+          discPE = getDiscriminator (Proxy @'(enk, sc, t)) cn cpos
+          discTag = _getDiscriminatorTagName $ discriminatorTagName @(DB (SchemaDB sc)) @t
+        in PQ.FlatComposite [(discTag, discPE), (cn, carg)]
+    in Expr $ sMatcher mat t
 
 instance (HasDiscriminator enk sc t) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'CompositeRec)) 'True where
   autoConstExpr _ _t =
@@ -375,7 +410,7 @@ instance (A.ToJSON t, DBTypeOf sc t) => AutoConstExpr sc t ('UDTypeObj ('Seriali
   autoConstExpr _ t = jsonOf t
 
 instance (Show t) => AutoConstExpr sc t ('UDTypeObj ('SerializedBlob ('TextContent 'Nothing))) 'True where
-  autoConstExpr _ t = Expr . PQ.ConstExpr . PQ.String . T.pack . show $ t  
+  autoConstExpr _ t = Expr . PQ.ConstExpr . PQ.String . T.pack . show $ t
 
 instance (t ~ ety, AutoConstExpr sc ety edbk 'True) => AutoConstExpr sc (Maybe t) ('NullableObjOf ety edbk) 'True where
   autoConstExpr _ = \case

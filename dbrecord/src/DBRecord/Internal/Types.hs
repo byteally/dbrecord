@@ -154,9 +154,6 @@ type family GetDBEnumK (db :: DbK) :: UDEnumK where
   GetDBEnumK 'Cassandra = 'EnumType
   GetDBEnumK 'Presto = 'EnumType
 
-type family GenUDTypeRep (rep :: Type -> Type) :: UDTypeK where
-  GenUDTypeRep rep = TypeError ('Text "TODO @ type family GenUDTypeRep")
-
 data family Sing (a :: k)
 
 class SingI (a :: k) where
