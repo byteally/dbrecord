@@ -161,7 +161,7 @@ unsafeCol = Expr . PQ.unsafeAttrExpr
 type family PatArg (sc :: Type) (t :: Type) (mat :: MatcherK) :: Type where
   PatArg sc t ('EnumMatcher mat) = mat
   PatArg sc t ('PrimMatcher mat) = mat
-  PatArg sc _ ('SumMatcher _ _ mat) = mat sc
+  PatArg sc _ ('SumMatcher _ _ _ mat) = mat sc
   PatArg sc t 'NoMatcher = Void
 
 match :: forall r t sc.
@@ -183,8 +183,8 @@ class GetPatArgs (matK :: MatcherK) (sc :: Type) (t :: Type) where
 instance GetPatArgs ('EnumMatcher m) sc t where
   getPatArgs _ EnumMatchRep {ctors = ectors} = ectors
 
-instance GetPatArgs ('SumMatcher pfx t m) sc t where
-  getPatArgs _ SumMatchRep {ctors = sctors} = (fmap . fmap) (\m -> m) sctors
+instance (Generic (m sc), GenHasSumRepr dbk m sc Expr (Rep (m sc))) => GetPatArgs ('SumMatcher dbk pfx t m) sc t where
+  getPatArgs _ SumMatchRep {ctors = sctors} = sctors @Expr @sc Expr
 
 instance GetPatArgs ('PrimMatcher m) sc t where
   getPatArgs _ _ = []
@@ -358,7 +358,7 @@ instance ( DBRepr (DB (SchemaDB sc)) t
 
 instance ( HasDiscriminator enk sc t
          , DBRepr (DB (SchemaDB sc)) t
-         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher pfx t m
+         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher (DB (SchemaDB sc)) pfx t m
          ) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'FlatRec)) 'True where
   autoConstExpr _ t =
     let
@@ -372,7 +372,7 @@ instance ( HasDiscriminator enk sc t
 
 instance ( HasDiscriminator enk sc t
          , DBRepr (DB (SchemaDB sc)) t
-         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher pfx t m
+         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher (DB (SchemaDB sc)) pfx t m
          ) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'CompositeRec)) 'True where
   autoConstExpr _ _t =
     let
@@ -385,7 +385,7 @@ instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr TaggedSum")) => Auto
 
 instance ( HasDiscriminator enk sc t
          , DBRepr (DB (SchemaDB sc)) t
-         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher pfx t m
+         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher (DB (SchemaDB sc)) pfx t m
          ) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'FlatRec)) 'True where
   autoConstExpr _ t =
     let
@@ -399,7 +399,7 @@ instance ( HasDiscriminator enk sc t
 
 instance ( HasDiscriminator enk sc t
          , DBRepr (DB (SchemaDB sc)) t
-         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher pfx t m
+         , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher (DB (SchemaDB sc)) pfx t m
          ) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'CompositeRec)) 'True where
   autoConstExpr _ _t =
     let

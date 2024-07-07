@@ -16,6 +16,7 @@ import Data.Functor.Const
 import Data.Scientific
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
+import Data.Coerce
 import Data.Proxy
 import DBRecord.Types (PGOID(..), PGOIDType(..), LTree{-, Interval-}, Json {-, JsonStr,-})
 import qualified DBRecord.Types as DBR
@@ -23,6 +24,7 @@ import qualified DBRecord.Types as DBR
 import Data.Vector (Vector)
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
+-- import DBRecord.Internal.Schema
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import GHC.Generics
@@ -173,13 +175,13 @@ class DBRepr (dbk :: DbK) (t :: Type) where
 data MatcherK
   = EnumMatcher Type
   | PrimMatcher Type
-  | SumMatcher (Maybe Char) Type (Type -> Type)
+  | SumMatcher DbK (Maybe Char) Type (Type -> Type)
   | NoMatcher
 
 type family DefMatcher (t :: Type) (dbObj :: DBObjK) :: MatcherK where
   DefMatcher t ('UDTypeObj ('UDEnum _)) = 'EnumMatcher t
-  DefMatcher t ('UDTypeObj ('TaggedSum _ _)) = 'SumMatcher 'Nothing t Proxy
-  DefMatcher t ('UDTypeObj ('TaggedSumMono _ _ _)) = 'SumMatcher 'Nothing t Proxy
+  DefMatcher t ('UDTypeObj ('TaggedSum _ _)) = 'SumMatcher 'Postgres 'Nothing t Proxy
+  DefMatcher t ('UDTypeObj ('TaggedSumMono _ _ _)) = 'SumMatcher 'Postgres 'Nothing t Proxy
   DefMatcher t _ = 'NoMatcher
 
 data TypeBaseExpr (dbk :: DbK) (t :: Type)
@@ -194,9 +196,9 @@ data EnumMatchRep t = EnumMatchRep
 
 data NoMatcherRep = NoMatcherRep
 
-data SumMatchRep (pfx :: Maybe Char) (t :: Type) (m :: Type -> Type) = SumMatchRep
-  { ctors :: forall sc.[(Text, m sc)]
-  , sumMatcher :: (Text -> Int64 -> PQ.PrimExpr -> PQ.PrimExpr) -> t -> PQ.PrimExpr
+data SumMatchRep (dbk ::DbK) (pfx :: Maybe Char) (t :: Type) (m :: Type -> Type) = SumMatchRep
+  { ctors :: forall expr sc. (Generic (m sc), GenHasSumRepr dbk m sc expr (Rep (m sc))) => ToExpr expr sc -> [(Text, m sc)]
+  , sumMatcher :: (DBRepr dbk t) => (Text -> Int64 -> PQ.PrimExpr -> PQ.PrimExpr) -> t -> PQ.PrimExpr
   }
 
 
@@ -205,7 +207,7 @@ data PrimMatchRep t = PrimMatchRep
 type family GetMatcherRep (mat :: MatcherK) :: Type where
   GetMatcherRep ('EnumMatcher m) = EnumMatchRep m
   GetMatcherRep ('PrimMatcher m) = PrimMatchRep m
-  GetMatcherRep ('SumMatcher pfx t m) = SumMatchRep pfx t m
+  GetMatcherRep ('SumMatcher dbk pfx t m) = SumMatchRep dbk pfx t m
   GetMatcherRep 'NoMatcher = NoMatcherRep
 
 
@@ -223,15 +225,23 @@ instance (Generic m, GenHasEnumRepr dbk m (Rep m)) => HasSumRepr ('UDTypeObj ('U
                             , enumMatcher = \f t -> gEnumMatcher (Proxy @'(dbk, m)) f (from t)
                             }
 
--- TODO: if we try to unify t ~ t1, we will hit a error
-instance HasSumRepr ('UDTypeObj ('TaggedSum enk lay)) dbk t ('SumMatcher pfx t1 mt) where
-  sumRepr' _ = undefined
+instance (Coercible t t1, Generic t1, GenSumMatcher dbk t (Rep t1)) => HasSumRepr ('UDTypeObj ('TaggedSum enk lay)) dbk t ('SumMatcher dbk pfx t1 mt) where
+  sumRepr' _ = SumMatchRep { ctors = \f -> (fmap . fmap) to $ gSumCtorUniv (withMatRep f) f
+                           , sumMatcher = \f t -> genSumMatcher (Proxy @'(dbk, t)) f (from t)
+                           -- , sumMatcher = \_f _t -> PQ.FlatComposite [("C1", PQ.ConstExpr (PQ.String "C1")), ("c1_val", PQ.ConstExpr (PQ.String "foo"))]
+                           }
+    where withMatRep :: ToExpr expr sc -> Proxy '(dbk, mt, sc, expr, Rep (mt sc))
+          withMatRep _ = Proxy
 
-instance HasSumRepr ('UDTypeObj ('TaggedSumMono enk cty lay)) dbk t ('SumMatcher pfx t1 mt) where
-  sumRepr' _ = undefined
+instance (Coercible t t1) => HasSumRepr ('UDTypeObj ('TaggedSumMono enk cty lay)) dbk t ('SumMatcher dbk pfx t1 mt) where
+  sumRepr' _ = SumMatchRep { ctors = \_f -> []
+                           , sumMatcher = undefined
+                           }
 
-instance HasSumRepr ('UDTypeObj ('SumOfCol lay)) dbk t ('SumMatcher pfx t1 mt) where
-  sumRepr' _ = undefined
+instance (Coercible t t1) => HasSumRepr ('UDTypeObj ('SumOfCol lay)) dbk t ('SumMatcher dbk pfx t1 mt) where
+  sumRepr' _ = SumMatchRep { ctors = \_f -> []
+                           , sumMatcher = undefined
+                           }
 
 instance HasSumRepr dbobj dbk t 'NoMatcher where
   sumRepr' _ = NoMatcherRep
@@ -249,7 +259,7 @@ instance GenHasEnumRepr dbk t f => GenHasEnumRepr dbk t (D1 d f) where
 
 instance (GenHasEnumRepr dbk t f, GenHasEnumRepr dbk t g) => GenHasEnumRepr dbk t (f :+: g) where
   gEnumCtorUniv _ = ((fmap . fmap) L1 $ gEnumCtorUniv (Proxy @'(dbk, t, f))) ++
-                   ((fmap . fmap) R1 $ gEnumCtorUniv (Proxy @'(dbk, t, g)))
+                    ((fmap . fmap) R1 $ gEnumCtorUniv (Proxy @'(dbk, t, g)))
   gEnumMatcher p mat (L1 f) = gEnumMatcher p mat f
   gEnumMatcher p mat (R1 g) = gEnumMatcher p mat g
 
@@ -265,23 +275,41 @@ instance TypeError ('Text "[DBR-123] Expecting only Sum Type with all constructo
   gEnumCtorUniv _ = error "Panic: [DBR-123]: Unreachable code"
   gEnumMatcher = error "Panic: [DBR-123]: Unreachable code"
 
-class GenHasSumRepr (dbk :: DbK) (t :: Type) (rep :: Type -> Type) where
-  gHasSumRepr :: Proxy '(dbk, t, rep) -> [(Text, ())]
+data TestSum (sc :: Type) = TCon1 (Either sc Int) | TCon2 (Either sc Bool)
+  deriving Generic
 
-instance GenHasSumRepr dbk t f => GenHasSumRepr dbk t (D1 d f) where
-  gHasSumRepr _ = gHasSumRepr (Proxy @'(dbk, t, f))
+class GenHasSumRepr (dbk :: DbK) (m :: Type -> Type) (sc :: Type) (expr :: Type -> Type -> Type) (rep :: Type -> Type) where
+  gSumCtorUniv :: Proxy '(dbk, m, sc, expr, rep) -> ToExpr expr sc -> [(Text, (rep (m sc)))]
 
-instance (GenHasSumRepr dbk t f, GenHasSumRepr dbk t g) => GenHasSumRepr dbk t (f :+: g) where
-  gHasSumRepr _ = gHasSumRepr (Proxy @'(dbk, t, f)) ++ gHasSumRepr (Proxy @'(dbk, t, g))
+instance GenHasSumRepr dbk m sc expr f => GenHasSumRepr dbk m sc expr (D1 d f) where
+  gSumCtorUniv _ f = (fmap . fmap) M1 $ gSumCtorUniv (Proxy @'(dbk, m, sc, expr, f)) f
 
-instance GenHasSumRepr dbk t (C1 c (S1 s (K1 k t))) where
-  gHasSumRepr _ = undefined
+instance (GenHasSumRepr dbk m sc expr f, GenHasSumRepr dbk m sc expr g) => GenHasSumRepr dbk m sc expr (f :+: g) where
+  gSumCtorUniv _ f = ((fmap . fmap) L1 $ gSumCtorUniv (Proxy @'(dbk, m, sc, expr , f)) f) ++
+                     ((fmap . fmap) R1 $ gSumCtorUniv (Proxy @'(dbk, m, sc, expr, g)) f)
 
-instance GenHasSumRepr dbk t (C1 c U1) where
-  gHasSumRepr _ = undefined
+instance (KnownSymbol cn, expr ~ e) => GenHasSumRepr dbk m sc expr (C1 ('MetaCons cn p isr) (S1 s (K1 k (e (sc :: Type) (t :: Type))))) where
+  gSumCtorUniv _ f = [(T.pack $ symbolVal (Proxy @cn), M1 $ M1 $ K1 (f ((PQ.ConstExpr (PQ.String "bar")) :: PQ.PrimExpr)))]
 
-instance (TypeError ('Text "[DBR-123] Multi-Arity Constructor is not supported! " ':<>: 'ShowType t)) => GenHasSumRepr dbk t (C1 c (f :*: g)) where
-  gHasSumRepr _ = undefined
+instance (KnownSymbol cn) => GenHasSumRepr dbk m sc expr (C1 ('MetaCons cn p isr) U1) where
+  gSumCtorUniv _ _ = [(T.pack $ symbolVal (Proxy @cn), M1 U1)]
+
+instance (TypeError ('Text "[DBR-123] Multi-Arity Constructor is not supported! " ':<>: 'ShowType m)) => GenHasSumRepr dbk m sc expr (C1 c (f :*: g)) where
+  gSumCtorUniv _ _ = error "Panic: [DBR-123]: Unreachable code"
+
+class GenSumMatcher (dbk :: DbK) (t :: Type) (rep :: Type -> Type) where
+  genSumMatcher :: Proxy '(dbk, t) -> (Text -> Int64 -> PQ.PrimExpr -> PQ.PrimExpr) -> rep t -> PQ.PrimExpr
+
+instance (GenSumMatcher dbk t f) => GenSumMatcher dbk t (D1 d f) where
+  genSumMatcher p f (M1 r) = genSumMatcher p f r
+
+instance (GenSumMatcher dbk t f, GenSumMatcher dbk t g) => GenSumMatcher dbk t (f :+: g) where
+  genSumMatcher p f (L1 r) = genSumMatcher p f r
+  genSumMatcher p f (R1 r) = genSumMatcher p f r
+
+instance () => GenSumMatcher dbk t (C1 d (S1 s (K1 k a))) where
+  genSumMatcher _p _f (M1 (M1 (K1 _r))) = undefined
+  
 
 class GenInjUnlifted (cn :: Symbol) (carg :: Type) (dbk :: DbK) (t :: Type) (rep :: Type -> Type) where
   gInjUnlifted :: Proxy '(cn, carg, dbk, t) -> Maybe (rep t)
@@ -295,11 +323,13 @@ instance (GenInjUnlifted cn carg dbk t f, GenInjUnlifted cn carg dbk t x) => Gen
 instance GenInjUnlifted cn carg dbk t (C1 ('MetaCons cn1 f isr) (S1 s (K1 k t))) where
   gInjUnlifted = undefined
 
-data ConMatch (mat :: Bool) (t :: Type) where
-  ConMatched :: t -> ConMatch 'True t
-  ConNotMatched :: ConMatch 'False t
+-- newtype AnySchemaExpr expr a = AnySchemaExpr (forall a sc. (Proxy a -> PQ.PrimExpr -> expr sc)
 
-deriving instance Functor (ConMatch mat)
+type T m = forall (a :: Type) (sc :: Type) (expr :: Type -> Type -> Type). (Proxy '(sc, a) -> PQ.PrimExpr -> expr sc a) -> (expr sc a -> m sc)
+
+type ToExpr (expr :: Type -> Type -> Type) (sc :: Type) = (forall (a :: Type). PQ.PrimExpr -> expr sc a)
+
+-- type ToConstPExpr (sc :: Type)
 
 type E a b = a == b
 
@@ -471,46 +501,46 @@ instance DBRepr 'Postgres (AsJsonBlob t) where
   type ToDBType 'Postgres (AsJsonBlob t) = 'UDTypeObj ('SerializedBlob ('JsonContent 'Nothing))
   typeName = ""
 
-newtype AsTaggedSumFlat t = AsTaggedSumFlat t
+newtype AsTaggedSumFlat (m :: Type -> Type) t = AsTaggedSumFlat t
 
-instance DBRepr dbk (AsTaggedSumFlat t) where
-  type ToDBType dbk (AsTaggedSumFlat t) = 'UDTypeObj ('TaggedSum (GetDBEnumK dbk) 'FlatRec)
-  type Matcher dbk (AsTaggedSumFlat t) = 'SumMatcher 'Nothing t Proxy
+instance (Generic t, GenSumMatcher dbk (AsTaggedSumFlat m t) (Rep t)) => DBRepr dbk (AsTaggedSumFlat m t) where
+  type ToDBType dbk (AsTaggedSumFlat m t) = 'UDTypeObj ('TaggedSum (GetDBEnumK dbk) 'FlatRec)
+  type Matcher dbk (AsTaggedSumFlat m t) = 'SumMatcher dbk 'Nothing t m
   typeName = ""
 
 newtype AsTaggedSumComposite t = AsTaggedSumComposite t
 
-instance (Generic t, KnownSymbol (GenTyCon (Rep t))) => DBRepr 'Postgres (AsTaggedSumComposite t) where
+instance (Generic t, KnownSymbol (GenTyCon (Rep t)), GenSumMatcher 'Postgres (AsTaggedSumComposite t) (Rep t)) => DBRepr 'Postgres (AsTaggedSumComposite t) where
   type ToDBType 'Postgres (AsTaggedSumComposite t) = 'UDTypeObj ('TaggedSum 'EnumType 'CompositeRec)
-  type Matcher 'Postgres (AsTaggedSumComposite t) = 'SumMatcher 'Nothing t Proxy
+  type Matcher 'Postgres (AsTaggedSumComposite t) = 'SumMatcher 'Postgres 'Nothing t Proxy
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsTaggedSumJson t = AsTaggedSumJson t
 
-instance DBRepr db (AsTaggedSumJson t) where
+instance (Generic t, GenSumMatcher db (AsTaggedSumJson t) (Rep t)) => DBRepr db (AsTaggedSumJson t) where
   type ToDBType db (AsTaggedSumJson t) = 'UDTypeObj ('TaggedSum (GetDBEnumK db) 'JsonRec)
-  type Matcher db (AsTaggedSumJson t) = 'SumMatcher 'Nothing t Proxy
+  type Matcher db (AsTaggedSumJson t) = 'SumMatcher db  'Nothing t Proxy
   typeName = ""
 
 newtype AsTaggedSumMonoFlat colTy t = AsTaggedSumMonoFlat t
 
 instance DBRepr db cty => DBRepr db (AsTaggedSumMonoFlat cty t) where
   type ToDBType db (AsTaggedSumMonoFlat cty t) = 'UDTypeObj ('TaggedSumMono (GetDBEnumK db) cty 'FlatRec)
-  type Matcher db (AsTaggedSumMonoFlat cty t) = 'SumMatcher 'Nothing t Proxy
+  type Matcher db (AsTaggedSumMonoFlat cty t) = 'SumMatcher db 'Nothing t Proxy
   typeName = ""
 
 newtype AsTaggedSumMonoComposite colTy t = AsTaggedSumMonoComposite t
 
 instance (DBRepr 'Postgres cty, Generic t, KnownSymbol (GenTyCon (Rep t))) => DBRepr 'Postgres (AsTaggedSumMonoComposite cty t) where
   type ToDBType 'Postgres (AsTaggedSumMonoComposite cty t) = 'UDTypeObj ('TaggedSumMono 'EnumType cty 'CompositeRec)
-  type Matcher 'Postgres (AsTaggedSumMonoComposite cty t) = 'SumMatcher 'Nothing t Proxy
+  type Matcher 'Postgres (AsTaggedSumMonoComposite cty t) = 'SumMatcher 'Postgres 'Nothing t Proxy
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsTaggedSumMonoJson colTy t = AsTaggedSumMonoJson t
 
 instance DBRepr dbk cty => DBRepr dbk (AsTaggedSumMonoJson cty t) where
   type ToDBType dbk (AsTaggedSumMonoJson cty t) = 'UDTypeObj ('TaggedSumMono (GetDBEnumK dbk) cty 'JsonRec)
-  type Matcher dbk (AsTaggedSumMonoJson cty t) = 'SumMatcher 'Nothing t Proxy
+  type Matcher dbk (AsTaggedSumMonoJson cty t) = 'SumMatcher dbk 'Nothing t Proxy
   typeName = ""
 
 newtype AsSumOfColFlat t = AsSumOfColFlat t
