@@ -33,7 +33,7 @@ module DBRecord.Internal.UDType
 import GHC.TypeLits
 import DBRecord.Internal.DBTypes
 import DBRecord.Internal.Schema
-import DBRecord.Internal.Expr
+-- import DBRecord.Internal.Expr
 import DBRecord.Internal.Types
 import DBRecord.Internal.Common
 import qualified DBRecord.Internal.PrimQuery as PQ

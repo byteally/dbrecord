@@ -27,21 +27,26 @@ type family GGetFieldsOrEmpty (t :: Type) (rep :: Type -> Type) :: [(Symbol, Typ
 
 type family ValidatePfxConName (ty :: Type) (k :: Symbol) (pfx :: Char) (rep :: Type -> Type) (unconsedConName :: Maybe (Char, Symbol)) :: Constraint where
   ValidatePfxConName _ _ _ _ 'Nothing = TypeError ('Text "Invalid Constructor Name: " ':<>: 'Text " for type " ':<>: 'Text "")
-  ValidatePfxConName ty k pfx rep ('Just '(pfx, cn)) = ErrorOnFalse (ConNameMatch ty cn rep) ('Text "[DBR-123] " ':<>: 'ShowType cn ':<>: 'Text " is not a valid constructor name for type " ':<>: 'ShowType ty)
+  ValidatePfxConName ty k pfx rep ('Just '(pfx, cn)) = ErrorOnFalse (ConNameMatch ty cn 'Nothing rep) ('Text "[DBR-123] " ':<>: 'ShowType cn ':<>: 'Text " is not a valid constructor name for type " ':<>: 'ShowType ty)
   ValidatePfxConName ty k pfx rep ('Just '(pfx', cn)) = TypeError ('Text "Invalid Constructor Name: " ':<>: 'Text " for type " ':<>: 'Text "")
 
 type ValidateConName :: Type -> Symbol -> (Type -> Type) -> Constraint
-type ValidateConName ty cn rep = ErrorOnFalse (ConNameMatch ty cn rep) ('Text "[DBR-123] " ':<>: 'ShowType cn ':<>: 'Text " is not a valid constructor name for type " ':<>: 'ShowType ty)
+type ValidateConName ty cn rep = ErrorOnFalse (ConNameMatch ty cn 'Nothing rep) ('Text "[DBR-123] " ':<>: 'ShowType cn ':<>: 'Text " is not a valid constructor name for type " ':<>: 'ShowType ty)
 
-type family ConNameMatch (ty :: Type) (cn :: Symbol) (rep :: Type -> Type) :: Bool where
-  ConNameMatch ty cn (D1 _ f) = ConNameMatch ty cn f
-  ConNameMatch ty cn (f :+: g) = ConNameMatch1 ty cn g (ConNameMatch ty cn f)
-  ConNameMatch _ cn (C1 ('MetaCons cn _ _) _) = 'True
-  ConNameMatch _ cn (C1 ('MetaCons cn' _ _) _) = 'False
+type family ConNameMatch (ty :: Type) (cn :: Symbol) (carg :: Maybe Type) (rep :: Type -> Type) :: Bool where
+  ConNameMatch ty cn carg (D1 _ f) = ConNameMatch ty cn carg f
+  ConNameMatch ty cn carg (f :+: g) = ConNameMatch1 ty cn carg g (ConNameMatch ty cn carg f)
+  ConNameMatch _ cn 'Nothing (C1 ('MetaCons cn _ _) _) = 'True
+  ConNameMatch _ cn ('Just ecarg) (C1 ('MetaCons cn _ _) (S1 s (K1 _ ecarg))) = 'True
+  ConNameMatch ty cn ('Just ecarg) (C1 ('MetaCons cn _ _) (S1 s (K1 _ acarg))) =
+    TypeError ('Text "[DBR-123] Constructor " ':<>: 'ShowType cn ':<>: 'Text " of type " ':<>: 'ShowType ty ':<>: 'Text " should have type " ':<>: 'ShowType ecarg)
+  ConNameMatch ty cn ('Just ecarg) (C1 ('MetaCons cn _ _) _) =
+    TypeError ('Text "[DBR-123] Constructor " ':<>: 'ShowType cn ':<>: 'Text " of type " ':<>: 'ShowType ty ':<>: 'Text " should have exactly one argument of type " ':<>: 'ShowType ecarg)
+  ConNameMatch _ cn carg (C1 ('MetaCons cn' _ _) _) = 'False
 
-type family ConNameMatch1 (ty :: Type) (cn :: Symbol) (rep :: Type -> Type) (mat :: Bool) :: Bool where
-  ConNameMatch1 ty cn krep 'False = ConNameMatch ty cn krep
-  ConNameMatch1 _ _ _ 'True = 'True
+type family ConNameMatch1 (ty :: Type) (cn :: Symbol) (carg :: Maybe Type) (rep :: Type -> Type) (mat :: Bool) :: Bool where
+  ConNameMatch1 ty cn carg krep 'False = ConNameMatch ty cn carg krep
+  ConNameMatch1 _ _ _ _ 'True = 'True
 
 type family ErrorOnFalse (b :: Bool) (emsg :: ErrorMessage) :: Constraint where
   ErrorOnFalse 'True _ = ()

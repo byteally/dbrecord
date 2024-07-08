@@ -40,7 +40,7 @@ import           DBRecord.Driver
  -- TODO: Internal Modules
 import           DBRecord.Internal.Types
 import           DBRecord.Internal.DBTypes
-import           DBRecord.Internal.Expr
+-- import           DBRecord.Internal.Expr
 import           Data.Functor.Identity
 import qualified Data.Pool as P
 import           Data.String
