@@ -377,11 +377,6 @@ data MQuery sc t where
 newtype InsertClause s sc i o = InsertClause_ (Clause s sc i o)
   deriving newtype (Functor, Applicative, Monad, Semigroup)
 
--- runClause :: forall i o sc s.
---   Clause s sc i o
---   -> PQ.Clauses
--- runClause (Clause _clau) = undefined
-
 -- Unsafe
 scoped :: forall i o sc s.
   ((PQ.Clauses, Scoped s sc i) -> (PQ.Clauses, o))

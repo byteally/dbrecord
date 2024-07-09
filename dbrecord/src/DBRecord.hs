@@ -7,7 +7,7 @@ module DBRecord
   , DBRepr (..), DBObjK (..), AsEnum, AsEnumText, AsEnumNum, AsCompositeRec
   , AsFlatRec, AsJsonRec, AsJsonBlob, AsTaggedSumFlat, AsTaggedSumComposite
   , AsTaggedSumJson, AsTaggedSumMonoFlat, AsTaggedSumMonoComposite, AsTaggedSumMonoJson
-  , AsSumOfColFlat, AsSumOfColComposite, AsSumOfColJson
+  , AsSumOfColFlat, AsSumOfColComposite, AsSumOfColJson, constructExpr
   ) where
 
 import DBRecord.Query2
@@ -21,6 +21,6 @@ import DBRecord.Internal.DBTypes ( DBRepr (..), DBObjK (..), AsEnum
                                  , AsTaggedSumComposite, AsTaggedSumJson
                                  , AsTaggedSumMonoFlat, AsTaggedSumMonoComposite
                                  , AsTaggedSumMonoJson, AsSumOfColFlat
-                                 , AsSumOfColComposite, AsSumOfColJson
+                                 , AsSumOfColComposite, AsSumOfColJson, constructExpr
                                  )
 import DBRecord.Schema

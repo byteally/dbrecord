@@ -26,9 +26,9 @@ type family GGetFieldsOrEmpty (t :: Type) (rep :: Type -> Type) :: [(Symbol, Typ
   GGetFieldsOrEmpty t _ = GGetFields t (Rep t)
 
 type family ValidatePfxConName (ty :: Type) (k :: Symbol) (pfx :: Char) (rep :: Type -> Type) (unconsedConName :: Maybe (Char, Symbol)) :: Constraint where
-  ValidatePfxConName _ _ _ _ 'Nothing = TypeError ('Text "Invalid Constructor Name: " ':<>: 'Text " for type " ':<>: 'Text "")
+  ValidatePfxConName ty cn _ _ 'Nothing = TypeError ('Text "[DBR-123] Invalid Constructor Name: " ':<>: 'ShowType cn ':<>: 'Text " for type " ':<>: 'ShowType ty)
   ValidatePfxConName ty k pfx rep ('Just '(pfx, cn)) = ErrorOnFalse (ConNameMatch ty cn 'Nothing rep) ('Text "[DBR-123] " ':<>: 'ShowType cn ':<>: 'Text " is not a valid constructor name for type " ':<>: 'ShowType ty)
-  ValidatePfxConName ty k pfx rep ('Just '(pfx', cn)) = TypeError ('Text "Invalid Constructor Name: " ':<>: 'Text " for type " ':<>: 'Text "")
+  ValidatePfxConName ty k pfx rep ('Just '(pfx', cn)) = TypeError ('Text "[DBR-123] Invalid Constructor Name: " ':<>: 'ShowType cn ':<>: 'Text " for type " ':<>: 'ShowType ty)
 
 type ValidateConName :: Type -> Symbol -> (Type -> Type) -> Constraint
 type ValidateConName ty cn rep = ErrorOnFalse (ConNameMatch ty cn 'Nothing rep) ('Text "[DBR-123] " ':<>: 'ShowType cn ':<>: 'Text " is not a valid constructor name for type " ':<>: 'ShowType ty)
