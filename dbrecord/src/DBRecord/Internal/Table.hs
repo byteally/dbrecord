@@ -61,7 +61,7 @@ import Control.Monad.Trans.State.Strict
 type family NoSchema t where
   NoSchema x = TypeError ('Text "No instance for " ':<>: 'ShowType (Schema x))
 
--- type Table :: forall (tab :: Type) (sc :: Type). tab -> sc -> Constraint 
+-- type Table :: forall (tab :: Type) (sc :: Type). tab -> sc -> Constraint
 class ( Schema sc
       , ValidateTableProps sc tab
       , Generic tab
@@ -645,32 +645,108 @@ instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
-  -- , UDType sc a
-  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TaggedSum enk lay)) where
-  getColByDBTypeRep _ = undefined -- TODO:
+  , UDType sc a
+  , Matcher (DB (SchemaDB sc)) a ~ 'SumMatcher (DB (SchemaDB sc)) pfx a m
+  , Generic (m sc)
+  , GenHasSumRepr (DB (SchemaDB sc)) a m sc (Rep (m sc))
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TaggedSum enk 'FlatRec)) where
+  getColByDBTypeRep _ =
+    let
+      allCons = getPatArgs (Proxy @'(Matcher (DB (SchemaDB sc)) a, sc , a)) $ sumRepr (Proxy @'((DB (SchemaDB sc)), a))
+      discTag = _getDiscriminatorTagName $ discriminatorTagName @(DB (SchemaDB sc)) @a
+      -- colBE = getColumnName @sc @tab @col
+      -- cn = T.pack $ symbolVal (Proxy @col)
+    in Expr $ PQ.FlatComposite $ (discTag, PQ.BaseTableAttrExpr discTag) :
+       (catMaybes $ fmap (\(cn, hasArg, _) ->
+                            if hasArg
+                            then Just (cn, PQ.BaseTableAttrExpr $ defHSNameToDBName cn)
+                            else Nothing
+                         ) allCons)
 
 instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
   , UDType sc a
-  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TaggedSumMono enk cty lay)) where
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TaggedSum enk 'CompositeRec)) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col
+
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TaggedSum enk 'JsonRec)) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col
+
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TaggedSumMono enk cty 'FlatRec)) where
   getColByDBTypeRep _ =
     let
       discTag = _getDiscriminatorTagName $ discriminatorTagName @(DB (SchemaDB sc)) @a
       colBE = getColumnName @sc @tab @col
       -- cn = T.pack $ symbolVal (Proxy @col)
-    in Expr $ PQ.FlatComposite [ (discTag, PQ.BaseTableAttrExpr discTag)
-                               , ("", getExpr colBE)
+      tyN = _getTypeName $ typeName @(DB (SchemaDB sc)) @a
+    in Expr $ PQ.FlatComposite [ ("tag", PQ.BaseTableAttrExpr discTag)
+                               , (tyN, getExpr colBE)
                                ]
 
 instance
   ( Table sc tab
   , R.HasField col tab a
   , KnownSymbol col
+  , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TaggedSumMono enk cty 'CompositeRec)) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col
+
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('TaggedSumMono enk cty 'JsonRec)) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col
+
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  , UDType sc a
+  , Matcher (DB (SchemaDB sc)) a ~ 'SumMatcher (DB (SchemaDB sc)) pfx a m
+  , Generic (m sc)
+  , GenHasSumRepr (DB (SchemaDB sc)) a m sc (Rep (m sc))
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('SumOfCol 'FlatRec)) where
+  getColByDBTypeRep _ =
+    let
+      allCons = getPatArgs (Proxy @'(Matcher (DB (SchemaDB sc)) a, sc , a)) $ sumRepr (Proxy @'((DB (SchemaDB sc)), a))
+      -- colBE = getColumnName @sc @tab @col
+      -- cn = T.pack $ symbolVal (Proxy @col)
+    in Expr $ PQ.FlatComposite $
+       (catMaybes $ fmap (\(cn, hasArg, _) ->
+                            if hasArg
+                            then Just (cn, PQ.BaseTableAttrExpr $ defHSNameToDBName cn)
+                            else Nothing
+                         ) allCons)
+
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
   -- , UDType sc a
-  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('SumOfCol enk)) where
-  getColByDBTypeRep _ = undefined -- TODO:
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('SumOfCol 'CompositeRec)) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col
+
+instance
+  ( Table sc tab
+  , R.HasField col tab a
+  , KnownSymbol col
+  -- , UDType sc a
+  ) => HasColumnByDBType sc tab col a ('UDTypeObj ('SumOfCol 'JsonRec)) where
+  getColByDBTypeRep _ = getColumnName @sc @tab @col
 
 instance
   ( Table sc tab
@@ -706,6 +782,3 @@ data ForeignRef a
 
 data UniqueCT = UniqueOn [Symbol] Symbol
 data Uq sc (un :: Symbol) = Uq
-
-
-  
