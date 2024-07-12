@@ -51,15 +51,19 @@ import           Database.PostgreSQL.Simple.FromRow as PGS
 import qualified UnliftIO as U
 import           Data.Kind
 import           GHC.Generics
+import           GHC.TypeLits as GHC
+import qualified Data.Aeson as A
 import           Data.Proxy
--- import qualified Data.List as L
--- import           Data.ByteString.Char8 as ASCII
+import           Data.Int
+import qualified Data.List as L
+import qualified Data.ByteString.Char8 as Char8
 import           Data.Typeable
 import           Data.ByteString (ByteString)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 -- import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
+import qualified Data.Attoparsec.ByteString.Char8 as Atto
 
 newtype PostgresDBT (db :: Type) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
   deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS, U.MonadUnliftIO, MonadThrow, MonadCatch)
@@ -76,57 +80,89 @@ instance DBDecoder PGS where
 
 type instance ToDBRow PGS a = ToRow a
 
-newtype AnnEntity (dbobj :: DBObjK) (isAuto :: Bool) a = AnnEntity {getEntity :: a}
+newtype AnnEntity (dbobj :: DBObjK) (isAuto :: Bool) (meta :: Type) a = AnnEntity {getEntity :: a}
+  deriving Functor
 
 class FromRowGen a where
   fromRowGen :: RowParser a
 
-instance FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a) => FromRowGen a where
-  fromRowGen = getEntity <$> fromRow @(AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a)
+instance FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) () a) => FromRowGen a where
+  fromRowGen = getEntity <$> fromRow @(AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) () a)
 
-instance (FromField a) => FromRow (AnnEntity ('NativeTypeObj dbk) auto a) where
+instance (FromField a) => FromRow (AnnEntity ('NativeTypeObj dbk) auto meta a) where
   fromRow = AnnEntity <$> field
   {-# INLINE fromRow #-}
 
-instance (FromField a) => FromRow (AnnEntity ('NullableObjOf a ('NativeTypeObj dbk)) auto (Maybe a)) where
+instance (FromField a) => FromRow (AnnEntity ('NullableObjOf a ('NativeTypeObj dbk)) auto meta (Maybe a)) where
   fromRow = AnnEntity <$> field
   {-# INLINE fromRow #-}
 
-instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('NullableObjOf a 'TableObj) 'True (Maybe a)) where
+instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('NullableObjOf a 'TableObj) 'True meta (Maybe a)) where
   fromRow = (AnnEntity . fmap to) <$> gfromRowOpt @(Rep a)
   {-# INLINE fromRow #-}
 
-instance (FromField a, Typeable a) => FromRow (AnnEntity ('NullableObjOf [a] ('ArrayObjOf arrElt ('NativeTypeObj eldbk))) 'True (Maybe [a])) where
+instance (FromField a, Typeable a) => FromRow (AnnEntity ('NullableObjOf [a] ('ArrayObjOf arrElt ('NativeTypeObj eldbk))) 'True meta (Maybe [a])) where
   fromRow = AnnEntity <$> (fieldWith $ optionalField (\v cn -> fromPGArray <$> (fromField v cn)))
   {-# INLINE fromRow #-}
 
-instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('ArrayObjOf a 'TableObj) 'True (V.Vector a)) where
-  fromRow = (AnnEntity . maybe V.empty V.singleton . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf a 'TableObj) 'True (Maybe a))
+instance (Generic a, GFromRowOpt (Rep a)) => FromRow (AnnEntity ('ArrayObjOf a 'TableObj) 'True meta (V.Vector a)) where
+  fromRow = (AnnEntity . maybe V.empty V.singleton . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf a 'TableObj) 'True meta (Maybe a))
   {-# INLINE fromRow #-}
 
-instance (FromField a, Typeable a) => FromRow (AnnEntity ('ArrayObjOf a ('NativeTypeObj dbk)) auto [a]) where
+instance (FromField a, Typeable a) => FromRow (AnnEntity ('ArrayObjOf a ('NativeTypeObj dbk)) auto meta [a]) where
   fromRow = AnnEntity <$> (fromPGArray <$> fieldWith fromField)
   {-# INLINE fromRow #-}
 
-instance (Generic a, GFromRow (Rep a)) => FromRow (AnnEntity 'TableObj 'True a) where
+instance (Generic a, GFromRow (Rep a)) => FromRow (AnnEntity 'TableObj 'True meta a) where
   fromRow = (AnnEntity . to) <$> gfromRow @(Rep a)
   {-# INLINE fromRow #-}
 
-instance (FromRow a) => FromRow (AnnEntity 'TableObj 'False a) where
+instance (FromRow a) => FromRow (AnnEntity 'TableObj 'False meta a) where
   fromRow = AnnEntity <$> fromRow @a
   {-# INLINE fromRow #-}
 
+data SupportType (sup :: DBSupportK)
+
 -- TODO: Complete the following instance impl
-instance (UDFromField t udRep) => FromRow (AnnEntity ('UDTypeObj udRep) 'True t) where
+instance (Generic t, GFromRow (Rep t)) => FromRow (AnnEntity ('UDTypeObj ('UDRec 'FlatRec)) 'True (SupportType 'Synthesized) t) where
+  fromRow = (AnnEntity . to) <$> gfromRow @(Rep t)
+
+instance (Generic t, GFromSumOfRow (Rep t), MatchEnumTag enk, DBRepr 'Postgres t) => FromRow (AnnEntity ('UDTypeObj ('TaggedSum enk 'FlatRec)) 'True (SupportType 'Synthesized) t) where
+  fromRow = do
+    ctag <- field
+    let mat cn = matchEnumTag (Proxy @enk) ctag (conAliases @'Postgres @t) cn
+    ((fmap to) <$> gFromSumOfRow @(Rep t) mat) >>= \case
+      Nothing -> error "Panic: [DBR-123]: Atleast one of the constructor should match"
+      Just r -> pure $ AnnEntity r
+
+
+instance ( Generic t, GFromSumOfRow (Rep t), MatchEnumTag enk, DBRepr 'Postgres t
+         ) => FromRow (AnnEntity ('UDTypeObj ('TaggedSumMono enk ct 'FlatRec)) 'True (SupportType 'Synthesized) t) where
+  fromRow = do
+    ctag <- field
+    let mat cn = matchEnumTag (Proxy @enk) ctag (conAliases @'Postgres @t) cn
+    ((fmap to) <$> gFromSumOfRow @(Rep t) mat) >>= \case
+      Nothing -> error "Panic: [DBR-123]: Atleast one of the constructor should match"
+      Just r -> pure $ AnnEntity r
+
+instance (Generic t, GFromSumOfRow (Rep t)) => FromRow (AnnEntity ('UDTypeObj ('SumOfCol 'FlatRec)) 'True (SupportType 'Synthesized) t) where
+  fromRow = ((fmap to) <$> gFromSumOfRow @(Rep t) (const True)) >>= \case
+    Nothing -> error "Panic: [DBR-123]: Atleast one of the constructor should match"
+    Just r -> pure $ AnnEntity r
+
+instance (UDFromField t udRep) => FromRow (AnnEntity ('UDTypeObj udRep) 'True (SupportType 'Native) t) where
   fromRow = AnnEntity <$> fieldWith (udFromField @t (Proxy @udRep))
 
-instance (UDFromField t udRep) => FromRow (AnnEntity ('NullableObjOf t ('UDTypeObj udRep)) 'True (Maybe t)) where
+instance (FromRow (AnnEntity ('UDTypeObj udRep) 'True (SupportType (GetDBSupportOf udRep)) t)) => FromRow (AnnEntity ('UDTypeObj udRep) 'True () t) where
+  fromRow = fmap (AnnEntity . getEntity) $ fromRow @(AnnEntity ('UDTypeObj udRep) 'True (SupportType (GetDBSupportOf udRep)) t)
+
+instance (UDFromField t udRep) => FromRow (AnnEntity ('NullableObjOf t ('UDTypeObj udRep)) 'True meta (Maybe t)) where
   fromRow = AnnEntity <$> fieldWith (optionalField $ udFromField @t (Proxy @udRep))
 
-instance (UDFromField t udRep, Typeable t) => FromRow (AnnEntity ('ArrayObjOf t ('UDTypeObj udRep)) 'True [t]) where
+instance (UDFromField t udRep, Typeable t) => FromRow (AnnEntity ('ArrayObjOf t ('UDTypeObj udRep)) 'True meta [t]) where
   fromRow = AnnEntity <$> fieldWith (\v cn -> fromPGArray <$> pgArrayFieldParser (udFromField @t (Proxy @udRep)) v cn)
 
-instance (FromField t) => FromRow (AnnEntity ('UDTypeObj udRep) 'False t) where
+instance (FromField t) => FromRow (AnnEntity ('UDTypeObj udRep) 'False meta t) where
   fromRow = AnnEntity <$> fieldWith (fromField @t)
 
 class UDFromField (t :: Type) (udtMap :: UDTypeK) where
@@ -134,81 +170,93 @@ class UDFromField (t :: Type) (udtMap :: UDTypeK) where
 
 instance (Typeable t, DBRepr 'Postgres t, Matcher 'Postgres t ~ 'EnumMatcher t, ParseEnum enk) => UDFromField t ('UDEnum enk) where
   udFromField _ fld =
-    let udTyN = _getTypeName (typeName @'Postgres @t)
+    let
+      expTyName = _getTypeName (typeName @'Postgres @t)
+      EnumMatchRep {ctors = cs} = sumRepr (Proxy @'( 'Postgres, t))
     in \case
       Nothing -> returnError UnexpectedNull fld ""
-      Just val' -> case parseEnum (Proxy @enk) val' [] of
-        Left ex -> returnError Incompatible fld (show ex)
-        Right _cn -> do
-          tName <- typename fld
-          if tName == T.encodeUtf8 udTyN
-            then do
-            let EnumMatchRep {ctors = _cs} = sumRepr (Proxy @'( 'Postgres, t))
-            undefined
-            else returnError Incompatible fld ("Expected: " ++ (T.unpack udTyN) ++ ", Actual: " ++ show tName)
+      Just val' -> do
+        actTyName <- typename fld
+        if actTyName == T.encodeUtf8 expTyName
+          then do
+          case parseEnum (Proxy @enk) val' (conAliases @'Postgres @t) cs of
+            Left ex -> returnError Incompatible fld (show ex)
+            Right ct -> pure ct
+          else returnError Incompatible fld (L.concat ["Expected: "
+                                                      , T.unpack expTyName
+                                                      , ", Actual: "
+                                                      , Char8.unpack actTyName
+                                                      ])
 
 class ParseEnum (enk :: UDEnumK) where
-  parseEnum :: Proxy enk -> ByteString -> [(T.Text, t)] -> Either String t
+  parseEnum :: Proxy enk -> ByteString -> ConAliases 'Postgres t -> [(T.Text, t)] -> Either String t
 
 instance ParseEnum 'EnumType where
-  parseEnum _ bs _ctors = case T.decodeUtf8' bs of
+  parseEnum _ bs caliases ctors = case T.decodeUtf8' bs of
     Left ex -> Left $ show ex
-    Right _ev -> undefined
---  
-  
+    Right ev -> case L.find (\(cn, _ct) -> ev == lookupConText cn caliases) ctors of
+      Nothing -> Left $ "[DBR-123] Enum value not matched! Value: " ++ (T.unpack ev) ++ " Expecting one of: " ++ (show $ fmap (\(cn, _) -> lookupConText cn caliases) ctors)
+      Just (_, ct) -> Right ct
 
-instance UDFromField t ('TaggedSum enk 'FlatRec) where
+
+instance ParseEnum 'EnumText where
+  parseEnum _ = parseEnum (Proxy @'EnumType)
+
+instance ParseEnum 'EnumNum where
+  parseEnum _ bs caliases ctors = case parseInt8 bs of
+    Left ex -> error ex
+    -- TODO: Fix h.c
+    Right ev -> case L.find (\(cn, _ct) -> ev == lookupConNum cn 0 caliases) ctors of
+      Nothing -> Left $ "[DBR-123] Enum value not matched! Value: " ++ (show ev) ++ " Expecting one of: " ++ (show $ fmap (\(cn, _) -> lookupConText cn caliases) ctors)
+      Just (_, ct) -> Right ct
+
+class MatchEnumTag (enk :: UDEnumK) where
+  matchEnumTag :: Proxy enk -> ByteString -> ConAliases 'Postgres t -> T.Text -> Bool
+
+instance MatchEnumTag 'EnumType where
+  matchEnumTag _ bs caliases cn = case T.decodeUtf8' bs of
+    Left ex -> error $ show ex
+    Right ev -> ev == lookupConText cn caliases
+
+instance MatchEnumTag 'EnumText where
+  matchEnumTag _ = matchEnumTag (Proxy @'EnumType)
+
+instance MatchEnumTag 'EnumNum where
+  matchEnumTag _ bs caliases cn = case parseInt8 bs of
+    Left ex -> error ex
+    -- TODO: Fix h.c
+    Right ev -> ev == lookupConNum cn 0 caliases
+
+parseInt8 :: ByteString -> Either String Int64
+parseInt8 bs = Atto.parseOnly (Atto.signed Atto.decimal) bs
+--
+
+instance UDFromField t ('UDRec 'CompositeRec) where
   udFromField = undefined
 
-instance UDFromField t ('TaggedSumMono enk ct 'FlatRec) where
+instance (TypeError ('GHC.Text "TODO: UDRec for JsonRec")) => UDFromField t ('UDRec 'JsonRec) where
+  udFromField = error "TODO"
+
+instance (A.FromJSON t, Typeable t) => UDFromField t ('SerializedBlob ('JsonContent 'Nothing)) where
+  udFromField _ = fromJSONField
+
+instance UDFromField t ('TaggedSum enk 'CompositeRec) where
   udFromField = undefined
 
-instance UDFromField t ('SumOfCol 'FlatRec) where
+instance (TypeError ('GHC.Text "TODO: UDRec for JsonRec")) => UDFromField t ('TaggedSum enk 'JsonRec) where
+  udFromField = error "TODO"
+
+instance UDFromField t ('TaggedSumMono enk ct 'CompositeRec) where
   udFromField = undefined
+
+instance (TypeError ('GHC.Text "TODO: UDRec for JsonRec")) => UDFromField t ('TaggedSumMono enk ct 'JsonRec) where
+  udFromField = error "TODO"
 
 instance UDFromField t ('SumOfCol 'CompositeRec) where
   udFromField = undefined
 
-
-{-
-instance (SingI tyAliasM, SingE tyAliasM, SingI conAliases, SingE conAliases, Typeable t, Generic t, GFromEnum (Rep t)) => UDFromField t ('EnumType tyAliasM conAliases) where
-  udFromField _ f =
-    let
-      tyAliasM = fromSing (sing :: Sing tyAliasM)
-      conAliases = HM.fromList $ fmap (\(k,v) -> (v,k)) $ fromSing (sing :: Sing conAliases)
-      tab = T.encodeUtf8 $ maybe (T.pack $ show $ typeRep (Proxy @t)) id tyAliasM
-    in \case
-      Nothing -> returnError UnexpectedNull f ""
-      Just val' -> case T.decodeUtf8' val' of
-        Left ex -> returnError Incompatible f (show ex)
-        Right val -> do
-          tName <- typename f
-          if tName == tab || tName == (ASCII.pack "_") `ASCII.append` tab
-            then case HM.lookup val conAliases >>= genFromEnum (Proxy @t) of
-                   Just en -> return en
-                   _       -> returnError ConversionFailed f (show val)
-            else returnError Incompatible f ("Wrong database type for " ++ (show $ (typeRep (Proxy :: Proxy t), tab)) ++ ", saw: " ++ show tName)
-
-genFromEnum :: forall t. (Generic t, GFromEnum (Rep t)) => Proxy t -> T.Text -> Maybe t
-genFromEnum _ con = to <$> gFromEnum (Proxy @(Rep t)) con
-
-class GFromEnum (f :: Type ->Type) where
-  gFromEnum :: Proxy f -> T.Text -> Maybe (f a)
-
-instance GFromEnum f => GFromEnum (D1 c f) where
-  gFromEnum _ con = M1 <$> gFromEnum (Proxy @f) con
-
-instance (GFromEnum f, GFromEnum g) => GFromEnum (f :+: g) where
-  gFromEnum _ con = (L1 <$> gFromEnum (Proxy @f) con) <|>
-                    (R1 <$> gFromEnum (Proxy @g) con)
-
-instance (Constructor c) => GFromEnum (C1 c U1) where
-  gFromEnum _ con
-    | con == (T.pack $ conName (undefined :: (C1 c f) a)) = Just (M1 U1)
-    | otherwise = Nothing
--}
-
 -- Type class for default implementation of FromRow using generics
+-- TODO: Uses Fields of DBRepr and HasField
 class GFromRow f where
     gfromRow :: RowParser (f p)
 
@@ -218,27 +266,62 @@ instance GFromRow f => GFromRow (M1 c i f) where
 instance (GFromRow f, GFromRow g) => GFromRow (f :*: g) where
     gfromRow = liftA2 (:*:) gfromRow gfromRow
 
-instance (FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a)) => GFromRow (K1 R a) where
-    gfromRow = (K1 . getEntity) <$> fromRow @(AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) a)
+instance (FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) () a)) => GFromRow (K1 R a) where
+    gfromRow = (K1 . getEntity) <$> fromRow @(AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) () a)
 
 instance GFromRow U1 where
     gfromRow = pure U1
 
 
 class GFromRowOpt f where
-    gfromRowOpt :: RowParser (Maybe (f p))
+  gfromRowOpt :: RowParser (Maybe (f p))
 
 instance GFromRowOpt f => GFromRowOpt (M1 c i f) where
-    gfromRowOpt = (fmap M1) <$> gfromRowOpt
+  gfromRowOpt = (fmap M1) <$> gfromRowOpt
 
 instance (GFromRowOpt f, GFromRowOpt g) => GFromRowOpt (f :*: g) where
-    gfromRowOpt = liftA2 (\l r -> liftA2 (:*:) l r) gfromRowOpt gfromRowOpt
+  gfromRowOpt = liftA2 (\l r -> liftA2 (:*:) l r) gfromRowOpt gfromRowOpt
 
-instance (FromRow (AnnEntity ('NullableObjOf a (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) (Maybe a))) => GFromRowOpt (K1 R a) where
-    gfromRowOpt = (fmap K1 . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf a (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) (Maybe a))
+instance (FromRow (AnnEntity ('NullableObjOf a (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) () (Maybe a))) => GFromRowOpt (K1 k a) where
+  gfromRowOpt = (fmap K1 . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf a (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) () (Maybe a))
 
 instance GFromRowOpt U1 where
-    gfromRowOpt = pure $ Just U1
+  gfromRowOpt = pure $ Just U1
+
+class GFromSumOfRow f where
+  gFromSumOfRow :: (T.Text -> Bool) -> RowParser (Maybe (f p))
+
+instance GFromSumOfRow f => GFromSumOfRow (D1 d f) where
+  gFromSumOfRow mat = (fmap M1) <$> gFromSumOfRow mat
+
+instance (GFromSumOfRow f, GFromSumOfRow g) => GFromSumOfRow (f :+: g) where
+  gFromSumOfRow mat = liftA2 (\l r -> asum [L1 <$> l, R1 <$> r]) (gFromSumOfRow @f mat) (gFromSumOfRow mat)
+
+-- data Nullified a(t :: Type) = Nullified
+
+-- fromNullified :: Nullified t -> Maybe t
+-- fromNullified _ = Nothing
+
+instance ( KnownSymbol cn
+         , FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) () a)
+         , FromRow (AnnEntity ('NullableObjOf a (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) () (Maybe a))
+         ) => GFromSumOfRow (C1 ('MetaCons cn p isr) (S1 s (K1 k a))) where
+  gFromSumOfRow mat =
+    let cn = T.pack $ symbolVal (Proxy @cn)
+    in if mat cn
+       then ((Just . M1 . M1 . K1 . getEntity)) <$> fromRow @(AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) () a)
+       else (fmap (M1 . M1 . K1) . getEntity) <$> fromRow @(AnnEntity ('NullableObjOf a (ToDBType 'Postgres a)) (AutoCodec 'Postgres a) () (Maybe a))
+    -- TODO: Skipped value should only be NULL otherwise, follwing error should be thrown
+    -- TODO: "Panic: [DBR-123]: Constructor " ++ (T.unpack cn) ++ " when not matched, it's argument should be null"
+
+
+instance (KnownSymbol cn) => GFromSumOfRow (C1 ('MetaCons cn p isr) U1) where
+  gFromSumOfRow mat =
+    let cn = T.pack $ symbolVal (Proxy @cn)
+    in if mat cn
+       then pure $ Just $ M1 U1
+       else pure Nothing
+
 
 data PGS where
   PGS :: PGS.Connection -> PGS

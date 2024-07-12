@@ -108,10 +108,15 @@ data UDTypeK
   | UDEnum UDEnumK -- ^ Invariant: Haskell Sum-Of-Nullary Type
   | TaggedSum UDEnumK UDRecK -- ^ Invariant: Haskell Sum-Of-AnyUniaryOrNullary Type
   | TaggedSumMono UDEnumK Type UDRecK -- ^ Invariant: Haskell Sum-Of-UnaryOrNullary Type, where all the argument is of same type allowing single column to be used for all the variants
-  | SumOfCol UDRecK -- ^ Invariant: Haskell Sum-Of-NonNUllNativeUniary Type where the column name is the discriminator
+  | SumOfCol UDRecK -- ^ Invariant: Haskell Sum-Of-NonNUllNativeUniary Type where the column name is the discriminator. All Ctor Arg should be non-null Native
   | SerializedBlob ContentType -- ^ Invariant: Any serializable Haskell Type
 
 -- ^ Invariant: Haskell Record Type
+-- Flat inside Flat: Allowed
+-- Flat inside Composite: NotAllowed
+-- Composite inside Flat: Allowed
+-- Composite inside Composite: Allowed
+-- Flat cannot be ArrayObj
 data UDRecK
   = CompositeRec -- ^ Native
   | FlatRec -- ^ Synthetic

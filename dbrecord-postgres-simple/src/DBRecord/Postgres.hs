@@ -35,9 +35,9 @@ instance FromRow (Rec '[]) where
 instance ( FromRow (Rec xs)
          , KnownSymbol fn
          , Typeable ft
-         , FromRow (AnnEntity (ToDBType 'Postgres ft) (AutoCodec 'Postgres ft) ft)
+         , FromRow (AnnEntity (ToDBType 'Postgres ft) (AutoCodec 'Postgres ft) () ft)
          ) => FromRow (Rec ('(fn, ft) ': xs)) where
   fromRow = do
-    hd <- getEntity <$> fromRow @(AnnEntity (ToDBType 'Postgres ft) (AutoCodec 'Postgres ft) ft) -- field @ft
+    hd <- getEntity <$> fromRow @(AnnEntity (ToDBType 'Postgres ft) (AutoCodec 'Postgres ft) () ft) -- field @ft
     rst <- fromRow @(Rec xs)
     pure (fromLabel @fn .= hd .& rst)

@@ -36,6 +36,7 @@ import DBRecord.Internal.Schema
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
 import GHC.Generics
+import GHC.Stack
 import Data.Kind
 import Data.String
 import GHC.Records
@@ -68,6 +69,16 @@ newtype ConAliases (dbk :: DbK) ty = ConAliases (HM.HashMap Text (Either Text In
 
 lookupConName :: Text -> Maybe Int64 -> ConAliases dbk ty -> Either Text Int64
 lookupConName cn pos (ConAliases hmap) = HM.findWithDefault (maybe (Left cn) Right pos) cn hmap
+
+lookupConText :: HasCallStack => Text -> ConAliases dbk ty -> Text
+lookupConText cn caliases = case lookupConName cn Nothing caliases of
+  Left ctag -> ctag
+  Right _ -> error "Panic: Invariant: Expecting only Text"
+
+lookupConNum :: HasCallStack => Text -> Int64 -> ConAliases dbk ty -> Int64
+lookupConNum cn pos caliases = case lookupConName cn (Just pos) caliases of
+  Left _ -> error "Panic: Invariant: Expecting only Integer"
+  Right ev -> ev
 
 type family GetTagEnumK (dbObj :: DBObjK) = (res :: UDEnumK) where
   GetTagEnumK ('UDTypeObj ('UDEnum en)) = en
