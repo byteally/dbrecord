@@ -43,6 +43,8 @@ module DBRecord.Query2
   , using
   , selectDistinct
   , selectNone
+  , selectExpr
+  , selectList
   , aggregate
   , fromGroup -- TODO: 
   , groupBy
@@ -121,6 +123,7 @@ import Data.Typeable
 import Data.Functor.Identity
 import Control.Monad.IO.Class
 import Control.Monad.Reader
+import Control.Monad.State
 import Data.Kind 
 import Record
 import Record.Setter
@@ -711,6 +714,20 @@ selectDistinct = undefined
 
 selectNone :: forall i sc s.Clause s sc i (TableValue sc Identity ())
 selectNone = scoped $ \(clau, _) -> (clau, EmptyTable)
+
+selectExpr :: forall a n sc.(Typeable a, KnownSymbol n) => Field n (Expr sc a) -> Query sc (Rec '[ '(n, a)])
+selectExpr e =
+  let
+    tabV = TableValue
+      (fromListToFieldInvIx [typeRep (Proxy @n)])
+      (hrecToHKOfRec ( fromLabel @n .= (ExprF $ toIdExpr $ val e) .& end))
+  in Query' (tabV, state (\s -> (snd s, s)), PQ.Table Nothing, ReadQType ManyR)
+
+selectList :: forall xs sc.() => (SelectList sc xs) -> Query sc (Rec xs)
+selectList sels =
+  let
+    tabV = selectListToTable sels
+  in Query' (tabV, state (\s -> (snd s, s)), PQ.Table Nothing, ReadQType ManyR)  
 
 -- * Grouping
 aggregate :: forall o i sc.

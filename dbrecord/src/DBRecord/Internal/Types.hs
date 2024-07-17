@@ -159,6 +159,12 @@ type family GetDBEnumK (db :: DbK) :: UDEnumK where
   GetDBEnumK 'Cassandra = 'EnumType
   GetDBEnumK 'Presto = 'EnumType
 
+type family ValidateUDType (t :: Type) (udt :: UDTypeK) (flds :: [(Symbol, Type)]) :: Constraint where
+  ValidateUDType t ('UDEnum _) '[] = ()
+  ValidateUDType t ('UDEnum _) xs = TypeError ('Text "[DBR-123] Enum type " ':<>: 'ShowType t ':<>: 'Text " cannot have fields " ':<>: 'ShowType xs)
+  ValidateUDType t ('UDRec _) xs = ()
+  ValidateUDType _ _ _ = ()
+
 data family Sing (a :: k)
 
 class SingI (a :: k) where

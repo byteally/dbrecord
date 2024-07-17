@@ -19,6 +19,7 @@ common ghc-opts
 common ghc2021Shim
   if impl(ghc >= 9.0)
     default-language:    GHC2021
+    default-extensions:  DataKinds
   else
     default-language:    Haskell2010
     default-extensions:  BangPatterns
@@ -64,6 +65,7 @@ common ghc2021Shim
                        , TypeApplications
                        , TypeOperators
                        , TypeSynonymInstances
+                       , DataKinds
   
 
 common common-build-deps
@@ -91,6 +93,7 @@ library
   hs-source-dirs:      src
   exposed-modules:
                   DBRecord
+                  DBRecord.Prelude
                   DBRecord.Query2
                   DBRecord.Driver
                   DBRecord.Schema
@@ -144,9 +147,15 @@ library dbrecord-test-generic
                      , tasty
                      , tasty-golden
                      , rec
+                     , mtl
+                     , unliftio-core
+                     , monad-control
+                     , exceptions
   exposed-modules:     Test.Schema
                      , Test.Query
+                     , Test.Util
                      , Test.SampleDB.DVDRental
+                     , Hedgehog.Extras
   default-extensions:  DuplicateRecordFields
                      , TypeFamilies
   if impl (ghc >= 9.2)

@@ -1,24 +1,20 @@
 module DBRecord 
   ( module DBRecord.Query2
-  , module Data.Int
-  , module Data.Word
   , module DBRecord.Types
   , module DBRecord.Schema
   , DBRepr (..), DBObjK (..), AsEnum, AsEnumText, AsEnumNum, AsCompositeRec
-  , AsFlatRec, AsJsonRec, AsJsonBlob, AsTaggedSumFlat, AsTaggedSumComposite
+  , AsFlatRec, AsJsonRec, AsJsonBlob, AsTextBlob, AsXmlBlob
+  , AsTaggedSumFlat, AsTaggedSumComposite
   , AsTaggedSumJson, AsTaggedSumMonoFlat, AsTaggedSumMonoComposite, AsTaggedSumMonoJson
   , AsSumOfColFlat, AsSumOfColComposite, AsSumOfColJson, constructExpr
   ) where
 
 import DBRecord.Query2
-import Data.Int (Int16, Int32, Int64)
-import Data.Word (Word16, Word32, Word64)
---import Data.UUID.Types (UUID)
 import DBRecord.Types
 import DBRecord.Internal.DBTypes ( DBRepr (..), DBObjK (..), AsEnum
                                  , AsEnumText, AsEnumNum, AsCompositeRec, AsFlatRec
-                                 , AsJsonRec, AsJsonBlob, AsTaggedSumFlat
-                                 , AsTaggedSumComposite, AsTaggedSumJson
+                                 , AsJsonRec, AsJsonBlob, AsTextBlob, AsXmlBlob
+                                 , AsTaggedSumFlat, AsTaggedSumComposite, AsTaggedSumJson
                                  , AsTaggedSumMonoFlat, AsTaggedSumMonoComposite
                                  , AsTaggedSumMonoJson, AsSumOfColFlat
                                  , AsSumOfColComposite, AsSumOfColJson, constructExpr

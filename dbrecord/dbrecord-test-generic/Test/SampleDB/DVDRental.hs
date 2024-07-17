@@ -17,18 +17,11 @@ module Test.SampleDB.DVDRental
   ) where
 
 import GHC.Generics
-import DBRecord
-import Data.Text (Text)
+import DBRecord.Prelude as DBRecord
 import Data.Time
+import Data.Text (Text)
 import Data.ByteString (ByteString)
 import Data.Scientific
-
--- After rebindable syntax import
-import Prelude
-import GHC.Records
-import GHC.OverloadedLabels
-import Data.String
-import Record.Setter
 
 data DVDRentalDB (db :: DbK)
 
@@ -38,7 +31,7 @@ instance Database (DVDRentalDB db) where
   
 instance Schema (DVDRentalDB db) where
   type SchemaDB (DVDRentalDB db) = DVDRentalDB db
-  schemaName = "dvdrental"
+  schemaName = "public"
 
 -- ^ stores film’s categories data
 data Category = Category
@@ -66,8 +59,10 @@ data FilmCategory = FilmCategory
   } deriving (Show, Generic)
     deriving anyclass (DBRepr db)
 
-newtype YearI32 = YearI32 Int32
-  deriving newtype (Show, DBRepr db, ConstExpr sc)
+type YearI32 = Int32
+
+-- newtype YearI32 = YearI32 Int32
+--   deriving newtype (Show, DBRepr db, ConstExpr sc, FromField)
 
 data MPAA = G | PG | PG'13 | R | NC'17
   deriving (Show, Generic)
@@ -75,7 +70,6 @@ data MPAA = G | PG | PG'13 | R | NC'17
 
 instance (db ~ 'Postgres) => UDType (DVDRentalDB db) MPAA where
   type TypeId (DVDRentalDB db) MPAA = 1
-  conAliases = mempty { _PG'14 = "PG13" }
 
 -- ^ stores film data such as title, release year, length, rating, etc
 data Film = Film

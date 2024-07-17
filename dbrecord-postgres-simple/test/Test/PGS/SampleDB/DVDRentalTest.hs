@@ -1,15 +1,22 @@
 {-# LANGUAGE DerivingStrategies      #-}
 {-# LANGUAGE DeriveAnyClass          #-}
 {-# LANGUAGE UndecidableInstances    #-}
+{-# LANGUAGE OverloadedRecordDot    #-}
+{-# LANGUAGE OverloadedStrings       #-}
 {-# OPTIONS_GHC -fno-warn-orphans    #-}
 module Test.PGS.SampleDB.DVDRentalTest where
 
-import DBRecord.Query2
-import DBRecord.Old.Schema
+import DBRecord
 import DBRecord.Postgres hiding (query)
 import DBRecord.Driver
 import Test.SampleDB.DVDRental
 import Data.Kind
+import Data.Int
+import Data.Proxy
+import qualified Data.Vector as V
+import Test.Query
+import Test.Schema
+import Test.Util
 
 import GHC.Generics
 -- import Data.Text (Text)
@@ -21,8 +28,10 @@ import Control.Monad.Reader
 import Control.Monad.IO.Unlift
 import Control.Monad.Trans.Control
 import Control.Monad.Base
--- import           Test.Tasty
--- import           Test.Tasty.Hedgehog
+import           Test.Tasty
+import           Test.Tasty.Hedgehog
+import Data.Typeable
+import DBRecord.Internal.DBTypes
 
 
 --deriving newtype instance FromField Year
@@ -36,18 +45,21 @@ testDBConnectInfo :: ConnectInfo
 testDBConnectInfo = defaultConnectInfo { connectHost = "localhost"
                                        , connectPassword = ".haskell."
                                        , connectDatabase = "dvdrental"
+                                       , connectPort = 5433
                                        }
 
 newtype DVDRentalPGM a = DVDRentalPGM {runDVDRentalPGM :: ReaderT (SessionConfig PGS) IO a}
   deriving newtype (Functor, Applicative, Monad, MonadUnliftIO, MonadIO, MonadBaseControl IO, MonadBase IO, MonadReader (SessionConfig PGS))
 
-main :: IO ()
-main = do
-  dbConfig <- pgDefaultPool $ testDBConnectInfo
-  flip runReaderT (PGSConfig dbConfig) $ runDVDRentalPGM $ runSession $ runPostgresDB @PGDVDRentalDB $ do
-    cats <- runQueryAsList $ rel @PGDVDRentalDB @Category $ selectAll
-    liftIO $ print cats
-    pure ()
+-- main :: IO ()
+-- main = do
+--   _ <- error "boom"
+--   dbConfig <- pgDefaultPool $ testDBConnectInfo
+--   let env = PGSConfig dbConfig
+--   liftIO $ flip runReaderT env $ runDVDRentalPGM $ runSession $ do
+--     cats <- runQuery $ rel @PGDVDRentalDB @Category $ selectAll
+--     liftIO $ print cats
+--     pure ()
 
 hprop_additionCommutative :: Property
 hprop_additionCommutative = property $ do
@@ -115,10 +127,11 @@ hprop_test1 :: Property
 hprop_test1 = withTests 1 $ property $ test $ do
   liftIO $ do
     dbConfig <- pgDefaultPool $ testDBConnectInfo
-    flip runReaderT (PGSConfig dbConfig) $ runDVDRentalPGM $ runSession $ runPostgresDB @PGDVDRentalDB $ do
-      cats <- runQueryAsList $ rel @PGDVDRentalDB @Category $ selectAll
+    let env = PGSConfig dbConfig
+    liftIO $ flip runReaderT env $ runDVDRentalPGM $ runSession $ do
+      cats <- runQuery @PGDVDRentalDB $ rel @_ @Category selectAll
       liftIO $ print cats
-      q1 <- runQueryAsList $ leftJoinEg1 --selectUsingEg1
+      q1 <- runQuery @PGDVDRentalDB $ leftJoinEg1 --selectUsingEg1
       liftIO $ print q1
       pure ()
     pure ()
@@ -128,250 +141,80 @@ hprop_test2 :: Property
 hprop_test2 = withTests 1 $ property $ test $ do
   liftIO $ do
     dbConfig <- pgDefaultPool $ testDBConnectInfo
-    flip runReaderT (PGSConfig dbConfig) $ runDVDRentalPGM $ runSession $ runPostgresDB @PGDVDRentalDB $ do
-      q1 <- runMQueryAsList $ qDeleteEg1
+    let env = PGSConfig dbConfig
+    liftIO $ flip runReaderT env $ runDVDRentalPGM $ runTransaction $ do
+      q1 <- runMQuery $ qDeleteEg1
       liftIO $ print q1
       pure ()
     pure ()
-  'a' === 'a'  
+  'a' === 'a'
+
+hprop_test3 :: Property
+hprop_test3 = withTests 1 $ property $ test $ do
+  res <- liftIO $ do
+    dbConfig <- pgDefaultPool $ testDBConnectInfo
+    let env = PGSConfig dbConfig
+    liftIO $ flip runReaderT env $ runDVDRentalPGM $ runTransaction $ do
+      runQuery @PGDVDRentalDB $ (exprAsQ @Int64 (constExpr 1))
+  fmap (.col) res === (pure 1)
+
+hprop_test4 :: Property
+hprop_test4 = withTests 1 $ property $ test $ do
+  ress <- liftIO $ do
+    dbConfig <- pgDefaultPool $ testDBConnectInfo
+    let env = PGSConfig dbConfig
+    liftIO $ flip runReaderT env $ runDVDRentalPGM $ runTransaction $ do
+      runQuery @PGDVDRentalDB $ (testSelList)
+  let res = V.head ress
+  (res.col1, res.col2, res.col3) === ("test", True, 123)
+
+hprop_test5 :: Property
+hprop_test5 = withTests 1 $ property $ test $ do
+  -- liftIO $ putStrLn $ showQuery $ allPrimOnly
+  ress <- liftIO $ do
+    dbConfig <- pgDefaultPool $ testDBConnectInfo
+    let env = PGSConfig dbConfig
+    liftIO $ flip runReaderT env $ runDVDRentalPGM $ runTransaction $ do
+      runQuery @TestDB $ allPrimOnly
+  liftIO $ print ress
+  V.length ress === 1
 
 
--- test_addition :: TestTree
--- test_addition = testProperty "Addition commutes" $ \(a :: Int) (b :: Int) -> a + b == b + a
-
-
-
-
--- data TestDB deriving (Generic)
--- data TestSC deriving (Generic)
--- data TestSCDup deriving (Generic)
-
--- type instance DBM TestDB = PostgresDB TestDB
--- type instance Driver (PostgresDB TestDB ()) = PGS
-
--- data UserRole = Admin | Guest | Nor'mal
---   deriving (Show, Generic, Enum)
-
--- data Sum1 = Con1 {a :: Int, b :: Bool} | Con2 {a :: Int}
---   deriving (Show, Generic)
-
--- data Prod1 = Prod1 {pa1 :: Text, pb1 :: Double}
---   deriving (Show, Generic)
-
--- data User = User
---   { userId :: Int
---   , name  :: Text
---   , email :: Text
---   , role  :: UserRole
---   } deriving (Show, Generic)
-
--- instance FromRow User
--- instance FromField UserRole where
---   fromField = undefined
-
-{-
-data Profile = Profile
-  { id         :: Int
-  , first_name :: Text
-  , last_name  :: Text
-  , age        :: Maybe Int
-  , address    :: Address
-  -- , sum        :: Sum1
-  -- , prod       :: Prod1
-  } deriving (Generic)
-
-data Address = Address
-  { id     :: Int
-  , doorno :: Text
-  , addr1  :: Text
-  , addr2  :: Maybe Text
-  , city   :: Text
-  } deriving (Generic)
--}
-
--- instance Database TestDB where
---   type DB TestDB = 'Postgres
---   type DatabaseName TestDB = "dbrecord_test"
-
--- instance Schema TestSC where
---   type Tables TestSC = '[ User
---                         -- , Profile
---                         ]
---   type Types TestSC = '[ UserRole
---                        -- NOTE: Only Enum supported as of now
---                        -- , Sum1 
---                        -- , Prod1
---                        -- , Address -- TODO: Didnt throw an error when not added
---                        ]
---   type SchemaDB TestSC = TestDB
-
--- instance Schema TestSCDup where
---   type Tables TestSCDup = '[ User
---                       --     , Test
---                         -- , Profile
---                         ]
---   type Types TestSCDup = '[ UserRole
---                        -- NOTE: Only Enum supported as of now
---                        -- , Sum1 
---                        -- , Prod1
---                        -- , Address -- TODO: Didnt throw an error when not added
---                        ]
---   type SchemaDB TestSCDup = TestDB
-
-
-{-
-instance Table TestDB Profile where
-  type HasDefault TestDB Profile   = '["role"]
-  type TableName TestDB Profile    = "user_profile"
-  type ColumnNames TestDB Profile  = '[ '("first_name", "First Name")
-                                      ]
-  type Check TestDB Profile        = '[ 'CheckOn '["first_name"] "notnull"]
-  type Unique TestDB Profile       = '[ 'UniqueOn '["first_name"] "uq_first_name"]
--}
-
--- instance Table TestSC User where
---   type HasDefault TestSC User    = '["userId", "role"]
---   type Check TestSC User         = '[ 'CheckOn '["name"] "non_empty_name"
---                                     -- , 'CheckOn '["email"] "emailValidity"
---                                     ]
---   type CheckNames TestSC User    = '[ '("non_empty_name" , "ck_non_empty_name") ]
---   type ColumnNames TestSC User   = '[ '("userId", "id")
---                                     , '("name", "name")
---                                     , '("email", "email")
---                                     , '("role", "role")
---                                     ]
---   type PrimaryKey TestSC User    = '["userId"]
---   type PrimaryKeyName TestSC User = 'Just "pk_user_id"
---   type Unique TestSC User        = '[ 'UniqueOn '["name"] "user_name"
---                                     ]
---   type UniqueNames TestSC User   = '[ '("user_name", "uq_user_name")
---                                     ]
---   type TableName TestSC User     = "users"
-
-  {-
-  defaults = dbDefaults
-    (  #role (DBRecord.Query.toEnum Admin)
-    :& end
-    )
-
-  checks = dbChecks
-    (  #non_empty_name (\n -> n /= "")
-    :& end
-    )
-  -}
+-- pgExprTripping =
   
--- instance UDType TestSC UserRole where
---   type TypeMappings TestSC UserRole =
---     'EnumType 'Nothing '[ '("Nor'mal", "Normal")
---                         ]
+-- hprop_test6 :: Property
+-- hprop_test6 = withTests 1 $ property $ test $ exprTripping (Proxy @TestDB) (1 :: Int32)
 
--- instance ConstExpr TestSC UserRole
--- -- instance EqExpr UserRole
+pgsExprTripper :: forall a (sc :: Type).
+  ( Typeable a
+  , Eq a
+  , Show a
+  , AutoConstExpr sc a (ToDBType (DB (SchemaDB sc)) a) (AutoCodec (DB (SchemaDB sc)) a)
+  , FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) () a)
+  , DBRepr (DB (SchemaDB sc)) a
+  ) => IO (SessionConfig PGS) -> Proxy sc -> a -> PropertyT IO ()
+pgsExprTripper env' = exprTripping
+  (\act -> do
+      env <- liftIO $ env'
+      evalIO @(PropertyT IO) $ flip runReaderT env $ runDVDRentalPGM $ runSession act
+  )
 
--- instance Table TestSCDup User where
---   type HasDefault TestSCDup User    = '["userId", "role"]
---   type Check TestSCDup User         = '[ 'CheckOn '["name"] "non_empty_name"
---                                     -- , 'CheckOn '["email"] "emailValidity"
---                                     ]
---   type CheckNames TestSCDup User    = '[ '("non_empty_name" , "ck_non_empty_name") ]
---   type ColumnNames TestSCDup User   = '[ '("userId", "id")
---                                     , '("name", "user_name")
---                                     , '("email", "user_email")
---                                     , '("role", "user_role")
---                                     ]
---   type PrimaryKey TestSCDup User    = '["userId"]
---   type PrimaryKeyName TestSCDup User = 'Just "pk_user_id"
---   type Unique TestSCDup User        = '[ 'UniqueOn '["name"] "user_name"
---                                     ]
---   type UniqueNames TestSCDup User   = '[ '("user_name", "uq_user_name")
---                                     ]
---   type TableName TestSCDup User     = "users"
-
--- instance UDType TestSCDup UserRole where
-
-{-
-main = do
-  dbConfig <- pgDefaultPool $ defaultConnectInfo { connectHost = "localhost"
-                                                , connectPassword = "postgres"
-                                                , connectDatabase = "dbrecord_test"
-                                                }
-  runSession (PGSConfig dbConfig) $ runPostgresDB @TestDB $ do
-    -- let rows =
-    --       [ (#name "person14", #email "fo1aaz@bar.com")
-    --       , (#name "person15", #email "ba1aaz@baz.com")
-    --       ]
-    -- insertMany_ @TestSC @User (withRows rows)
+test_const :: TestTree
+test_const = Test.Tasty.withResource
+  (fmap PGSConfig $ pgDefaultPool $ testDBConnectInfo)
+  (const $ pure ())
+  (\e -> testGroup "Const -> SelectExpr -> runQuery -> FromRow"
+    [ testProperty "I32 minBound" $ withTests 1 $ property $ pgsExprTripper e (Proxy @TestDB) (minBound :: Int32)
+    , testProperty "I32 maxBound" $ withTests 1 $ property $ pgsExprTripper e (Proxy @TestDB) (maxBound :: Int32)
+    , testProperty "I64 minBound" $ withTests 1 $ property $ pgsExprTripper e (Proxy @TestDB) (minBound :: Int64)
+    , testProperty "I64 maxBound" $ withTests 1 $ property $ pgsExprTripper e (Proxy @TestDB) (maxBound :: Int64)
+    , testProperty "Bool" $ withTests 2 $ property $ (forAll Gen.bool) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "latin1" $ withTests 100 $ property $ (forAll $ Gen.text (Range.linear 0 10) Gen.latin1) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "unicode" $ withTests 100 $ property $ (forAll $ Gen.text (Range.linear 0 10) Gen.unicode) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "unicodeAll" $ withTests 100 $ property $ (forAll $ Gen.text (Range.linear 0 10) Gen.unicodeAll) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "float" $ withTests 100 $ property $ (forAll $ Gen.float (Range.exponentialFloat 0 10)) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "double" $ withTests 100 $ property $ (forAll $ Gen.double (Range.exponentialFloat 0 10)) >>= pgsExprTripper e (Proxy @TestDB)
+    ]
+  )
+  
     
-    -- us1 <- get @TestSC @User (withPrimaryKey 1)    
-    -- liftIO $ print (us1 :: Maybe User)
-    -- let row = (#name "person94", #email "kajak@bar.com")
-    -- ret <- insertRet @TestSC @User (withRow row) ((column @"name" @TestSC @User @Text Proxy) :&
-    --                                               Nil)
-    -- liftIO $ print ret
-    -- update_ @TestSC @User (column @"name" @TestSC @User Proxy .== text "person14")
-    --                       (\row ->
-    --                               row & (Col @"name") .~ "person21"
-    --                                   & (Col @"email") .~ "up@bong.com"
-    --                       )
-    -- us2 <- get @TestSCDup @User (withPrimaryKey 1)    
-    -- liftIO $ print (us2 :: Maybe User)
-   -- us2 <- getAll @TestSC @User (\tab -> column @"name" tab .== text "person15") AnyOrder Nothing
-   let t1 = project (table @TestSC @User)
-                    (\t -> #name t         `as` #name {-tag @"name" (column @"name" t)-} :&
-                          (#userId t + 1) `as` #userId :&
-                     Nil)
-                    Nothing
-       t2 = aggregate t1
-                    (\t -> Nil)
-                    (\t _ -> (count (#name t) `as` #name1) :& Nil)
-       -- t2 = table @TestSC @User & tabular @"user_2"
-       -- j = join t1 t2 (\l r -> column @"name" l .== column @"name" r) 
-   us2 <- query t2
-   liftIO $ print us2
-   
-myEnumPGFromField :: PG.FieldParser UserRole
-myEnumPGFromField f mdata = do
-    n <- PG.typename f
-    if n /= "UserRole"
-    then PG.returnError PG.Incompatible f ""
-    else case mdata of
-        Nothing -> PG.returnError PG.UnexpectedNull f ""
-        Just bs -> case parseMyEnum bs of
-            Nothing -> PG.returnError PG.ConversionFailed f (show bs)
-            Just x  -> return x
-
-parseMyEnum :: BS.ByteString -> Maybe UserRole
-parseMyEnum "Admin" = Just Admin
-parseMyEnum _ = Just Nor'mal
-
----
-
-prettyExpr :: Expr sc a -> String
-prettyExpr = show . PG.ppExpr . (Sql.sqlExpr Sql.defaultSqlGenerator) . getExpr 
-
-instance (PG.FromRow a, PG.FromRow b) => PG.FromRow (Nest a b) where
-  fromRow = Nest <$> PG.fromRow <*> PG.fromRow
-
-
-data EnumT = A | B | C
-          deriving (Show, Eq, Generic)
-
-data ProdT = Prod { pa :: Int, pb :: Bool }
-          deriving (Show, Eq, Generic)
-
-data Test = Test { x :: Int, y :: EnumT, z :: ProdT } deriving (Show, Eq, Generic)
-
-instance Table TestSC Test where
-
-instance UDType TestSC EnumT
-
-instance UDType TestSC ProdT where
-  type TypeMappings TestSC ProdT =
-    'Flat '[ '("pa", "pa_aa")
-           ]
-
-instance ConstExpr TestSC EnumT
-instance ConstExpr TestSC ProdT
-  
-
--}

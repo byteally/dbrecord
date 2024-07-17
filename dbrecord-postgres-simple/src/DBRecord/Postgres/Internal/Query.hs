@@ -48,6 +48,7 @@ import           Database.PostgreSQL.Simple as PGS
 import           Database.PostgreSQL.Simple.Types (PGArray (..))
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow as PGS
+import qualified Database.PostgreSQL.Simple.Internal as PGSInt
 import qualified UnliftIO as U
 import           Data.Kind
 import           GHC.Generics
@@ -64,6 +65,7 @@ import qualified Data.Text.Encoding as T
 -- import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 import qualified Data.Attoparsec.ByteString.Char8 as Atto
+import Control.Monad.Trans.State.Strict
 
 newtype PostgresDBT (db :: Type) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
   deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS, U.MonadUnliftIO, MonadThrow, MonadCatch)
@@ -231,8 +233,16 @@ parseInt8 :: ByteString -> Either String Int64
 parseInt8 bs = Atto.parseOnly (Atto.signed Atto.decimal) bs
 --
 
-instance UDFromField t ('UDRec 'CompositeRec) where
-  udFromField = undefined
+rowToCompositeFieldParser :: RowParser a -> FieldParser a
+rowToCompositeFieldParser (PGSInt.RP rp) = \fld bs -> do
+  let
+    PGSInt.Field {result = res, column = _col} = fld
+    r = PGSInt.Row {row = 0, rowresult = res}
+  maybe (pure ()) (PGSInt.liftConversion . putStrLn . Char8.unpack) $ bs
+  evalStateT (runReaderT rp r) 0
+
+instance (Generic t, GFromRow (Rep t)) => UDFromField t ('UDRec 'CompositeRec) where
+  udFromField _ = rowToCompositeFieldParser $ to <$> gfromRow @(Rep t)
 
 instance (TypeError ('GHC.Text "TODO: UDRec for JsonRec")) => UDFromField t ('UDRec 'JsonRec) where
   udFromField = error "TODO"

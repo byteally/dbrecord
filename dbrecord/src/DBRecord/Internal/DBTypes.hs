@@ -1,5 +1,5 @@
 -- {-# OPTIONS_GHC -Wno-orphans #-}
-{-# LANGUAGE TypeApplications, DataKinds, KindSignatures, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, TypeFamilyDependencies, UndecidableInstances, FlexibleInstances, OverloadedStrings, GADTs, TypeOperators, FlexibleContexts, DefaultSignatures, DerivingStrategies, LambdaCase #-}
+{-# LANGUAGE TypeApplications, DataKinds, KindSignatures, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, TypeFamilyDependencies, UndecidableInstances, FlexibleInstances, OverloadedStrings, GADTs, TypeOperators, FlexibleContexts, DefaultSignatures, DerivingStrategies, LambdaCase, UndecidableSuperClasses #-}
 module DBRecord.Internal.DBTypes where
 
 import Data.Aeson as A
@@ -140,7 +140,7 @@ data DBObjK
   | NullableObjOf Type DBObjK -- ^ Invariant: Supports only Native column
   | ArrayObjOf Type DBObjK -- ^ Invariant: Supports only Native column
 
-class DBRepr (dbk :: DbK) (t :: Type) where
+class (ValidateDBType dbk t (ToDBType dbk t)) => DBRepr (dbk :: DbK) (t :: Type) where
   type ToDBType dbk t :: DBObjK
   type ToDBType dbk t = 'TableObj
   type AutoCodec dbk t :: Bool
@@ -150,6 +150,11 @@ class DBRepr (dbk :: DbK) (t :: Type) where
   -- Also used to fix field position independent of it's position in Haskell Declaration
   type Fields t :: [(Symbol, Type)]
   type Fields t = GGetFieldsOrEmpty t (Rep t)
+
+  -- Invariant: Empty for Rec Types. All the constructor of sum types.
+  -- Also used to fix constructor position independent of it's position in Haskell Declaration
+  type Ctors t :: [(Symbol, Maybe Type)]
+  type Ctors t = GGetCtorsOrEmpty t (Rep t)
 
 
   type Matcher dbk t :: MatcherK
@@ -183,6 +188,10 @@ class DBRepr (dbk :: DbK) (t :: Type) where
     True -> let TypeName tn = typeName @dbk @t
             in TypeName (tn <> "_tag")
     False -> typeName @dbk @t
+
+type family ValidateDBType (db :: DbK) (t :: Type) (dbObj :: DBObjK) :: Constraint where
+  ValidateDBType db t ('UDTypeObj udt) = ValidateUDType t udt (Fields t)
+  ValidateDBType db t _ = ()
 
 data MatcherK
   = EnumMatcher Type
@@ -365,11 +374,15 @@ instance DBRepr dbk Int16 where
   type ToDBType dbk Int16 = 'NativeTypeObj 'TDBInt2
   typeName = ""
 
+instance DBRepr dbk Int8 where
+  type ToDBType dbk Int8 = 'NativeTypeObj 'TDBInt2 -- TODO: Fix the rep
+  typeName = ""  
+
 instance DBRepr dbk Text where
   type ToDBType dbk Text = 'NativeTypeObj 'TDBText
   typeName = ""
 
-deriving newtype instance (DBRepr dbk t, Matcher dbk t ~ (Matcher dbk (Identity t))) => DBRepr dbk (Identity t)
+deriving newtype instance (DBRepr dbk t, ValidateDBType dbk (Identity t) (ToDBType dbk t), Matcher dbk t ~ (Matcher dbk (Identity t))) => DBRepr dbk (Identity t)
 
 instance DBRepr dbk (CI t) where
   type ToDBType dbk (CI t) = 'NativeTypeObj ('TDBCiText)
@@ -463,11 +476,19 @@ instance DBRepr dbk (Row xs) where
   type ToDBType dbk (Row xs) = 'UDTypeObj ('UDRec 'FlatRec)
   typeName = ""
 
+-- newtype AsNewTypeOf (nt :: Type) (t :: Type) = AsNewTypeOf t
+
+-- instance (Coercible nt t) => DBRepr dbk (AsNewTypeOf nt t) where
+--   type ToDBType dbk (AsNewTypeOf nt t) = ToDBType dbk nt
+--   type Matcher dbk (AsNewTypeOf nt t) = Matcher dbk nt
+--   typeName = coerce (typeName @dbk @nt)
+  
 newtype AsEnum t = AsEnum t
 
 instance (Generic t, GenHasEnumRepr dbk t (Rep t), KnownSymbol (GenTyCon (Rep t))) => DBRepr dbk (AsEnum t) where
   type ToDBType dbk (AsEnum t) = 'UDTypeObj ('UDEnum (GetDBEnumK dbk))
   type Matcher dbk (AsEnum t) = 'EnumMatcher t
+  type Fields (AsEnum t) = '[]
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsEnumText t = AsEnumText t
@@ -475,6 +496,7 @@ newtype AsEnumText t = AsEnumText t
 instance (Generic t, GenHasEnumRepr dbk t (Rep t), KnownSymbol (GenTyCon (Rep t))) => DBRepr dbk (AsEnumText t) where
   type ToDBType dbk (AsEnumText t) = 'UDTypeObj ('UDEnum 'EnumText)
   type Matcher dbk (AsEnumText t) = 'EnumMatcher t
+  type Fields (AsEnumText t) = '[]
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsEnumNum t = AsEnumNum t
@@ -482,6 +504,7 @@ newtype AsEnumNum t = AsEnumNum t
 instance (Generic t, GenHasEnumRepr dbk t (Rep t), KnownSymbol (GenTyCon (Rep t))) => DBRepr dbk (AsEnumNum t) where
   type ToDBType dbk (AsEnumNum t) = 'UDTypeObj ('UDEnum 'EnumNum)
   type Matcher dbk (AsEnumNum t) = 'EnumMatcher t
+  type Fields (AsEnumNum t) = '[]
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsCompositeRec t = AsCompositeRec t
@@ -507,6 +530,18 @@ newtype AsJsonBlob t = AsJsonBlob t
 instance DBRepr 'Postgres (AsJsonBlob t) where
   type ToDBType 'Postgres (AsJsonBlob t) = 'UDTypeObj ('SerializedBlob ('JsonContent 'Nothing))
   typeName = ""
+
+newtype AsTextBlob t = AsTextBlob t
+
+instance DBRepr 'Postgres (AsTextBlob t) where
+  type ToDBType 'Postgres (AsTextBlob t) = 'UDTypeObj ('SerializedBlob ('TextContent 'Nothing))
+  typeName = ""
+
+newtype AsXmlBlob t = AsXmlBlob t
+
+instance DBRepr 'Postgres (AsXmlBlob t) where
+  type ToDBType 'Postgres (AsXmlBlob t) = 'UDTypeObj ('SerializedBlob ('XmlContent 'Nothing))
+  typeName = ""    
 
 newtype AsTaggedSumFlat (m :: Type -> Type) t = AsTaggedSumFlat t
 
@@ -573,10 +608,11 @@ instance DBRepr 'Postgres (AsSumOfColJson m t) where
 
 --newtype WithMatcher (m :: Type)
 
-instance DBRepr dbk (DBR.Key tab t) where
+instance (ValidateDBType dbk (DBR.Key tab t) (ToDBType dbk t)) => DBRepr dbk (DBR.Key tab t) where
   type ToDBType dbk (DBR.Key tab t) = ToDBType dbk t
   type AutoCodec dbk (DBR.Key tab t) = AutoCodec dbk t
   type Matcher dbk (DBR.Key tab t) = 'NoMatcher
+  type Fields (DBR.Key tab t) = Fields t
 --  sumRepr _ = NonSumRepr
   typeName = ""
   discriminatorTypeName = ""

@@ -25,6 +25,10 @@ type family GGetFieldsOrEmpty (t :: Type) (rep :: Type -> Type) :: [(Symbol, Typ
   GGetFieldsOrEmpty t (f :+: g) = '[]
   GGetFieldsOrEmpty t _ = GGetFields t (Rep t)
 
+type family GGetCtorsOrEmpty (t :: Type) (rep :: Type -> Type) :: [(Symbol, Maybe Type)] where
+  GGetCtorsOrEmpty t (D1 _ (f :+: g)) = '[] -- TODO: Fix this
+  GGetCtorsOrEmpty t (D1 _ _) = '[]
+
 type family ValidatePfxConName (ty :: Type) (k :: Symbol) (pfx :: Char) (rep :: Type -> Type) (unconsedConName :: Maybe (Char, Symbol)) :: Constraint where
   ValidatePfxConName ty cn _ _ 'Nothing = TypeError ('Text "[DBR-123] Invalid Constructor Name: " ':<>: 'ShowType cn ':<>: 'Text " for type " ':<>: 'ShowType ty)
   ValidatePfxConName ty k pfx rep ('Just '(pfx, cn)) = ErrorOnFalse (ConNameMatch ty cn 'Nothing rep) ('Text "[DBR-123] " ':<>: 'ShowType cn ':<>: 'Text " is not a valid constructor name for type " ':<>: 'ShowType ty)
