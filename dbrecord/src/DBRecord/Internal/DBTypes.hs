@@ -489,6 +489,7 @@ instance (Generic t, GenHasEnumRepr dbk t (Rep t), KnownSymbol (GenTyCon (Rep t)
   type ToDBType dbk (AsEnum t) = 'UDTypeObj ('UDEnum (GetDBEnumK dbk))
   type Matcher dbk (AsEnum t) = 'EnumMatcher t
   type Fields (AsEnum t) = '[]
+  type Ctors (AsEnum t) = GGetCtorsOrEmpty t (Rep t)
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsEnumText t = AsEnumText t
@@ -497,6 +498,7 @@ instance (Generic t, GenHasEnumRepr dbk t (Rep t), KnownSymbol (GenTyCon (Rep t)
   type ToDBType dbk (AsEnumText t) = 'UDTypeObj ('UDEnum 'EnumText)
   type Matcher dbk (AsEnumText t) = 'EnumMatcher t
   type Fields (AsEnumText t) = '[]
+  type Ctors (AsEnumText t) = GGetCtorsOrEmpty t (Rep t)  
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsEnumNum t = AsEnumNum t
@@ -505,42 +507,61 @@ instance (Generic t, GenHasEnumRepr dbk t (Rep t), KnownSymbol (GenTyCon (Rep t)
   type ToDBType dbk (AsEnumNum t) = 'UDTypeObj ('UDEnum 'EnumNum)
   type Matcher dbk (AsEnumNum t) = 'EnumMatcher t
   type Fields (AsEnumNum t) = '[]
+  type Ctors (AsEnumNum t) = GGetCtorsOrEmpty t (Rep t)    
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsCompositeRec t = AsCompositeRec t
 
 instance (Generic t, KnownSymbol (GenTyCon (Rep t))) => DBRepr 'Postgres (AsCompositeRec t) where
   type ToDBType 'Postgres (AsCompositeRec t) = 'UDTypeObj ('UDRec 'CompositeRec)
+  type Fields (AsCompositeRec t) = GGetFieldsOrEmpty t (Rep t)
+  type Ctors (AsCompositeRec t) = '[]
+  
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsFlatRec t = AsFlatRec t
 
 instance DBRepr dbk (AsFlatRec t) where
   type ToDBType dbk (AsFlatRec t) = 'UDTypeObj ('UDRec 'FlatRec)
+  type Fields (AsFlatRec t) = GGetFieldsOrEmpty t (Rep t)
+  type Ctors (AsFlatRec t) = '[]
+  
   typeName = ""
 
 newtype AsJsonRec t = AsJsonRec t
 
 instance DBRepr 'Postgres (AsJsonRec t) where
   type ToDBType 'Postgres (AsJsonRec t) = 'UDTypeObj ('UDRec 'JsonRec)
+  type Fields (AsJsonRec t) = GGetFieldsOrEmpty t (Rep t)
+  type Ctors (AsJsonRec t) = '[]
+  
   typeName = ""
 
 newtype AsJsonBlob t = AsJsonBlob t
 
 instance DBRepr 'Postgres (AsJsonBlob t) where
   type ToDBType 'Postgres (AsJsonBlob t) = 'UDTypeObj ('SerializedBlob ('JsonContent 'Nothing))
+  type Fields (AsJsonBlob t) = '[]
+  type Ctors (AsJsonBlob t) = '[]
+  
   typeName = ""
 
 newtype AsTextBlob t = AsTextBlob t
 
-instance DBRepr 'Postgres (AsTextBlob t) where
-  type ToDBType 'Postgres (AsTextBlob t) = 'UDTypeObj ('SerializedBlob ('TextContent 'Nothing))
+instance DBRepr db (AsTextBlob t) where
+  type ToDBType db (AsTextBlob t) = 'UDTypeObj ('SerializedBlob ('TextContent 'Nothing))
+  type Fields (AsTextBlob t) = '[]
+  type Ctors (AsTextBlob t) = '[]
+  
   typeName = ""
 
 newtype AsXmlBlob t = AsXmlBlob t
 
 instance DBRepr 'Postgres (AsXmlBlob t) where
   type ToDBType 'Postgres (AsXmlBlob t) = 'UDTypeObj ('SerializedBlob ('XmlContent 'Nothing))
+  type Fields (AsXmlBlob t) = '[]
+  type Ctors (AsXmlBlob t) = '[]
+  
   typeName = ""    
 
 newtype AsTaggedSumFlat (m :: Type -> Type) t = AsTaggedSumFlat t
@@ -548,6 +569,9 @@ newtype AsTaggedSumFlat (m :: Type -> Type) t = AsTaggedSumFlat t
 instance (Generic t, KnownSymbol (GenTyCon (Rep t))) => DBRepr dbk (AsTaggedSumFlat m t) where
   type ToDBType dbk (AsTaggedSumFlat m t) = 'UDTypeObj ('TaggedSum (GetDBEnumK dbk) 'FlatRec)
   type Matcher dbk (AsTaggedSumFlat m t) = 'SumMatcher dbk 'Nothing t m
+  type Fields (AsTaggedSumFlat m t) = '[]
+  type Ctors (AsTaggedSumFlat m t) = GGetCtorsOrEmpty t (Rep t)  
+  
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsTaggedSumComposite (m :: Type -> Type) t = AsTaggedSumComposite t
@@ -555,6 +579,9 @@ newtype AsTaggedSumComposite (m :: Type -> Type) t = AsTaggedSumComposite t
 instance (Generic t, KnownSymbol (GenTyCon (Rep t))) => DBRepr 'Postgres (AsTaggedSumComposite m t) where
   type ToDBType 'Postgres (AsTaggedSumComposite m t) = 'UDTypeObj ('TaggedSum 'EnumType 'CompositeRec)
   type Matcher 'Postgres (AsTaggedSumComposite m t) = 'SumMatcher 'Postgres 'Nothing t m
+  type Fields (AsTaggedSumComposite m t) = '[]
+  type Ctors (AsTaggedSumComposite m t) = GGetCtorsOrEmpty t (Rep t)  
+  
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsTaggedSumJson (m :: Type -> Type) t = AsTaggedSumJson t
@@ -562,6 +589,9 @@ newtype AsTaggedSumJson (m :: Type -> Type) t = AsTaggedSumJson t
 instance (Generic t, KnownSymbol (GenTyCon (Rep t))) => DBRepr db (AsTaggedSumJson m t) where
   type ToDBType db (AsTaggedSumJson m t) = 'UDTypeObj ('TaggedSum (GetDBEnumK db) 'JsonRec)
   type Matcher db (AsTaggedSumJson m t) = 'SumMatcher db 'Nothing t m
+  type Fields (AsTaggedSumJson m t) = '[]
+  type Ctors (AsTaggedSumJson m t) = GGetCtorsOrEmpty t (Rep t)  
+  
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsTaggedSumMonoFlat colTy (m :: Type -> Type) t = AsTaggedSumMonoFlat t
@@ -569,6 +599,9 @@ newtype AsTaggedSumMonoFlat colTy (m :: Type -> Type) t = AsTaggedSumMonoFlat t
 instance (DBRepr db cty, Generic t, KnownSymbol (GenTyCon (Rep t))) => DBRepr db (AsTaggedSumMonoFlat cty m t) where
   type ToDBType db (AsTaggedSumMonoFlat cty m t) = 'UDTypeObj ('TaggedSumMono (GetDBEnumK db) cty 'FlatRec)
   type Matcher db (AsTaggedSumMonoFlat cty m t) = 'SumMatcher db 'Nothing t m
+  type Fields (AsTaggedSumMonoFlat cty m t) = '[]
+  type Ctors (AsTaggedSumMonoFlat cty m t) = GGetCtorsOrEmpty t (Rep t)  
+  
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsTaggedSumMonoComposite colTy (m :: Type -> Type) t = AsTaggedSumMonoComposite t
@@ -576,6 +609,9 @@ newtype AsTaggedSumMonoComposite colTy (m :: Type -> Type) t = AsTaggedSumMonoCo
 instance (DBRepr 'Postgres cty, Generic t, KnownSymbol (GenTyCon (Rep t))) => DBRepr 'Postgres (AsTaggedSumMonoComposite cty m t) where
   type ToDBType 'Postgres (AsTaggedSumMonoComposite cty m t) = 'UDTypeObj ('TaggedSumMono 'EnumType cty 'CompositeRec)
   type Matcher 'Postgres (AsTaggedSumMonoComposite cty m t) = 'SumMatcher 'Postgres 'Nothing t m
+  type Fields (AsTaggedSumMonoComposite cty m t) = '[]
+  type Ctors (AsTaggedSumMonoComposite cty m t) = GGetCtorsOrEmpty t (Rep t)  
+  
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsTaggedSumMonoJson colTy (m :: Type -> Type) t = AsTaggedSumMonoJson t
@@ -583,6 +619,9 @@ newtype AsTaggedSumMonoJson colTy (m :: Type -> Type) t = AsTaggedSumMonoJson t
 instance DBRepr dbk cty => DBRepr dbk (AsTaggedSumMonoJson cty m t) where
   type ToDBType dbk (AsTaggedSumMonoJson cty m t) = 'UDTypeObj ('TaggedSumMono (GetDBEnumK dbk) cty 'JsonRec)
   type Matcher dbk (AsTaggedSumMonoJson cty m t) = 'SumMatcher dbk 'Nothing t m
+  type Fields (AsTaggedSumMonoJson cty m t) = '[]
+  type Ctors (AsTaggedSumMonoJson cty m t) = GGetCtorsOrEmpty t (Rep t)  
+  
   typeName = ""
 
 newtype AsSumOfColFlat (m :: Type -> Type) t = AsSumOfColFlat t
@@ -590,6 +629,9 @@ newtype AsSumOfColFlat (m :: Type -> Type) t = AsSumOfColFlat t
 instance DBRepr db (AsSumOfColFlat m t) where
   type ToDBType db (AsSumOfColFlat m t) = 'UDTypeObj ('SumOfCol 'FlatRec)
   type Matcher db (AsSumOfColFlat m t) = 'SumMatcher db 'Nothing t m
+  type Fields (AsSumOfColFlat m t) = '[]
+  type Ctors (AsSumOfColFlat m t) = GGetCtorsOrEmpty t (Rep t)  
+  
   typeName = ""
 
 newtype AsSumOfColComposite (m :: Type -> Type) t = AsSumOfColComposite t
@@ -597,6 +639,9 @@ newtype AsSumOfColComposite (m :: Type -> Type) t = AsSumOfColComposite t
 instance (Generic t, KnownSymbol (GenTyCon (Rep t))) => DBRepr 'Postgres (AsSumOfColComposite m t) where
   type ToDBType 'Postgres (AsSumOfColComposite m t) = 'UDTypeObj ('SumOfCol 'CompositeRec)
   type Matcher 'Postgres (AsSumOfColComposite m t) = 'SumMatcher 'Postgres 'Nothing t m
+  type Fields (AsSumOfColComposite m t) = '[]
+  type Ctors (AsSumOfColComposite m t) = GGetCtorsOrEmpty t (Rep t)  
+  
   typeName = TypeName $ genDBTypeName (Proxy @t)
 
 newtype AsSumOfColJson (m :: Type -> Type) t = AsSumOfColJson t
@@ -604,6 +649,9 @@ newtype AsSumOfColJson (m :: Type -> Type) t = AsSumOfColJson t
 instance DBRepr 'Postgres (AsSumOfColJson m t) where
   type ToDBType 'Postgres (AsSumOfColJson m t) = 'UDTypeObj ('SumOfCol 'JsonRec)
   type Matcher 'Postgres (AsSumOfColJson m t) = 'SumMatcher 'Postgres 'Nothing t m
+  type Fields (AsSumOfColJson m t) = '[]
+  type Ctors (AsSumOfColJson m t) = GGetCtorsOrEmpty t (Rep t)  
+  
   typeName = ""
 
 --newtype WithMatcher (m :: Type)
@@ -613,6 +661,8 @@ instance (ValidateDBType dbk (DBR.Key tab t) (ToDBType dbk t)) => DBRepr dbk (DB
   type AutoCodec dbk (DBR.Key tab t) = AutoCodec dbk t
   type Matcher dbk (DBR.Key tab t) = 'NoMatcher
   type Fields (DBR.Key tab t) = Fields t
+  type Ctors (DBR.Key tab t) = '[]
+  
 --  sumRepr _ = NonSumRepr
   typeName = ""
   discriminatorTypeName = ""
@@ -620,15 +670,24 @@ instance (ValidateDBType dbk (DBR.Key tab t) (ToDBType dbk t)) => DBRepr dbk (DB
 
 instance DBRepr dbk (PGOID 'RegType) where
   type ToDBType dbk (PGOID 'RegType) = 'NativeTypeObj 'TDBText -- TODO: Fix
+  type Fields (PGOID 'RegType) = '[]
+  type Ctors (PGOID 'RegType) = '[]
+  
   typeName = ""
 
 instance DBRepr dbk (a, b) where
   type ToDBType dbk (a, b) = 'TableObj
+  type Fields (a, b) = '[ '("_1", a), '("_2", b) ]
+  type Ctors (a, b) = '[]
+  
   typeName = ""
 
 
 instance DBRepr dbk LTree where
   type ToDBType dbk LTree = 'NativeTypeObj 'TDBText -- TODO: Fix
+  type Fields LTree = '[]
+  type Ctors LTree = '[]
+  
   typeName = ""
 
 -- UD Type
