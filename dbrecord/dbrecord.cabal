@@ -150,7 +150,7 @@ library dbrecord-test-generic
                      , mtl
                      , unliftio-core
                      , monad-control
-                     , exceptions
+                     , safe-exceptions
   exposed-modules:     Test.Schema
                      , Test.Query
                      , Test.Util

@@ -196,7 +196,7 @@ pgsExprTripper :: forall a (sc :: Type).
 pgsExprTripper env' = exprTripping
   (\act -> do
       env <- liftIO $ env'
-      evalIO @(PropertyT IO) $ flip runReaderT env $ runDVDRentalPGM $ runSession act
+      liftIO @(PropertyT IO) $ flip runReaderT env $ runDVDRentalPGM $ runSession act
   )
 
 test_const :: TestTree

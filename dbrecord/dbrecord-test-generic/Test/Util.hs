@@ -16,19 +16,19 @@ import Control.Monad.Reader
 import qualified Record as R
 import Control.Monad.IO.Unlift
 import Control.Monad.Trans.Control
-import           Control.Monad.Catch
+import Control.Exception.Safe
 
 -- TODO: Remove int deps
 import DBRecord.Internal.DBTypes
 
 
-newtype ShowableQ sc a = ShowableQ (Query sc a)
+newtype ShowableQ sc a = ShowableQ (Query sc a -> String, Query sc a)
 
 runShowableQ :: ShowableQ sc a -> Query sc a
-runShowableQ (ShowableQ q) = q
+runShowableQ (ShowableQ (_, q)) = q
 
 instance Show (ShowableQ sc a) where
-  show (ShowableQ _q) = "<<<<<QUERY>>>>>" 
+  show (ShowableQ (showQ, q)) = showQ q
 
 exprTripping :: forall a (sc :: Type) (sut :: Type -> Type) m env driver.
   ( Typeable a
@@ -44,6 +44,8 @@ exprTripping :: forall a (sc :: Type) (sut :: Type -> Type) m env driver.
   , MonadUnliftIO sut
   , MonadBaseControl IO sut
   , HasQuery driver
+  , ShowQuery driver
   , MonadCatch m
   ) => (forall x. sut x -> m x) -> Proxy sc -> a -> m ()
-exprTripping toTestM _ v = trippingM v (\a -> pure $ ShowableQ $ selectExpr (#col .= constExpr a)) (toTestM . (fmap . fmap) (\r -> r.col) . runQuery @sc . runShowableQ)
+exprTripping toTestM _ v = trippingM v (\a -> do showQ <- toTestM getQueryShow
+                                                 pure $ ShowableQ . (showQ,) $ selectExpr (#col .= constExpr a)) (toTestM . (fmap . fmap) (\r -> r.col) . runQuery @sc . runShowableQ)

@@ -9,6 +9,7 @@ module DBRecord.Internal.Driver
   , HasUpdateRet (..)
   , HasDelete (..)
   , HasDeleteRet (..)
+  , ShowQuery (..)
   , HasSessionConfig (..)
   , Session (..)
   , HasTransaction (..)
@@ -69,6 +70,12 @@ class (DBDecoder driver) => HasInsertRet driver where
   
   dbInsertRet :: (FromDBRow driver a) => driver -> PQ.InsertQuery -> IO [a]
   dbInsertRet = dbInsertRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
+
+class ShowQuery driver where
+  showQuery :: SessionConfig driver -> PQ.PrimQuery -> String
+  showInsertQuery :: SessionConfig driver -> PQ.InsertQuery -> String
+  showUpdateQuery :: SessionConfig driver -> PQ.UpdateQuery -> String
+  showDeleteQuery :: SessionConfig driver -> PQ.DeleteQuery -> String
 
 class HasSessionConfig e driver | e -> driver where
   getSessionConfig :: e -> SessionConfig driver

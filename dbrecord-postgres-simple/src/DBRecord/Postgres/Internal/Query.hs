@@ -381,6 +381,12 @@ instance HasDeleteRet PGS where
     let delSQL = PG.renderDelete $ PG.deleteSql $ deleteQ
     queryWith_ parser conn (fromString delSQL)
 
+instance ShowQuery PGS where
+  showQuery _ = PG.renderQuery . PG.sql
+  showInsertQuery _ = PG.renderInsert . PG.insertSql
+  showUpdateQuery _ = PG.renderUpdate . PG.updateSql
+  showDeleteQuery _ = PG.renderDelete . PG.deleteSql
+
 runPGExpr :: Expr sc a -> String
 runPGExpr = PG.renderExpr . PG.toSqlExpr . getExpr
 
@@ -416,6 +422,7 @@ instance (FromField a) => FromRow (Identity a) where
 withResource :: (U.MonadUnliftIO m) => P.Pool a -> (a -> m r) -> m r
 withResource p k = U.withRunInIO $ \f -> P.withResource p (\a -> f $ k a)
 
+-- TODO: Remove this
 showMQuery :: MQuery sc r -> String
 showMQuery mQ = execMQuery
   (PG.renderInsert . PG.insertSql)
@@ -423,5 +430,6 @@ showMQuery mQ = execMQuery
   (PG.renderDelete . PG.deleteSql)
   "" mQ
 
+-- TODO: Remove this
 showQuery :: DBRI.Query' qt sc r -> String
 showQuery q = PG.renderQuery $ PG.sql $ DBRI.execQuery q

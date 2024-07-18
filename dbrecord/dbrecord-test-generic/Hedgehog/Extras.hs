@@ -3,10 +3,10 @@ module Hedgehog.Extras (
   trippingM
   ) where
 
-import           Hedgehog.Internal.Property (MonadTest, Diff(..), success, failWith)
-import           Hedgehog.Internal.Show (valueDiff, mkValue, showPretty)
-import           Hedgehog.Internal.Source (HasCallStack, withFrozenCallStack)
-import           Control.Monad.Catch
+import Hedgehog.Internal.Property (MonadTest, Diff(..), success, failWith)
+import Hedgehog.Internal.Show (valueDiff, mkValue, showPretty)
+import Hedgehog.Internal.Source (HasCallStack, withFrozenCallStack)
+import Control.Exception.Safe
 
 
 -- | Similar to tripping, but with a monadic action.
@@ -21,14 +21,15 @@ trippingM x encode decode = do
     mx =
       pure x
 
-  i <- encode x `catch` \(e :: SomeException) -> withFrozenCallStack $
+  i <- encode x `catchAny` \e -> withFrozenCallStack $
     failWith Nothing $ unlines [
     "━━━ Exception while encoding ━━━"
     , show e
     , "━━━ Original ━━━"
     , showPretty mx
     ]
-  my <- decode i `catch` \(e :: SomeException) -> withFrozenCallStack $
+
+  my <- decode i `catchAny` \e -> withFrozenCallStack $
     failWith Nothing $ unlines [
     "━━━ Exception while decoding ━━━"
     , show e

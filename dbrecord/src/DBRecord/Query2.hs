@@ -97,6 +97,8 @@ module DBRecord.Query2
   , runMQuery
   , runSession
   , runTransaction
+  , getQueryShow
+  , getMQueryShow
   --
   , module DBRecord.Internal.Order
   , module DBRecord.Internal.Expr
@@ -1003,3 +1005,25 @@ runTransaction :: forall m a env driver.
 runTransaction dbQ = do
   scfg <- reader getSessionConfig
   runSession_ scfg (lift dbQ) withTransaction  
+
+getQueryShow :: forall sc m a env driver.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , ShowQuery driver
+  ) => m (Query sc a -> String)
+getQueryShow = do
+  scfg <- reader getSessionConfig
+  pure $ \q -> showQuery scfg (execQuery q)
+
+getMQueryShow :: forall sc m a env driver.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , ShowQuery driver
+  ) => m (MQuery sc a -> String)
+getMQueryShow = do
+  scfg <- reader getSessionConfig
+  pure $ \q -> execMQuery
+               (showInsertQuery scfg)
+               (showUpdateQuery scfg)
+               (showDeleteQuery scfg)
+               "" q  
