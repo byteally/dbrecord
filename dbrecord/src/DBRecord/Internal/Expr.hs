@@ -84,16 +84,16 @@ instance ConstExpr sc SB.ByteString where
   toConstExpr = bytes
 
 instance ConstExpr sc Double where
-  toConstExpr = literalExpr . PQ.Double
+  toConstExpr = annotateType . literalExpr . PQ.Double
 
 instance ConstExpr sc Float where
-  toConstExpr = literalExpr . PQ.Double . fromRational . toRational
+  toConstExpr = annotateType . literalExpr . PQ.Double . fromRational . toRational
 
 instance ConstExpr sc Rational where
-  toConstExpr = literalExpr . PQ.Double . fromRational
+  toConstExpr = annotateType . literalExpr . PQ.Double . fromRational
 
 instance ConstExpr sc Scientific where
-  toConstExpr = literalExpr . PQ.Double . toRealFloat -- (flip toRationalRepetend 2)
+  toConstExpr = annotateType . literalExpr . PQ.Double . toRealFloat -- (flip toRationalRepetend 2)
 
 instance (
          ) => ConstExpr sc (CI T.Text) where
@@ -250,7 +250,7 @@ instance NumExpr Integer where
   exprFromInteger = literalExpr . PQ.Integer
 
 instance NumExpr Float where
-  exprFromInteger = literalExpr . PQ.Double . fromIntegral
+  exprFromInteger = annotateType . literalExpr . PQ.Double . fromIntegral
 
 instance NumExpr Double where
   exprFromInteger = literalExpr . PQ.Double . fromIntegral

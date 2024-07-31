@@ -389,7 +389,7 @@ instance DBRepr dbk (CI t) where
   typeName = ""
 
 instance DBRepr dbk TimeOfDay where
-  type ToDBType dbk TimeOfDay = 'NativeTypeObj ('TDBTime 7)
+  type ToDBType dbk TimeOfDay = 'NativeTypeObj ('TDBTime 6) -- TODO: Check the number 6
   typeName = ""
 
 instance DBRepr dbk Bool where
@@ -398,11 +398,11 @@ instance DBRepr dbk Bool where
   typeName = ""
 
 instance DBRepr dbk Double where
-  type ToDBType dbk Double = 'NativeTypeObj ('TDBFloat 53)
+  type ToDBType dbk Double = 'NativeTypeObj 'TDBFloat8
   typeName = ""
 
 instance DBRepr dbk Float where
-  type ToDBType dbk Float = 'NativeTypeObj ('TDBFloat 24)
+  type ToDBType dbk Float = 'NativeTypeObj 'TDBFloat4
   typeName = ""
 
 instance DBRepr dbk Rational where
@@ -695,6 +695,13 @@ newtype TypeName (dbk :: DbK) ty = TypeName Text
 
 _getTypeName :: TypeName dbk ty -> Text
 _getTypeName (TypeName ty) = ty
+
+data TypeName' :: DBObjK -> Type where
+  TabTy :: TypeName' 'TableObj
+  NativeTy :: DBType -> TypeName' ('NativeTypeObj ty)
+  UDTy :: DBTypeName -> TypeName' ('UDTypeObj udrep)
+  NullableTy :: TypeName' inRep -> TypeName' ('NullableObjOf inTy inRep)
+  ArrayTy :: TypeName' inRep -> TypeName' ('ArrayObjOf inTy inRep)
 
 instance IsString (TypeName dbk ty) where
   fromString s = TypeName $ T.pack s

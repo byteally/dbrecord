@@ -70,21 +70,21 @@ data EnumTy
   = Con1
   | Con2
   | Con3
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, Enum, Bounded)
   deriving (DBRepr db) via AsEnum EnumTy
 
 data EnumTxt
   = Con4
   | Con5
   | Con6
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, Enum, Bounded)
   deriving (DBRepr db) via AsEnumText EnumTxt
 
 data EnumI64
   = Con7
   | Con8
   | Con9
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, Enum, Bounded)
   deriving (DBRepr db) via AsEnumNum EnumI64
 
 data CompRec1 = CompRec1

@@ -95,3 +95,12 @@ quoteBy ch esc s = T.pack $ ch : go esc (T.unpack s) ++ (ch:[])
     go (Just esch) (ch':xs)
       | ch' == esch          = esch : ch': go esc xs
     go esc' (x:xs)          = x : go esc' xs
+
+defPkNameFromHsName :: T.Text -> T.Text
+defPkNameFromHsName pkn = T.pack "pk_" <> defHSNameToDBName pkn
+
+defUqNameFromHsName :: T.Text -> T.Text
+defUqNameFromHsName uqn = T.pack "uq_" <> defHSNameToDBName uqn
+
+defFkNameFromHsName :: T.Text -> T.Text
+defFkNameFromHsName relN = T.pack "fk_" <> defHSNameToDBName relN

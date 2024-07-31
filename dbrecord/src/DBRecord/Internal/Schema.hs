@@ -85,16 +85,19 @@ newtype SchemaName sc = SchemaName Text
 _getSchemaName :: SchemaName sc -> Text
 _getSchemaName (SchemaName sc) = sc
 
-class DBCatalog (db :: Type) where
-  type Schemas db :: [Type]
-  type Roles db :: [Type]
-  type Extensions db :: [Type]
+class (Database (DatabaseOf dbc)) => DBCatalog (dbc :: Type) where
+  type DatabaseOf dbc = (db :: Type) | db -> dbc
+  type Schemas dbc :: [Type]
+  type Roles dbc :: [Type]
+  type Extensions dbc :: [Type]
 
-class SchemaCatalog (sc :: Type) where
-  type Tables sc :: [Type]
-  type Types sc :: [Type]
-  type Views sc :: [Type]
-  type MaterializedViews sc :: [Type]
-  type Functions sc :: [(Symbol, Type)]
-  type AggFunctions sc :: [(Symbol, Type)]
---  type Sequences sc :: [Type]
+class (DBCatalog (DatabaseCatalog scc), Schema (SchemaOf scc)) => SchemaCatalog (scc :: Type) where
+  type DatabaseCatalog scc :: Type
+  type SchemaOf scc = (sc :: Type) | sc -> scc
+  type Tables scc :: [Type]
+  type Types scc :: [Type]
+  type Views scc :: [Type]
+  type MaterializedViews scc :: [Type]
+  type Functions scc :: [(Symbol, Type)]
+  type AggFunctions scc :: [(Symbol, Type)]
+--  type Sequences scc :: [Type]

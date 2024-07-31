@@ -98,6 +98,10 @@ class ( Schema sc
   default tableName :: (Generic tab, KnownSymbol (GenTyCon (Rep tab))) => TableName sc tab
   tableName = TableName $ defHSNameToDBName $ T.pack (symbolVal (Proxy @(GenTyCon (Rep tab))))
 
+  primaryKeyName :: PrimaryKeyName sc tab
+  default primaryKeyName :: (Generic tab, KnownSymbol (GenTyCon (Rep tab))) => PrimaryKeyName sc tab
+  primaryKeyName = PrimaryKeyName $ defPkNameFromHsName $ T.pack (symbolVal (Proxy @(GenTyCon (Rep tab))))
+
   checks :: TableValue sc Identity tab -> [(Text, Expr sc Bool)]
   checks _ = []
 
@@ -123,6 +127,11 @@ newtype TableName sc ty = TableName Text
 
 unTableName :: TableName sc tab -> Text
 unTableName = coerce
+
+newtype PrimaryKeyName sc tab = PrimaryKeyName Text
+
+_getPrimaryKeyName :: PrimaryKeyName sc tab -> Text
+_getPrimaryKeyName = coerce
 
 getDatabaseName :: forall sc.
                ( Database (SchemaDB sc)
@@ -770,6 +779,98 @@ getColumnName =
   in Expr cexpr
 {-# INLINE getColumnName #-}
 
+getColumnNameText :: forall sc tab (fn :: Symbol).
+  ( Table sc tab
+  , KnownSymbol fn
+  ) => Const Text (sc,tab)
+getColumnNameText =
+  let
+    FieldAliases caliases = fieldAliases @(DB (SchemaDB sc)) @tab
+    fname = T.pack $ symbolVal (Proxy @fn)
+    cname = maybe (defHSNameToDBName fname) id $ HM.lookup fname caliases
+  in Const cname
+{-# INLINE getColumnNameText #-}
+
+getPrimaryKeysText :: forall sc tab.
+  ( Table sc tab
+  , SingI (PrimaryKey sc tab)
+  , All KnownSymbol (PrimaryKey sc tab)
+  ) => Proxy '(sc, tab) -> [Text]
+getPrimaryKeysText p = getPrimaryKeysText' p (sing :: Sing (PrimaryKey sc tab))
+
+getUniquesText :: forall sc tab.
+  ( Table sc tab
+  , SingI (Unique sc tab)
+  , AllUniqCxt (Unique sc tab)
+  ) => Proxy '(sc, tab) -> [(Text, [Text])]
+getUniquesText p = getUniquesText' p (sing :: Sing (Unique sc tab))
+
+-- getUniquesText :: forall sc tab.
+--   ( Table sc tab
+--   , SingI (Unique sc tab)
+--   , AllUniqCxt (Unique sc tab)
+--   ) => Proxy '(sc, tab) -> [(Text, [Text])]
+-- getUniquesText p = getUniquesText' p (sing :: Sing (Unique sc tab))
+
+getForeignKeys :: forall sc tab.
+ ( Table sc tab
+ , SingI (ForeignKey sc tab)
+ , AllFkCxt (ForeignKey sc tab)
+ ) => Proxy '(sc, tab) -> [(Text, Either (Text, PQ.TableId) ([Text], PQ.TableId, [Text]))]
+getForeignKeys p = getForeignKeys' p (sing :: Sing (ForeignKey sc tab))
+
+getPrimaryKeysText' :: forall sc tab xs.
+  ( Table sc tab
+  , AllF KnownSymbol xs
+  ) => Proxy '(sc, tab) -> Sing (xs :: [Symbol]) -> [Text]
+getPrimaryKeysText' p = \case
+  SNil -> []
+  SCons s pks -> getColN p s : getPrimaryKeysText' (Proxy @'(sc,tab)) pks
+
+getColN :: forall sc tab fn.(Table sc tab, KnownSymbol fn) => Proxy '(sc, tab) -> Sing (fn :: Symbol) -> Text
+getColN _ _ = getConst $ getColumnNameText @sc @tab @fn
+
+getUniquesText' :: forall sc tab uqs.
+  ( Table sc tab
+  , AllUniqCxt uqs
+  ) => Proxy '(sc, tab) -> Sing (uqs :: [UniqueCT]) -> [(Text, [Text])]
+getUniquesText' p = \case
+  SNil -> []
+  SCons (SUniqueOn flds uqn) pks -> (T.pack $ symbolVal uqn, (getPrimaryKeysText' p flds)) : (getUniquesText' (Proxy @'(sc,tab)) pks)
+
+getForeignKeys' :: forall sc tab fks.
+ ( Table sc tab
+ , AllFkCxt fks
+ ) => Proxy '(sc, tab) -> Sing (fks :: [ForeignRef Type]) -> [(Text, Either (Text, PQ.TableId) ([Text], PQ.TableId, [Text]))]
+getForeignKeys' p = \case
+  SNil -> []
+  SCons fk fks -> case fk of
+    SRef scol refsc reft sfkn ->
+      let
+        fkn = defFkNameFromHsName (T.pack $ symbolVal sfkn)
+        col = getColN p scol
+        reftn = getTableIdFromSing refsc reft 
+      in (fkn, Left (col, reftn)) : getForeignKeys' p fks
+    SRefBy scols refsc reft srcols sfkn ->
+      let
+        fkn = T.pack $ symbolVal sfkn
+        cols = getPrimaryKeysText' p scols
+        rcols = getPrimaryKeysText' p srcols
+        reftn = getTableIdFromSing refsc reft 
+      in (fkn, Right (cols, reftn, rcols)) : getForeignKeys' p fks
+  
+
+getTableIdFromSing :: forall sc tab.(Schema sc, Table sc tab) => Sing sc -> Sing tab -> PQ.TableId
+getTableIdFromSing _ _ = getTableId @sc @tab Proxy Proxy
+
+type family AllUniqCxt (uqs :: [UniqueCT]) :: Constraint where
+  AllUniqCxt '[] = ()
+  AllUniqCxt (( 'UniqueOn uniqFlds uniqOn) ': uqs) = ((AllF KnownSymbol uniqFlds, KnownSymbol uniqOn), AllUniqCxt uqs)
+
+type family AllFkCxt (fkss :: [ForeignRef Type]) :: Constraint where
+  AllFkCxt '[] = ()
+  AllFkCxt (('Ref col refsc reft fkn) ': fks) = (KnownSymbol col, KnownSymbol fkn, Table refsc reft, AllFkCxt fks)
+  AllFkCxt (('RefBy cols refsc reft refCols fkn) ': fks) = (AllF KnownSymbol cols, KnownSymbol fkn, Table refsc reft, AllF KnownSymbol refCols, AllFkCxt fks)
 
 type family ValidateTableProps (sc :: Type) (tab :: Type) :: Constraint where
   ValidateTableProps sc tab =
@@ -777,8 +878,25 @@ type family ValidateTableProps (sc :: Type) (tab :: Type) :: Constraint where
     )
 
 data ForeignRef a
-  = RefBy [Symbol] a [Symbol] Symbol
-  | Ref Symbol a Symbol
+  = RefBy [Symbol] a a [Symbol] Symbol
+  | Ref Symbol a a Symbol
 
 data UniqueCT = UniqueOn [Symbol] Symbol
 data Uq sc (un :: Symbol) = Uq
+
+data instance Sing (uq :: UniqueCT) where
+  SUniqueOn :: Sing uniqFlds -> Sing uniqOn -> Sing ('UniqueOn uniqFlds uniqOn)
+
+instance (SingI uniqFlds, SingI uniqOn) => SingI ('UniqueOn uniqFlds uniqOn) where
+  sing = SUniqueOn sing sing
+
+data instance Sing (fk :: ForeignRef a) where
+  SRefBy :: Sing cols -> Sing refsc -> Sing reft -> Sing refCols -> Sing fkname -> Sing ('RefBy cols refsc reft refCols fkname)
+  SRef   :: Sing col -> Sing refsc -> Sing reft -> Sing fkname -> Sing ('Ref col refsc reft fkname)
+
+instance (SingI cols, SingI refsc, SingI reft, SingI refcols, SingI fkname) => SingI ('RefBy cols refsc reft refcols fkname) where
+  sing = SRefBy sing sing sing sing sing
+
+instance (SingI col, SingI refsc, SingI reft, SingI fkname) => SingI ('Ref col refsc reft fkname) where
+  sing = SRef sing sing sing sing
+  

@@ -97,6 +97,7 @@ library
                   DBRecord.Query2
                   DBRecord.Driver
                   DBRecord.Schema
+                  DBRecord.Query.DDL
 
                   -- Internal Modules
                                  
@@ -151,6 +152,7 @@ library dbrecord-test-generic
                      , unliftio-core
                      , monad-control
                      , safe-exceptions
+                     , scientific
   exposed-modules:     Test.Schema
                      , Test.Query
                      , Test.Util

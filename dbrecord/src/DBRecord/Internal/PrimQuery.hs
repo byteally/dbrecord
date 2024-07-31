@@ -171,7 +171,7 @@ data Lit = Null
          | String Text
          | Byte ByteString
          | Integer Integer
-         | Double Double
+         | Double Double -- TODO: Consider changing it to Rational / Scientific
          | Other Text
          deriving (Show, Read, Generic, Eq, Ord)
 

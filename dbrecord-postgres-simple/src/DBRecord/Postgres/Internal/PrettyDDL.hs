@@ -10,13 +10,11 @@ import Text.PrettyPrint.HughesPJ (Doc, (<+>), text,
                                   hsep, semi, render, char,
                                   (<>))
 import Prelude hiding ((<>))
-import DBRecord.Internal.Types (DBType (..))
-import qualified Data.Text as T
+import DBRecord.Internal.Types (DBTypeName (..))
+import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Postgres.Internal.Sql.Pretty
 import DBRecord.Internal.Sql.SqlGen
-
-typeName :: DBType -> TypeName
-typeName = TypeName . T.pack . ppPGType
+import Data.Functor.Identity
 
 escQuote :: Text -> Text
 escQuote = escapeBy (Just '\'')
@@ -43,13 +41,16 @@ doubleQuotes :: Text -> Doc
 doubleQuotes = Pretty.doubleQuotes . text_ . escDoubleQuote
 
 ppColumnName :: ColName -> Doc
-ppColumnName (ColName _ colN) = doubleQuotes colN
+ppColumnName (ColName colN) = doubleQuotes colN
 
-ppTableName :: TabName -> Doc
-ppTableName (TabName _ tabN) = doubleQuotes tabN
+ppTableName :: PQ.TableId -> Doc
+ppTableName tabId =
+  doubleQuotes (PQ.schema tabId)
+  <> char '.'
+  <> doubleQuotes (PQ.tableName tabId)
 
-ppTypeName :: TypeName -> Doc
-ppTypeName (TypeName typeN) = text_ typeN
+ppTypeName :: DBTypeName -> Doc
+ppTypeName = text . ppDBTypeName
 
 ppColumnType :: ColType -> Doc
 ppColumnType (ColType tn) = text (ppPGType tn)
@@ -64,7 +65,7 @@ ppEnumVal :: EnumVal -> Doc
 ppEnumVal (EnumVal e) = quotes e
 
 ppSeqName :: SeqName -> Doc
-ppSeqName (SeqName _ seqN) = text_ seqN
+ppSeqName (SeqName seqN) = text_ seqN
 
 ppColumn :: Column -> Doc
 ppColumn (Column name ty) =
@@ -72,15 +73,15 @@ ppColumn (Column name ty) =
   <+> ppColumnType ty
 
 ppConstraintName :: ConstraintName -> Doc
-ppConstraintName (ConstraintName _ c) = doubleQuotes c
+ppConstraintName (ConstraintName c) = doubleQuotes c
 
 ppPrimDDL :: PrimDDL -> Doc
-ppPrimDDL (CreateTable tab cols) =
+ppPrimDDL (CreateTable tab (Identity cols)) =
       text "CREATE TABLE"
   <+> ppTableName tab
   <+> parens (hsep (punctuate comma (map ppColumn cols)))
   <+> semi
-ppPrimDDL (CreateType ty cols) =
+ppPrimDDL (CreateType ty (Identity cols)) =
       text "CREATE TYPE"
   <+> ppTypeName ty
   <+> text "AS"
@@ -94,7 +95,7 @@ ppPrimDDL (DropSeq seqN) =
       text "DROP SEQUENCE"
   <+> ppSeqName seqN
   <+> semi    
-ppPrimDDL (CreateEnum ty cols) =
+ppPrimDDL (CreateEnum ty (Identity cols)) =
       text "CREATE TYPE"
   <+> ppTypeName ty
   <+> text "AS ENUM"

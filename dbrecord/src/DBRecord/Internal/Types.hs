@@ -25,8 +25,8 @@ data DBTypeK
   = TDBInt4
   | TDBInt8
   | TDBInt2
-  -- | TDBFloat4 -- float(24)
-  -- | TDBFloat8 -- float(53)
+  | TDBFloat4 -- float(24)
+  | TDBFloat8 -- float(53)
   | TDBFloat Nat
   | TDBNumeric Nat Nat
   | TDBChar Nat
@@ -62,6 +62,8 @@ data TypeArgK = SymArg Symbol
 data DBType = DBInt4
             | DBInt8
             | DBInt2
+            | DBFloat4
+            | DBFloat8
             | DBFloat   Integer
             | DBNumeric Integer Integer
             | DBChar Integer
@@ -325,6 +327,8 @@ data instance Sing (t :: DBTypeK) where
   SDBInt4        :: Sing 'TDBInt4
   SDBInt8        :: Sing 'TDBInt8
   SDBInt2        :: Sing 'TDBInt2
+  SDBFloat4      :: Sing 'TDBFloat4
+  SDBFloat8      :: Sing 'TDBFloat8
   SDBFloat       :: Sing n -> Sing ('TDBFloat n)
   SDBNumeric     :: Sing n1 -> Sing n2 -> Sing ('TDBNumeric n1 n2)
   SDBChar        :: Sing n -> Sing ('TDBChar n)
@@ -375,6 +379,12 @@ instance SingI 'TDBInt8 where
 
 instance SingI 'TDBInt2 where
   sing = SDBInt2
+
+instance SingI 'TDBFloat4 where
+  sing = SDBFloat4
+
+instance SingI 'TDBFloat8 where
+  sing = SDBFloat8
 
 instance (SingI n) => SingI ('TDBFloat n) where
   sing = SDBFloat sing
@@ -486,6 +496,8 @@ instance (DBTypeCtx t) => SingE (t :: DBTypeK) where
   fromSing SDBInt4                 = DBInt4
   fromSing SDBInt8                 = DBInt8
   fromSing SDBInt2                 = DBInt2
+  fromSing SDBFloat4               = DBFloat4
+  fromSing SDBFloat8               = DBFloat8
   fromSing (SDBFloat v)            = DBFloat (fromSing v)
   fromSing (SDBNumeric n1 n2)      = DBNumeric (fromSing n1) (fromSing n2)
   fromSing (SDBChar n)             = DBChar (fromSing n)

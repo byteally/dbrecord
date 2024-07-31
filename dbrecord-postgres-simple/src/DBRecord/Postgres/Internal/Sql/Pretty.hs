@@ -12,6 +12,7 @@ module DBRecord.Postgres.Internal.Sql.Pretty
   , renderExpr
   , ppExpr
   , ppPGType
+  , ppDBTypeName
   , ppPGOIDType
   ) where
 
@@ -459,10 +460,12 @@ ppPGType = go
   where go DBInt2                       = "SMALLINT"
         go DBInt4                       = "INTEGER"
         go DBInt8                       = "BIGINT"
+        go DBFloat4                     = "FLOAT4"
+        go DBFloat8                     = "FLOAT8"
         go (DBNumeric p s)              = "NUMERIC (" ++ show p ++ ", " ++ show s ++ ")"
         go DBBool                       = "BOOLEAN"
-        go (DBFloat i) | i < 25 && i >= 0 = "REAL"
-                       | i >= 53         = "DOUBLE PRECISION"
+        go (DBFloat i) | i < 54 && i > 0 = "FLOAT (" ++ show i ++ ")"
+                       | i == 0          = "FLOAT"
                        | otherwise      = error "Panic: outside allowed range @ppPGType DBFloat"
         go (DBChar i)                   = "CHARACTER (" ++ show i ++ ")"
         go (DBVarchar i)                = "CHARACTER VARYING (" ++ show i ++ ")"
@@ -485,23 +488,25 @@ ppPGType = go
         go DBLTree                      = "LTREE"
         go (DBArray t)                  = go t ++ "[]"
         go (DBNullable t)               = go t
-        go (OtherType tn)               = ppQualDbTypeName tn
+        go (OtherType tn)               = ppDBTypeName tn
 
-        ppQualDbTypeName (DBTypeName qual t args) = case qual of
-          NoQualification -> ppDbTypeName t args
-          SchemaQualified scn -> T.unpack (doubleQuote scn) <> dot <> ppDbTypeName t args
-          DBQualified _ scn -> T.unpack (doubleQuote scn) <> dot <> ppDbTypeName t args
 
-        ppDbTypeName t args = T.unpack (doubleQuote t) ++ ppArgs args
+-- TODO: Change it to Doc & all other that return Doc
+ppDBTypeName :: DBTypeName -> String
+ppDBTypeName (DBTypeName qual t args) = case qual of
+  NoQualification -> ppDbTypeName t args
+  SchemaQualified scn -> T.unpack (doubleQuote scn) <> dot <> ppDbTypeName t args
+  DBQualified _ scn -> T.unpack (doubleQuote scn) <> dot <> ppDbTypeName t args
+  where
+    ppDbTypeName t' args' = T.unpack (doubleQuote t') ++ ppArgs args'
 
-        ppArgs []  = ""
-        ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"
+    ppArgs []  = ""
+    ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"
 
-        ppArg (TextArg t)    = T.unpack t
-        ppArg (IntegerArg i) = show i
+    ppArg (TextArg t')    = T.unpack t'
+    ppArg (IntegerArg i) = show i
 
-        dot = "."
-
+    dot = "."
 
 ppPGOIDType :: PGOIDType -> String
 ppPGOIDType PGOID = "oid"

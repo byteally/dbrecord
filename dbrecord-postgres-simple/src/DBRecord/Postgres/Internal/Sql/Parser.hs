@@ -294,10 +294,10 @@ parsePGType scn nullInfo sz = wrapNullable nullInfo . go
         go "bigint"                    = DBInt8
         go "boolean"                   = DBBool
         go "double precision"          = case szNumericPrecision sz of
-                                           Nothing -> DBFloat 53
+                                           Nothing -> DBFloat8
                                            Just v  -> DBFloat v
         go "real"                      = case szNumericPrecision sz of
-                                           Nothing -> DBFloat 24
+                                           Nothing -> DBFloat4
                                            Just v  -> DBFloat v
         go "numeric"                   = case (,) <$> szNumericPrecision sz <*> szNumericScale sz of
                                            Just (pr, sc) -> DBNumeric pr sc
