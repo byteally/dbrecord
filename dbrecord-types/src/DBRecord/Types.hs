@@ -15,8 +15,7 @@ import qualified Data.List as L
 import qualified Data.Text as T
 import           Data.Tuple (swap)
 import           GHC.Generics
-
-#ifndef ghcjs_HOST_OS
+#if __GLASGOW_HASKELL__ >= 902
 import           Data.Hashable
 import           Codec.Serialise
 #endif
@@ -26,7 +25,7 @@ newtype Json a =
   Json { getJson :: a }
   deriving (Eq,Show, Generic)
   deriving newtype (FromJSON, ToJSON)
-#ifndef ghcjs_HOST_OS
+#if __GLASGOW_HASKELL__ >= 902
   deriving newtype (Serialise)
 #endif
 
@@ -67,7 +66,7 @@ unescape =
 
 newtype Key (t :: k) (v :: Type) = Key {getKey :: v}
   deriving newtype (Show, Read, Eq, Ord, ToJSON, FromJSON)
-#ifndef ghcjs_HOST_OS
+#if __GLASGOW_HASKELL__ >= 902
   deriving newtype (Serialise, Hashable)
 #endif
   deriving stock Generic
