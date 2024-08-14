@@ -44,8 +44,9 @@ import qualified Data.HashMap.Strict as HM
 import GHC.Records
 
 class ( DBRepr (DB (SchemaDB sc)) ty
+      , Fst (TypeId sc ty) ~ sc
       ) => UDType (sc :: Type) (ty :: Type) where
-  type TypeId sc ty = (oid :: Nat) | oid -> ty
+  type TypeId sc ty = (oid :: (Type, Nat)) | oid -> ty
 
 udtypeToExpr :: forall ty sc.(UDType sc ty, SynTypeToExpr (GetUDTypeKind (DB (SchemaDB sc)) ty (ToDBType (DB (SchemaDB sc)) ty)) sc ty (Fields ty)) => Proxy '(sc, ty) -> Expr sc ty
 udtypeToExpr _ = Expr $ PQ.FlatComposite $ synTypeToExpr_ (Proxy @'(GetUDTypeKind (DB (SchemaDB sc)) ty (ToDBType (DB (SchemaDB sc)) ty), sc, ty, (Fields ty)))

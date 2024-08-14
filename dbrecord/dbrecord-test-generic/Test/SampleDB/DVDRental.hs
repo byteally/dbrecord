@@ -46,7 +46,7 @@ data NewCategory = NewCategory
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Category where
-  type TableId (DVDRentalDB db) Category = 1
+  type TableId (DVDRentalDB db) Category = '(DVDRentalDB db, 1)
   type PrimaryKey (DVDRentalDB db) Category = '["categoryId"]
   type HasDefault (DVDRentalDB db) Category = '["categoryId", "lastUpdate"]
   type NewRow (DVDRentalDB db) Category = NewCategory
@@ -69,7 +69,7 @@ data MPAA = G | PG | PG'13 | R | NC'17
   deriving (DBRepr db) via AsEnum MPAA
 
 instance (db ~ 'Postgres) => UDType (DVDRentalDB db) MPAA where
-  type TypeId (DVDRentalDB db) MPAA = 1
+  type TypeId (DVDRentalDB db) MPAA = '(DVDRentalDB db, 1)
 
 -- ^ stores film data such as title, release year, length, rating, etc
 data Film = Film
@@ -105,7 +105,7 @@ data NewFilm = NewFilm
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Film where
-  type TableId (DVDRentalDB db) Film = 2
+  type TableId (DVDRentalDB db) Film = '(DVDRentalDB db, 2)
   type PrimaryKey (DVDRentalDB db) Film = '["filmId"]
   type HasDefault (DVDRentalDB db) Film = '["filmId"]
   type NewRow (DVDRentalDB db) Film = NewFilm
@@ -141,7 +141,7 @@ data NewInventory = NewInventory
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Inventory where
-  type TableId (DVDRentalDB db) Inventory = 3
+  type TableId (DVDRentalDB db) Inventory = '(DVDRentalDB db, 3)
   type PrimaryKey (DVDRentalDB db) Inventory = '["inventoryId"]
   type HasDefault (DVDRentalDB db) Inventory = '["inventoryId"]
   type NewRow (DVDRentalDB db) Inventory = NewInventory
@@ -172,7 +172,7 @@ data NewPayment = NewPayment
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Payment where
-  type TableId (DVDRentalDB db) Payment = 4
+  type TableId (DVDRentalDB db) Payment = '(DVDRentalDB db, 4)
   type PrimaryKey (DVDRentalDB db) Payment = '["paymentId"]
   type HasDefault (DVDRentalDB db) Payment = '["paymentId"]
   type NewRow (DVDRentalDB db) Payment = NewPayment
@@ -207,7 +207,7 @@ data NewStaff = NewStaff
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Staff where
-  type TableId (DVDRentalDB db) Staff = 5
+  type TableId (DVDRentalDB db) Staff = '(DVDRentalDB db, 5)
   type PrimaryKey (DVDRentalDB db) Staff = '["staffId"]
   type HasDefault (DVDRentalDB db) Staff = '["staffId"]
   type NewRow (DVDRentalDB db) Staff = NewStaff
@@ -241,7 +241,7 @@ data NewCustomer = NewCustomer
   } deriving (Show, Generic)
 
 instance (db ~ 'Postgres) => Table (DVDRentalDB db) Customer where
-  type TableId (DVDRentalDB db) Customer = 6
+  type TableId (DVDRentalDB db) Customer = '(DVDRentalDB db, 6)
   type PrimaryKey (DVDRentalDB db) Customer = '["customerId"]
   type HasDefault (DVDRentalDB db) Customer = '["customerId"]
   type NewRow (DVDRentalDB db) Customer = NewCustomer

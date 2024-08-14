@@ -89,15 +89,33 @@ class (Database (DatabaseOf dbc)) => DBCatalog (dbc :: Type) where
   type DatabaseOf dbc = (db :: Type) | db -> dbc
   type Schemas dbc :: [Type]
   type Roles dbc :: [Type]
+  type Roles dbc = '[]
   type Extensions dbc :: [Type]
+  type Extensions dbc = '[]
 
 class (DBCatalog (DatabaseCatalog scc), Schema (SchemaOf scc)) => SchemaCatalog (scc :: Type) where
   type DatabaseCatalog scc :: Type
   type SchemaOf scc = (sc :: Type) | sc -> scc
   type Tables scc :: [Type]
   type Types scc :: [Type]
+  type Types scc = '[]
   type Views scc :: [Type]
+  type Views scc = '[]
   type MaterializedViews scc :: [Type]
+  type MaterializedViews scc = '[]
   type Functions scc :: [(Symbol, Type)]
+  type Functions scc = '[]
   type AggFunctions scc :: [(Symbol, Type)]
+  type AggFunctions scc = '[]
 --  type Sequences scc :: [Type]
+  type DroppedTables scc :: [Type]
+  type DroppedTables scc = '[]
+  type DroppedTypes scc :: [Type]
+  type DroppedTypes scc = '[]
+  type DroppedSequences scc :: [Type]
+  type DroppedSequences scc = '[]
+
+
+data DroppedTable (oid :: Nat)
+data DroppedType (oid :: Nat)
+data DroppedSequence (oid :: Nat)

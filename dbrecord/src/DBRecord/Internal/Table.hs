@@ -68,8 +68,9 @@ class ( Schema sc
       , Break0 (NoSchema sc) (SchemaDB sc)
       , DBRepr (DB (SchemaDB sc)) tab
       , ToDBType (DB (SchemaDB sc)) tab ~ 'TableObj
+      , Fst (TableId sc tab) ~ sc
       ) => Table (sc :: Type) (tab :: Type) where
-  type TableId sc tab = (oid :: Nat) | oid -> tab
+  type TableId sc tab = (oid :: (Type, Nat)) | oid -> tab
 
   type PrimaryKey sc tab :: [Symbol]
   type PrimaryKey sc tab = '[]

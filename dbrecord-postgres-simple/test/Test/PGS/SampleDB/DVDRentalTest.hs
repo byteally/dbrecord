@@ -9,6 +9,7 @@ module Test.PGS.SampleDB.DVDRentalTest where
 import DBRecord
 import DBRecord.Postgres hiding (query)
 import DBRecord.Driver
+import DBRecord.Query.DDL
 import Test.SampleDB.DVDRental
 import Data.Kind
 import Data.Int
@@ -236,6 +237,24 @@ test_const = Test.Tasty.withResource
     , testProperty "EnumType" $ withTests 10 $ property $ (forAll $ Gen.enumBounded @_ @EnumTy) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "EnumText" $ withTests 10 $ property $ (forAll $ Gen.enumBounded @_ @EnumTxt) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "EnumNum" $ withTests 10 $ property $ (forAll $ Gen.enumBounded @_ @EnumI64) >>= pgsExprTripper e (Proxy @TestDB)
+    ]
+  )
+
+test_mig :: TestTree
+test_mig = Test.Tasty.withResource
+  (fmap PGSConfig $ pgDefaultPool $ testDBConnectInfo)
+  (const $ pure ())
+  (\_e -> testGroup "Migration Instruction Set"
+    [ testProperty "Create Table" $ withTests 1 $ property $ do
+        let (up, down) = getDDLForSchema (Proxy @(TestMig 1)) Nothing
+        withUpDDL up (\upIS -> upIS === [])
+        withDownDDL down (\downIS -> downIS === [])
+    , testProperty "New Column" $ withTests 1 $ property $ do
+        let
+          base = getDDLForSchema (Proxy @(TestMig 1)) Nothing
+          (up, down) = getDDLForSchema (Proxy @(TestMig 2)) (Just $ undefined base)
+        withUpDDL up (\upIS -> upIS === [])
+        withDownDDL down (\downIS -> downIS === [])              
     ]
   )
 

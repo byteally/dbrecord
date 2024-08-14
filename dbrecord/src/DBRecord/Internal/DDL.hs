@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DerivingStrategies #-}
 module DBRecord.Internal.DDL where
 
 import qualified Data.Text as T
@@ -11,28 +12,28 @@ import Data.Proxy
 import Data.Functor.Identity
 
 newtype ColName = ColName T.Text
-                deriving Show
+  deriving newtype (Show, Eq)
 
 newtype ColType = ColType DBType
-                deriving Show
+  deriving newtype (Show, Eq)
 
 data Column = Column ColName ColType
-            deriving Show
+  deriving (Show, Eq)
 
 newtype CheckExpr = CheckExpr PQ.PrimExpr
-                  deriving Show
+  deriving newtype (Show, Eq)
 
 newtype DefExpr = DefExpr PQ.PrimExpr
-                deriving Show
+  deriving newtype (Show, Eq)
 
 newtype EnumVal = EnumVal T.Text
-                deriving Show
+  deriving newtype (Show, Eq)
 
 newtype ConstraintName = ConstraintName T.Text
-                deriving Show
+  deriving newtype (Show, Eq)
 
 newtype SeqName = SeqName T.Text
-                deriving Show
+  deriving newtype (Show, Eq)
 
 type PrimDDL = PrimDDLF Identity
 type BaseLinePrimDDL = PrimDDLF Proxy
@@ -51,56 +52,11 @@ data Oid :: OidK -> Type where
   SchemaOid_ :: Int -> Oid 'SchemaOid
   OwnerOid_ :: Int -> Oid 'OwnerOid
   AttrOid_ :: Oid ownerClass -> Int -> Oid 'TypeOid -> Oid ownerClass
-  EnumOid_ :: Oid 'TypeOid -> Int -> Oid 'EnumOid
+  EnumOid_ :: Oid 'TypeOid -> Double -> Oid 'EnumOid
 
 deriving instance Show (Oid oid)
 deriving instance Eq (Oid oid)
 deriving instance Ord (Oid oid)
-
-data SomeOid where
-  SomeOid :: Oid oid -> SomeOid
-
-deriving instance Show SomeOid
-
-instance Eq SomeOid where
-  (==) (SomeOid (TableOid_ o1)) = \case
-    SomeOid (TableOid_ o2) -> o1 == o2
-    _ -> False
-  (==) (SomeOid (TypeOid_ o1)) = \case
-    SomeOid (TypeOid_ o2) -> o1 == o2
-    _ -> False
-  (==) (SomeOid (SchemaOid_ o1)) = \case
-    SomeOid (SchemaOid_ o2) -> o1 == o2
-    _ -> False
-  (==) (SomeOid (OwnerOid_ o1)) = \case
-    SomeOid (OwnerOid_ o2) -> o1 == o2
-    _ -> False
-  (==) (SomeOid (AttrOid_ t1 ix1 ft1)) = \case
-    SomeOid (AttrOid_ t2 ix2 ft2) -> (SomeOid t1 == SomeOid t2) && ix1 == ix2 && ft1 == ft2
-    _ -> False
-  (==) (SomeOid (EnumOid_ t1 ix1)) = \case
-    SomeOid (EnumOid_ t2 ix2) -> t1 == t2 && ix1 == ix2
-    _ -> False
-
-instance Ord SomeOid where
-  compare (SomeOid (TableOid_ o1)) = \case
-    SomeOid (TableOid_ o2) -> o1 `compare` o2
-    _ -> undefined
-  compare (SomeOid (TypeOid_ o1)) = \case
-    SomeOid (TypeOid_ o2) -> o1 `compare` o2
-    _ -> undefined
-  compare (SomeOid (SchemaOid_ o1)) = \case
-    SomeOid (SchemaOid_ o2) -> o1 `compare` o2
-    _ -> undefined
-  compare (SomeOid (OwnerOid_ o1)) = \case
-    SomeOid (OwnerOid_ o2) -> o1 `compare` o2
-    _ -> undefined
-  compare (SomeOid (AttrOid_ t1 ix1 ft1)) = \case
-    SomeOid (AttrOid_ t2 ix2 ft2) -> (SomeOid t1 `compare` SomeOid t2) `compare` (ix1 `compare` ix2) `compare` (ft1 `compare` ft2)
-    _ -> undefined
-  compare (SomeOid (EnumOid_ t1 ix1)) = \case
-    SomeOid (EnumOid_ t2 ix2) -> (t1 `compare` t2) `compare` (ix1 `compare` ix2)
-    _ -> undefined
 
 data InsSetK
   = CreateTypeIS
@@ -195,6 +151,73 @@ deriving instance Ord (AlterSeqInsSetId is)
 data SomeDDLInsSetId where
   SomeDDLInsSetId :: DDLInsSetId is -> SomeDDLInsSetId
 
+deriving instance Show SomeDDLInsSetId
+
+instance Eq SomeDDLInsSetId where
+  (==) sis1@(SomeDDLInsSetId (CreateTypeISId {})) = \case
+    sis2@(SomeDDLInsSetId (CreateTypeISId {})) -> sis1 == sis2
+    _ -> False
+  (==) sis1@(SomeDDLInsSetId (CreateEnumISId {})) = \case
+    sis2@(SomeDDLInsSetId (CreateEnumISId {})) -> sis1 == sis2
+    _ -> False
+  (==) sis1@(SomeDDLInsSetId (CreateSeqISId {})) = \case
+    sis2@(SomeDDLInsSetId (CreateSeqISId {})) -> sis1 == sis2
+    _ -> False
+  (==) sis1@(SomeDDLInsSetId (CreateTableISId {})) = \case
+    sis2@(SomeDDLInsSetId (CreateTableISId {})) -> sis1 == sis2
+    _ -> False
+  (==) sis1@(SomeDDLInsSetId (AlterTypeISId {})) = \case
+    sis2@(SomeDDLInsSetId (AlterTypeISId {})) -> sis1 == sis2
+    _ -> False
+  (==) sis1@(SomeDDLInsSetId (AlterSeqISIs {})) = \case
+    sis2@(SomeDDLInsSetId (AlterSeqISIs {})) -> sis1 == sis2
+    _ -> False
+  (==) sis1@(SomeDDLInsSetId (AlterTableISId {})) = \case
+    sis2@(SomeDDLInsSetId (AlterTableISId {})) -> sis1 == sis2
+    _ -> False
+  (==) sis1@(SomeDDLInsSetId (DropTableISId {})) = \case
+    sis2@(SomeDDLInsSetId (DropTableISId {})) -> sis1 == sis2
+    _ -> False
+  (==) sis1@(SomeDDLInsSetId (DropTypeISId {})) = \case
+    sis2@(SomeDDLInsSetId (DropTypeISId {})) -> sis1 == sis2
+    _ -> False
+  (==) sis1@(SomeDDLInsSetId (DropSeqISId {})) = \case
+    sis2@(SomeDDLInsSetId (DropSeqISId {})) -> sis1 == sis2
+    _ -> False
+
+instance Ord SomeDDLInsSetId where
+  compare sis1@(SomeDDLInsSetId (CreateTypeISId {})) = \case
+    sis2@(SomeDDLInsSetId (CreateTypeISId {})) -> sis1 `compare` sis2
+    _ -> undefined
+  compare sis1@(SomeDDLInsSetId (CreateEnumISId {})) = \case
+    sis2@(SomeDDLInsSetId (CreateEnumISId {})) -> sis1 `compare` sis2
+    _ -> undefined
+  compare sis1@(SomeDDLInsSetId (CreateSeqISId {})) = \case
+    sis2@(SomeDDLInsSetId (CreateSeqISId {})) -> sis1 `compare` sis2
+    _ -> undefined
+  compare sis1@(SomeDDLInsSetId (CreateTableISId {})) = \case
+    sis2@(SomeDDLInsSetId (CreateTableISId {})) -> sis1 `compare` sis2
+    _ -> undefined
+  compare sis1@(SomeDDLInsSetId (AlterTypeISId {})) = \case
+    sis2@(SomeDDLInsSetId (AlterTypeISId {})) -> sis1 `compare` sis2
+    _ -> undefined
+  compare sis1@(SomeDDLInsSetId (AlterSeqISIs {})) = \case
+    sis2@(SomeDDLInsSetId (AlterSeqISIs {})) -> sis1 `compare` sis2
+    _ -> undefined
+  compare sis1@(SomeDDLInsSetId (AlterTableISId {})) = \case
+    sis2@(SomeDDLInsSetId (AlterTableISId {})) -> sis1 `compare` sis2
+    _ -> undefined
+  compare sis1@(SomeDDLInsSetId (DropTableISId {})) = \case
+    sis2@(SomeDDLInsSetId (DropTableISId {})) -> sis1 `compare` sis2
+    _ -> undefined
+  compare sis1@(SomeDDLInsSetId (DropTypeISId {})) = \case
+    sis2@(SomeDDLInsSetId (DropTypeISId {})) -> sis1 `compare` sis2
+    _ -> undefined
+  compare sis1@(SomeDDLInsSetId (DropSeqISId {})) = \case
+    sis2@(SomeDDLInsSetId (DropSeqISId {})) -> sis1 `compare` sis2
+    _ -> undefined    
+
+
 data DataSafety
   = Lossy
   | Lossless
@@ -285,6 +308,7 @@ data PrimDDLF (f :: Type -> Type)
 
 
 deriving instance (Show (f [Column]), Show (f [EnumVal])) => Show (PrimDDLF f)
+deriving instance (Eq (f [Column]), Eq (f [EnumVal])) => Eq (PrimDDLF f)
 
 data AlterTable
   = AddColumn      Column
@@ -294,25 +318,25 @@ data AlterTable
   | AddConstraint  ConstraintName AddConstraint
   | DropConstraint DropConstraint
   | DropColumn     ColName
-  deriving (Show)
+  deriving (Show, Eq)
 
 data DropConstraint
   = DropPrimaryKey ConstraintName
   | DropUnique     ConstraintName
   | DropCheck      ConstraintName
   | DropForeignKey ConstraintName
-  deriving (Show)
+  deriving (Show, Eq)
 
 data AlterSeq
   = AddOwner PQ.TableId ColName
-  deriving (Show)
+  deriving (Show, Eq)
 
 data AddConstraint
   = AddPrimaryKey [ColName]
   | AddUnique     [ColName]
   | AddCheck      CheckExpr
   | AddForeignKey [ColName] PQ.TableId [ColName]
-  deriving (Show)
+  deriving (Show, Eq)
 
 data AlterColumn
   = SetNotNull
@@ -320,7 +344,7 @@ data AlterColumn
   | ChangeType ColType
   | AddDefault DefExpr
   | DropDefault
-  deriving (Show)
+  deriving (Show, Eq)
 
 data AlterType
   = RenameType       DBTypeName
@@ -330,8 +354,8 @@ data AlterType
   | AddAfterEnumVal  EnumVal     EnumVal
   | AddBeforeEnumVal EnumVal     EnumVal
   | DropAttribute    ColName
-  deriving (Show)
+  deriving (Show, Eq)
 
 data AlterAttribute
   = ChangeAttrType ColType
-  deriving (Show)
+  deriving (Show, Eq)

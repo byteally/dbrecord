@@ -387,6 +387,9 @@ instance ShowQuery PGS where
   showUpdateQuery _ = PG.renderUpdate . PG.updateSql
   showDeleteQuery _ = PG.renderDelete . PG.deleteSql
 
+instance HasDDLQuery PGS where
+  dbDDLQuery (PGS _conn) _ddlQs = undefined
+
 runPGExpr :: Expr sc a -> String
 runPGExpr = PG.renderExpr . PG.toSqlExpr . getExpr
 

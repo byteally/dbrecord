@@ -10,6 +10,7 @@ module DBRecord.Internal.Driver
   , HasDelete (..)
   , HasDeleteRet (..)
   , ShowQuery (..)
+  , HasDDLQuery (..)
   , HasSessionConfig (..)
   , Session (..)
   , HasTransaction (..)
@@ -22,6 +23,7 @@ import qualified Control.Monad.Trans.Control as U
 import Data.Int
 import Data.Proxy
 import qualified DBRecord.Internal.PrimQuery as PQ
+import qualified DBRecord.Internal.DDL as PDDLQ
 import Control.Monad.Reader
 
 type family DBM (db :: Type) = (r :: Type -> Type) | r -> db
@@ -76,6 +78,9 @@ class ShowQuery driver where
   showInsertQuery :: SessionConfig driver -> PQ.InsertQuery -> String
   showUpdateQuery :: SessionConfig driver -> PQ.UpdateQuery -> String
   showDeleteQuery :: SessionConfig driver -> PQ.DeleteQuery -> String
+
+class HasDDLQuery driver where
+  dbDDLQuery :: driver -> [PDDLQ.PrimDDLF Proxy] -> IO () 
 
 class HasSessionConfig e driver | e -> driver where
   getSessionConfig :: e -> SessionConfig driver

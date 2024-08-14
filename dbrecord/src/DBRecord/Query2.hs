@@ -623,6 +623,14 @@ order ordFn = scoped $ \(clau, inp) -> (clau {PQ.orderbys = PQ.orderbys clau <> 
 restrict :: forall i sc s.(Scoped s sc i -> Expr sc Bool) -> Clause s sc i ()
 restrict filtFn = scoped $ \(clau, inp) -> (clau {PQ.criteria = PQ.criteria clau <> [getExpr (filtFn inp)]}, ())
 
+-- byKey :: forall tab sc s. (Table sc tab) => Clause s sc tab ()
+-- byKey = undefined
+
+-- byUniq :: forall tab sc s. (Table sc tab) => Clause s sc tab ()
+-- byUniq = undefined
+
+-- type family PkType sc tab (pks :: [Symbol]) where
+--   PkType sc tab '[kn] = Expr sc (Field kn tab)
 
 data SelectList sc os = SelectList [TypeRep] (HRec (Expr sc) os)
 
@@ -729,7 +737,7 @@ selectList :: forall xs sc.() => (SelectList sc xs) -> Query sc (Rec xs)
 selectList sels =
   let
     tabV = selectListToTable sels
-  in Query' (tabV, state (\s -> (snd s, s)), PQ.Table Nothing, ReadQType ManyR)  
+  in Query' (tabV, state (\s -> (snd s, s)), PQ.Table Nothing, ReadQType ManyR)
 
 -- * Grouping
 aggregate :: forall o i sc.

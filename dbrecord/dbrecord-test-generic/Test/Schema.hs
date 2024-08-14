@@ -2,12 +2,14 @@
 {-# LANGUAGE DerivingVia             #-}
 {-# LANGUAGE DeriveAnyClass          #-}
 {-# LANGUAGE OverloadedStrings       #-}
-{-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE UndecidableInstances    #-}
+{-# LANGUAGE DuplicateRecordFields   #-}
 module Test.Schema
   ( module Test.Schema
   ) where
 
 import DBRecord.Prelude
+import DBRecord.Internal.Schema -- TODO: Remove this
 import GHC.Generics
 import Data.Text (Text)
 import Data.CaseInsensitive  (CI)
@@ -20,6 +22,7 @@ import Data.Aeson (Value)
 import Data.Vector (Vector)
 import Data.Map.Strict (Map)
 import Data.List.NonEmpty (NonEmpty)
+import GHC.TypeLits
 
 data TestDB = TestDB
 
@@ -60,7 +63,7 @@ data PrimOnly = PrimOnly
     deriving anyclass (DBRepr db)
 
 instance Table TestDB PrimOnly where
-  type TableId TestDB PrimOnly = 10
+  type TableId TestDB PrimOnly = '(TestDB, 1)
   type NewRow TestDB PrimOnly = PrimOnly
 
 allPrimOnly :: Query TestDB PrimOnly
@@ -262,3 +265,72 @@ data USumOfCol2 (sc :: Type)
   | USOC28 (Expr sc TaggedSum2)
   | USOC29 (Expr sc TaggedSum4)
   deriving (Generic)
+
+-- Mig
+
+data TestMig (rev :: Nat) = TestMig
+  deriving (Show, Eq, Generic)
+
+instance Database (TestMig rev) where
+  
+instance Schema (TestMig rev) where
+  type SchemaDB (TestMig rev) = TestMig rev
+
+instance DBCatalog (TestMig rev) where
+  type Schemas (TestMig rev) = '[TestMig rev]
+  type DatabaseOf (TestMig rev) = TestMig rev
+  
+instance SchemaCatalog (TestMig rev) where
+  type DatabaseCatalog (TestMig rev) = TestMig rev
+  type SchemaOf (TestMig rev) = TestMig rev
+  type Tables (TestMig rev) = '[]
+
+data Tab1V0 = Tab1V0
+  { 
+  } deriving (Show, Eq, Generic)
+    deriving (DBRepr db)
+
+-- TODO: Columnless table is not possible currently
+-- instance Table (TestMig 0) Tab1V0 where
+--   type TableId (TestMig 0) Tab1V0 = '(TestMig 0, 1)
+--   type NewRow (TestMig 0) Tab1V0 = Tab1V0
+
+-- ^ Init
+
+data Tab1V1 = Tab1V1
+  { c1 :: Int32  
+  } deriving (Show, Eq, Generic)
+    deriving (DBRepr db)
+
+instance Table (TestMig 1) Tab1V1 where
+  type TableId (TestMig 1) Tab1V1 = '(TestMig 1, 1)
+  type NewRow (TestMig 1) Tab1V1 = Tab1V1
+
+-- ^ Add c2
+data Tab1V2 = Tab1V2
+  { c1 :: Int32
+  , c2 :: Int64 -- | New Column
+  } deriving (Show, Eq, Generic)
+    deriving (DBRepr db)
+
+instance Table (TestMig 2) Tab1V2 where
+  type TableId (TestMig 2) Tab1V2 = '(TestMig 2, 1)
+  type NewRow (TestMig 2) Tab1V2 = Tab1V2
+
+data Tab1V3 = Tab1V3
+  { c1_1 :: Int32 -- | Rename c1 -> c1_1
+  , c2 :: Int64
+  } deriving (Show, Eq, Generic)
+    deriving (DBRepr db)
+
+data Tab1V4 = Tab1V4
+  { c1_1 :: Int32
+  , c2 :: Maybe Int64  -- | Set change c2 to nullable
+  } deriving (Show, Eq, Generic)
+    deriving (DBRepr db)
+
+data Tab1V5 = Tab1V5
+  { c1_1 :: Int32
+  , c2 :: Maybe Int64  -- | Set change c2 to nullable
+  } deriving (Show, Eq, Generic)
+    deriving (DBRepr db)
