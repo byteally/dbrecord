@@ -125,7 +125,13 @@ data ConflictAction = ConflictDoNothing
 
 type Projection = (Text, PrimExpr)
 
+data Option =
+    All
+  | Distinct (Maybe (NEL.NonEmpty PrimExpr))
+  deriving Show
+
 data Clauses = Clauses { projections :: [Projection]
+                       , options     :: Maybe Option
                        , criteria    :: [PrimExpr]
                        , windows     :: [WindowClause]
                        , groupbys    :: [PrimExpr]
@@ -139,6 +145,7 @@ data Clauses = Clauses { projections :: [Projection]
 clauses :: Clauses
 clauses =
   Clauses { projections = []
+          , options     = Nothing
           , criteria    = []
           , windows     = []
           , groupbys    = []

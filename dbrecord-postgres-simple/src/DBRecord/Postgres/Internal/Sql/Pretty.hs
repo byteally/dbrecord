@@ -52,6 +52,7 @@ ppSelectWith from tabDoc =
     ppAs (doubleQuotes . text <$> DML.alias from) $
     parens $ 
       text "SELECT"
+  $$  ppOptions (options from)
   <+> ppAttrs (attrs from)
   $$  ppTab
   $$  ppWhere (DML.criteria from)
@@ -72,6 +73,15 @@ ppProduct = ppTables
 ppAttrs :: SelectAttrs -> Doc
 ppAttrs All            = text "*"
 ppAttrs (Columns cols) = (commaV nameAs . toList) cols
+
+ppOptions :: Maybe SelectOption -> Doc
+ppOptions =
+  maybe empty go
+
+  where
+    go SelectAll                  = space <> text "ALL"
+    go (SelectDistinct Nothing)   = space <> text "DISTINCT" 
+    go (SelectDistinct (Just vs)) = space <> (text "DISTINCT" <+> commaH ppExpr (NEL.toList vs))
 
 nameAs :: (SqlExpr, Maybe SqlColumn) -> Doc
 nameAs (expr, n) = ppAs (fmap unColumn n) (ppExpr expr)
@@ -284,6 +294,8 @@ ppExpr expr =
     AnonWindowSqlExpr p o e -> ppExpr e <+> text "OVER" <+> parens (partPP p <> ppOrderBy o)
       where partPP     [] = empty
             partPP     xs = text "PARTITION BY" <+> (commaH ppExpr xs <> space)
+    RowSqlExpr es      -> text "ROW" <> parens (commaH ppExpr es)
+            
 
 ppBinOp :: BinOp -> Doc
 ppBinOp = text . go

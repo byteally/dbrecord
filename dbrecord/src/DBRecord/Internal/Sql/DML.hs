@@ -104,8 +104,13 @@ data SqlSelect = SqlProduct [SqlTableExpr] SelectFrom       -- ^ product
                | SqlValues SqlValues Alias              -- ^ values
                  deriving (Show, Read,Eq)
 
+data SelectOption =
+    SelectAll
+  | SelectDistinct (Maybe (NEL.NonEmpty SqlExpr))
+  deriving (Show, Read, Eq)
+
 data SelectFrom = SelectFrom
-  { options   :: [String]                 -- ^ DISTINCT, ALL etc.
+  { options   :: Maybe SelectOption       -- ^ DISTINCT, ALL etc.
   , attrs     :: SelectAttrs              -- ^ result
   , windows   :: [WindowExpr]             -- ^ windows  
   , criteria  :: [SqlExpr]                -- ^ WHERE
@@ -164,6 +169,7 @@ data SqlExpr = ColumnSqlExpr  SqlColumn
              | TableSqlExpr SqlSelect
              | NamedWindowSqlExpr String SqlExpr
              | AnonWindowSqlExpr [SqlExpr] [(SqlExpr, SqlOrder)] SqlExpr
+             | RowSqlExpr   [SqlExpr]             
              | DefaultSqlExpr
              deriving (Show, Read, Eq)
 

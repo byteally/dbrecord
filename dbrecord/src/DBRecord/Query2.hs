@@ -35,13 +35,14 @@ module DBRecord.Query2
   , intersectAll
   , except
   , exceptAll
+  , distinctOrder
+  , distinct  
   , order
   , restrict
   , selectAll
   , select
   , selectAgg -- TODO: Get rid off
   , using
-  , selectDistinct
   , selectNone
   , selectExpr
   , selectList
@@ -612,7 +613,22 @@ binQ binType q1 q2 =
               , ReadQType ManyR
               )
 
+-- Distinct order applies order by as usual along with adding a DISTINCT ON on the select with the ordered columns
+distinct :: forall i sc s.Clause s sc i ()
+distinct = scoped $ \(clau, _) ->
+  (clau {PQ.options = pure (PQ.Distinct Nothing)}, ())
+
 -- * Ordering
+
+-- Distinct order applies order by as usual along with adding a DISTINCT ON on the select with the ordered columns
+distinctOrder :: forall i sc s.(Scoped s sc i -> Order sc) -> Clause s sc i ()
+distinctOrder ordFn = scoped $ \(clau, inp) ->
+  let ords = getOrder (ordFn inp)
+      exps = NE.nonEmpty $ map go ords
+  in (clau {PQ.orderbys = ords, PQ.options = fmap (PQ.Distinct . Just) exps}, ())
+
+  where
+    go (PQ.OrderExpr _ e) = e
 
 -- ORDER BY can be applied to the result of a UNION, INTERSECT, or EXCEPT combination, but in this case it is only permitted to sort by output column names or numbers, not by expressions.
 
@@ -689,8 +705,19 @@ instance (R.HasField fn i t, KnownSymbol fn, Typeable t) => R.HasField (fn :: Sy
 
 instance R.HasField fn (HRec (Expr sc) os) (Expr sc t) => R.HasField (fn :: Symbol) (SelectList sc os) (Expr sc t) where
   getField (SelectList _ r) = R.getField @fn r
-  
-  
+
+{-
+distinct :: forall i os sc s. Clause s sc i (SelectList sc os) -> Clause s sc i (SelectList sc os)
+
+distinctOn :: forall i os sc s.
+  ( 
+  ) => (Scoped s sc i -> SelectList sc os) -> Clause s sc i (SelectList sc os) -> Clause s sc i (SelectList sc os)
+distinctOn distinctFn clau =
+  scoped $ \(clau, scopes) -> let selCols = selFn (SelectScope scopes)
+                                  distCols = distinctFn (SelectScope scopes)
+                              in (clau, selectListToTable selCols)  
+-}
+
 -- * Select List
 
 selectAll :: forall i sc s.Clause s sc i (TableValue sc Identity i)
@@ -716,11 +743,6 @@ newtype Aggregated a = Aggregated { _unAgg :: Identity a}
 SELECT DISTINCT select_list ...
 SELECT DISTINCT ON (expression [, expression ...]) select_list ...
 -}
-
-selectDistinct :: forall i os sc s.
-  ( 
-  ) => (Scoped s sc i -> SelectList sc os) -> Clause s sc i (SelectList sc os)
-selectDistinct = undefined
 
 selectNone :: forall i sc s.Clause s sc i (TableValue sc Identity ())
 selectNone = scoped $ \(clau, _) -> (clau, EmptyTable)

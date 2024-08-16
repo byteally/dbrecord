@@ -62,7 +62,7 @@ sqlInsertGenerator = PQ.InsertQueryFold
 
 newSelect :: SelectFrom
 newSelect = SelectFrom {
-  options   = [],
+  options   = Nothing,
   DML.attrs     = All,
   DML.criteria  = [],
   groupby   = Nothing,
@@ -77,6 +77,7 @@ newSelect = SelectFrom {
 baseClauses :: PQ.Clauses -> SelectFrom
 baseClauses cs = 
     newSelect { DML.attrs    = Columns (ensureColumns (map sqlBinding (project' (PQ.projections cs))))
+              , options      = toSqlOptions <$> (PQ.options cs)
               , DML.criteria = map toSqlExpr (PQ.criteria cs)
               , windows      = map toSqlWindow (PQ.windows cs)                 
               , groupby  = case (PQ.groupbys cs) of
@@ -87,6 +88,10 @@ baseClauses cs =
               , offset   = toSqlExpr <$> (PQ.offset cs)
               , orderby  = map toSqlOrder (PQ.orderbys cs)
               }
+
+toSqlOptions :: PQ.Option -> DML.SelectOption
+toSqlOptions PQ.All = DML.SelectAll
+toSqlOptions (PQ.Distinct vs) = DML.SelectDistinct (fmap (fmap toSqlExpr) vs)
 
 table :: Maybe (PQ.TableExpr SqlSelect) -> PQ.Clauses -> SqlSelect
 table tab cs = SqlSelect (toSqlTable <$> tab) $ 
@@ -264,6 +269,7 @@ defaultSqlExpr gen expr = case expr of
   PQ.AnonWindowExpr p o e -> AnonWindowSqlExpr (map (sqlExpr gen) p)
                                               (map (sqlOrder gen) o)
                                               (sqlExpr gen e)
+  PQ.RowExpr es          -> RowSqlExpr (map (sqlExpr gen) es)
   p                      -> error ("Panic: Unexpected flatcomposite" ++ show p)
 
 updateFlatComposite :: PQ.PrimExpr -> PQ.PrimExpr
