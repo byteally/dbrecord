@@ -39,6 +39,9 @@ newtype Interval = Interval T.Text
 newtype LTree = LTree [T.Text]
               deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
+newtype LQuery = LQuery LTree
+              deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
 newtype Key (t :: k) (v :: Type) = Key {getKey :: v}
   deriving newtype (Show, Read, Eq, Ord, ToJSON, FromJSON)
 #ifndef ghcjs_HOST_OS

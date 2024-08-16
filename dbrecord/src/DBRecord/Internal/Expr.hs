@@ -134,6 +134,9 @@ instance (ConstExpr sc a) => ConstExpr sc (Maybe a) where
 instance ConstExpr sc LTree where
   toConstExpr = ltree
 
+instance ConstExpr sc LQuery where
+  toConstExpr = coerceExpr . ltree . coerce
+
 ltree :: LTree -> Expr sc LTree
 ltree (LTree vs) = go vs
     where

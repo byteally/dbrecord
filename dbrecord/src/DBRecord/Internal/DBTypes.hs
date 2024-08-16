@@ -26,7 +26,7 @@ import Data.Coerce
 import Data.Proxy
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
-import DBRecord.Types (PGOID(..), PGOIDType(..), LTree{-, Interval-}, Json {-, JsonStr,-})
+import DBRecord.Types (PGOID(..), PGOIDType(..), LTree{-, Interval-}, Json {-, JsonStr,-}, LQuery)
 import qualified DBRecord.Types as DBR
 
 import Data.Vector (Vector)
@@ -690,6 +690,14 @@ instance DBRepr dbk LTree where
   
   typeName = ""
 
+instance DBRepr dbk LQuery where
+  type ToDBType dbk LQuery = 'NativeTypeObj 'TDBText -- TODO: Fix
+  type Fields LQuery = '[]
+  type Ctors LQuery = '[]
+  
+  typeName = ""
+
+
 -- UD Type
 newtype TypeName (dbk :: DbK) ty = TypeName Text
 
@@ -852,6 +860,7 @@ instance ( HasDiscriminator enk sc t
          , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher (DB (SchemaDB sc)) pfx t m
          , Generic (m sc)
          , GenHasSumRepr (DB (SchemaDB sc)) t m sc (Rep (m sc))
+         , DBTypeOf sc t
          ) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'CompositeRec)) 'True where
   autoConstExpr _ t =
     let
@@ -860,12 +869,13 @@ instance ( HasDiscriminator enk sc t
       mat cn cpos cargM =
         let
           discPE = getDiscriminator (Proxy @'(enk, sc, t)) cn cpos
-        in PQ.RowExpr $ discPE : (catMaybes $ fmap (\(cpos', (_, hasArg, _)) -> case (cpos == cpos', hasArg) of
-                                          (True, _) -> cargM
+        in PQ.RowExpr $ discPE : (catMaybes $ fmap (\(_cpos', (cn', hasArg, _)) -> case (cn == cn' {-cpos == cpos'-}, hasArg) of
+                                          (True, True) -> maybe (Just $ PQ.ConstExpr PQ.Null) Just cargM
+                                          (True, False) -> Nothing                                          
                                           (False, False) -> Nothing
                                           (False, True) -> Just $ PQ.ConstExpr PQ.Null
-                                      ) (zip [1 .. ] allCons))
-    in Expr $ sMatcher @sc Proxy mat t
+                                      ) (zip [(1 :: Int) .. ] allCons))
+    in annotateType @t (Expr $ sMatcher @sc Proxy mat t)
 
 instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr TaggedSum")) => AutoConstExpr sc t ('UDTypeObj ('TaggedSum enk 'JsonRec)) 'True where
   autoConstExpr _ _t = error "Panic: TODO"
@@ -895,6 +905,7 @@ instance ( HasDiscriminator enk sc t
          , Generic t
          , GenSumMatcher (DB (SchemaDB sc)) t sc (Rep t)
          , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher (DB (SchemaDB sc)) pfx t m
+         , DBTypeOf sc t
          ) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'CompositeRec)) 'True where
   autoConstExpr _ t =
     let
@@ -903,7 +914,7 @@ instance ( HasDiscriminator enk sc t
         let
           discPE = getDiscriminator (Proxy @'(enk, sc, t)) cn cpos
         in PQ.RowExpr $ discPE : (maybe [] (:[]) cargM)
-    in Expr $ sMatcher @sc Proxy mat t
+    in annotateType @t (Expr $ sMatcher @sc Proxy mat t)
 
 instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr TaggedSumMono")) => AutoConstExpr sc t ('UDTypeObj ('TaggedSumMono enk colty 'JsonRec)) 'True where
   autoConstExpr _ _t = error "Panic: TODO"
@@ -930,6 +941,7 @@ instance ( DBRepr (DB (SchemaDB sc)) t
          , Generic (m sc)
          , GenHasSumRepr (DB (SchemaDB sc)) t m sc (Rep (m sc))
          , Matcher (DB (SchemaDB sc)) t ~ 'SumMatcher (DB (SchemaDB sc)) pfx t m
+         , DBTypeOf sc t
          ) => AutoConstExpr sc t ('UDTypeObj ('SumOfCol 'CompositeRec)) 'True where
   autoConstExpr _ t =
     let
@@ -942,7 +954,7 @@ instance ( DBRepr (DB (SchemaDB sc)) t
                                            then carg
                                            else PQ.ConstExpr PQ.Null
                                        ) (zip [1..] allCons)
-    in Expr $ sMatcher @sc Proxy mat t
+    in annotateType @t (Expr $ sMatcher @sc Proxy mat t)
 
 instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr SumOfCol")) => AutoConstExpr sc t ('UDTypeObj ('SumOfCol 'JsonRec)) 'True where
   autoConstExpr _ _t = error "Panic: TODO"

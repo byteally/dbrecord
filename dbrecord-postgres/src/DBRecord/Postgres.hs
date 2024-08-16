@@ -1,9 +1,13 @@
+{-# LANGUAGE OverloadedStrings          #-}
 module DBRecord.Postgres
   ( module DBRecord.Postgres
   ) where
 
-import DBRecord
-import Data.Text (Text)
+
+import           DBRecord
+import qualified DBRecord.Internal.PrimQuery as PQ
+import           DBRecord.Prelude
+import           Data.Text (Text)
 
 -- Functions
 -- String Functions and Operators
@@ -63,3 +67,11 @@ upper = undefined
 -- Enum Support Functions
 
 
+cardinality :: Expr sc [a] -> Expr sc Int
+cardinality e = Expr $ PQ.FunExpr "cardinality" [getExpr e]
+
+(~~) :: Expr sc LTree -> Expr sc LQuery -> Expr sc Bool
+a ~~ b = binOp (PQ.OpOther "~") a b
+
+prefixQ :: LTree -> LQuery
+prefixQ (LTree xs) = LQuery (LTree (xs <> ["*"]))
