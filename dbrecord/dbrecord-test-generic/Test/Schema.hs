@@ -29,7 +29,7 @@ data TestDB = TestDB
 instance Database TestDB where
   type DB TestDB = 'Postgres
   databaseName = "dbr_testdb"
-  
+
 instance Schema TestDB where
   type SchemaDB TestDB = TestDB
   schemaName = "test_schema"
@@ -40,7 +40,7 @@ data PrimOnly = PrimOnly
   , i64 :: Int64
   , i16 :: Int16
   -- TODO: Needs Enumalation
-  -- , i8 :: Int8 
+  -- , i8 :: Int8
   -- , w32 :: Word32
   -- , w64 :: Word64
   -- , w16 :: Word16
@@ -143,7 +143,7 @@ data NestCompRec1 = NestCompRec1
   , ncrXblob :: Maybe XmlBlob1
   } deriving (Show, Eq, Generic)
     deriving (DBRepr 'Postgres) via AsCompositeRec NestCompRec1
-  
+
 data TaggedSum1
   = Tag0
   | Tag1 CompRec1
@@ -272,21 +272,21 @@ data TestMig (rev :: Nat) = TestMig
   deriving (Show, Eq, Generic)
 
 instance Database (TestMig rev) where
-  
+
 instance Schema (TestMig rev) where
   type SchemaDB (TestMig rev) = TestMig rev
 
 instance DBCatalog (TestMig rev) where
   type Schemas (TestMig rev) = '[TestMig rev]
   type DatabaseOf (TestMig rev) = TestMig rev
-  
+
 instance SchemaCatalog (TestMig rev) where
   type DatabaseCatalog (TestMig rev) = TestMig rev
   type SchemaOf (TestMig rev) = TestMig rev
-  type Tables (TestMig rev) = '[]
+  type Tables (TestMig rev) = TestMigTables rev
 
 data Tab1V0 = Tab1V0
-  { 
+  {
   } deriving (Show, Eq, Generic)
     deriving (DBRepr db)
 
@@ -298,13 +298,14 @@ data Tab1V0 = Tab1V0
 -- ^ Init
 
 data Tab1V1 = Tab1V1
-  { c1 :: Int32  
+  { c1 :: Int32
   } deriving (Show, Eq, Generic)
     deriving (DBRepr db)
 
 instance Table (TestMig 1) Tab1V1 where
   type TableId (TestMig 1) Tab1V1 = '(TestMig 1, 1)
   type NewRow (TestMig 1) Tab1V1 = Tab1V1
+  tableName = "tab1"
 
 -- ^ Add c2
 data Tab1V2 = Tab1V2
@@ -316,12 +317,18 @@ data Tab1V2 = Tab1V2
 instance Table (TestMig 2) Tab1V2 where
   type TableId (TestMig 2) Tab1V2 = '(TestMig 2, 1)
   type NewRow (TestMig 2) Tab1V2 = Tab1V2
+  tableName = "tab1"
 
 data Tab1V3 = Tab1V3
   { c1_1 :: Int32 -- | Rename c1 -> c1_1
   , c2 :: Int64
   } deriving (Show, Eq, Generic)
     deriving (DBRepr db)
+
+instance Table (TestMig 3) Tab1V3 where
+  type TableId (TestMig 3) Tab1V3 = '(TestMig 3, 1)
+  type NewRow (TestMig 3) Tab1V3 = Tab1V3
+  tableName = "tab1"
 
 data Tab1V4 = Tab1V4
   { c1_1 :: Int32
@@ -334,3 +341,11 @@ data Tab1V5 = Tab1V5
   , c2 :: Maybe Int64  -- | Set change c2 to nullable
   } deriving (Show, Eq, Generic)
     deriving (DBRepr db)
+
+type family TestMigTables rev where
+  TestMigTables 1 = '[ Tab1V1
+                     ]
+  TestMigTables 2 = '[ Tab1V2
+                     ]
+  TestMigTables 3 = '[ Tab1V3
+                     ]

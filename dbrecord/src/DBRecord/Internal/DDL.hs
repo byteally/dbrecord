@@ -6,7 +6,8 @@ module DBRecord.Internal.DDL where
 
 import qualified Data.Text as T
 import qualified DBRecord.Internal.PrimQuery as PQ
-import DBRecord.Internal.Types (DBType (..), DBTypeName(..))
+import DBRecord.Internal.Types (DBType (..), DBTypeName(..), Sing, SingE(..))
+import DBRecord.Internal.Schema
 import Data.Kind
 import Data.Proxy
 import Data.Functor.Identity
@@ -43,23 +44,75 @@ data OidK
   | TypeOid
   | SchemaOid
   | OwnerOid
-  | AttrOid
+  | AttrOid OidK
   | EnumOid
+  deriving (Show, Eq, Ord)
 
+data TypeOid
+  = UDTyOid Int
+  | PrimTyOid Int
 data Oid :: OidK -> Type where
   TableOid_ :: Int -> Oid 'TableOid
   TypeOid_ :: Int -> Oid 'TypeOid
-  SchemaOid_ :: Int -> Oid 'SchemaOid
+  SchemaOid_ :: T.Text -> Oid 'SchemaOid
   OwnerOid_ :: Int -> Oid 'OwnerOid
-  AttrOid_ :: Oid ownerClass -> Int -> Oid 'TypeOid -> Oid ownerClass
+  AttrOid_ :: Oid ownerClass -> Int -> Oid 'TypeOid -> Oid ('AttrOid ownerClass)
   EnumOid_ :: Oid 'TypeOid -> Double -> Oid 'EnumOid
 
 deriving instance Show (Oid oid)
 deriving instance Eq (Oid oid)
 deriving instance Ord (Oid oid)
 
+data SomeOid where
+  SomeOid :: Oid oidk -> SomeOid
+
+instance Eq SomeOid where
+  (==) (SomeOid o1@(TableOid_ {})) = \case
+    (SomeOid o2@(TableOid_ {})) -> o1 == o2
+    _ -> False
+  (==) (SomeOid o1@(TypeOid_ {})) = \case
+    (SomeOid o2@(TypeOid_ {})) -> o1 == o2
+    _ -> False
+  (==) (SomeOid o1@(SchemaOid_ {})) = \case
+    (SomeOid o2@(SchemaOid_ {})) -> o1 == o2
+    _ -> False
+  (==) (SomeOid o1@(OwnerOid_ {})) = \case
+    (SomeOid o2@(OwnerOid_ {})) -> o1 == o2
+    _ -> False
+  (==) (SomeOid (AttrOid_ s1 pos1 t1)) = \case
+    (SomeOid (AttrOid_ s2 pos2 t2)) -> (SomeOid s1) == (SomeOid s2) &&
+                                       pos1 == pos2 &&
+                                       (SomeOid t1) == (SomeOid t2)
+    _ -> False
+  (==) (SomeOid o1@(EnumOid_ {})) = \case
+    (SomeOid o2@(EnumOid_ {})) -> o1 == o2
+    _ -> False
+
+instance Ord SomeOid where
+  compare (SomeOid o1@(TableOid_ {})) = \case
+    (SomeOid o2@(TableOid_ {})) -> o1 `compare` o2
+    SomeOid o2 -> fromSing (SingOid o1) `compare` fromSing (SingOid o2)
+  compare (SomeOid o1@(TypeOid_ {})) = \case
+    (SomeOid o2@(TypeOid_ {})) -> o1 `compare` o2
+    SomeOid o2 -> fromSing (SingOid o1) `compare` fromSing (SingOid o2)
+  compare (SomeOid o1@(SchemaOid_ {})) = \case
+    (SomeOid o2@(SchemaOid_ {})) -> o1 `compare` o2
+    SomeOid o2 -> fromSing (SingOid o1) `compare` fromSing (SingOid o2)
+  compare (SomeOid o1@(OwnerOid_ {})) = \case
+    (SomeOid o2@(OwnerOid_ {})) -> o1 `compare` o2
+    SomeOid o2 -> fromSing (SingOid o1) `compare` fromSing (SingOid o2)
+  compare (SomeOid o1@(AttrOid_ s1 pos1 t1)) = \case
+    (SomeOid (AttrOid_ s2 pos2 t2)) -> ((SomeOid s1) `compare` (SomeOid s2)) `compare`
+                                       (pos1 `compare` pos2) `compare`
+                                       ((SomeOid t1) `compare` (SomeOid t2))
+    SomeOid o2 -> fromSing (SingOid o1) `compare` fromSing (SingOid o2)
+  compare (SomeOid o1@(EnumOid_ {})) = \case
+    (SomeOid o2@(EnumOid_ {})) -> o1 `compare` o2
+    SomeOid o2 -> fromSing (SingOid o1) `compare` fromSing (SingOid o2)
+
 data InsSetK
-  = CreateTypeIS
+  = RootIS OidK
+  | CreateTypeIS
   | CreateEnumIS
   | CreateSeqIS
   | CreateTableIS
@@ -69,6 +122,7 @@ data InsSetK
   | DropTableIS
   | DropTypeIS
   | DropSeqIS
+  deriving (Show, Eq, Ord)
 
 data AlterTypeInsSetK
   = RenameTypeIS
@@ -78,6 +132,7 @@ data AlterTypeInsSetK
   | AddAfterEnumValIS
   | AddBeforeEnumValIS
   | DropAttributeIS
+  deriving (Show, Eq, Ord)
 
 data AlterTableInsSetK
   = AddColumnIS
@@ -87,12 +142,15 @@ data AlterTableInsSetK
   | AddConstraintIS AddConstraintInsSetK
   | DropConstraintIS DropConstraintInsSetK
   | DropColumnIS
+  deriving (Show, Eq, Ord)
 
 data AlterSeqInsSetK
   = AddOwnerIS
+  deriving (Show, Eq, Ord)
 
 data AlterAttributeInsSetK
   = ChangeAttrTypeIS
+  deriving (Show, Eq, Ord)
 
 data AlterColumnInsSetK
   = SetNotNullIS
@@ -100,26 +158,30 @@ data AlterColumnInsSetK
   | ChangeTypeIS
   | AddDefaultIS
   | DropDefaultIS
+  deriving (Show, Eq, Ord)
 
 data AddConstraintInsSetK
   = AddPrimaryKeyIS
   | AddUniqueIS
   | AddCheckIS
   | AddForeignKeyIS
+  deriving (Show, Eq, Ord)
 
 data DropConstraintInsSetK
   = DropPrimaryKeyIS
   | DropUniqueIS
   | DropCheckIS
   | DropForeignKeyIS
+  deriving (Show, Eq, Ord)
 
 data DDLInsSetId :: InsSetK -> Type where
+  RootISId :: Oid oidk -> T.Text -> DDLInsSetId ('RootIS oidk)
   CreateTypeISId :: Oid 'TypeOid -> DDLInsSetId 'CreateTypeIS
   CreateEnumISId :: Oid 'TypeOid -> DDLInsSetId 'CreateEnumIS
   CreateSeqISId :: Oid 'TableOid -> DDLInsSetId 'CreateSeqIS
   CreateTableISId :: Oid 'TableOid -> DDLInsSetId 'CreateTableIS
   AlterTypeISId :: Oid 'TypeOid -> AlterTypeInsSetId alterTypeISId -> DDLInsSetId ('AlterTypeIS alterTypeISId)
-  AlterSeqISIs :: AlterSeqInsSetId alterSeqISId -> DDLInsSetId ('AlterSeqIS alterSeqISId)
+  AlterSeqISId :: AlterSeqInsSetId alterSeqISId -> DDLInsSetId ('AlterSeqIS alterSeqISId)
   AlterTableISId :: Oid 'TableOid -> AlterTableInsSetId alterTableISId -> DDLInsSetId ('AlterTableIS alterTableISId)
   DropTableISId :: Oid 'TableOid -> DDLInsSetId 'DropTableIS
   DropTypeISId :: Oid 'TypeOid -> DDLInsSetId 'DropTypeIS
@@ -130,19 +192,71 @@ deriving instance Eq (DDLInsSetId is)
 deriving instance Ord (DDLInsSetId is)
 
 data AlterTableInsSetId :: AlterTableInsSetK -> Type where
-  AddColumnISId :: Int -> Word -> Oid 'TypeOid -> AlterTableInsSetId 'AddColumnIS
+  AddColumnISId :: Oid ('AttrOid 'TableOid) -> AlterTableInsSetId 'AddColumnIS
+  RenameColumnISId :: Oid ('AttrOid 'TableOid) -> AlterTableInsSetId 'RenameColumnIS
+  AlterColumnISId :: Oid ('AttrOid 'TableOid) -> AlterColumnInsSetId altColIS -> AlterTableInsSetId ('AlterColumnIS altColIS)
+  RenameTableISId :: AlterTableInsSetId 'RenameTableIS
+  AddConstraintISId :: AddConstraintInsSetId addConstIS -> AlterTableInsSetId ('AddConstraintIS addConstIS)
+  DropConstraintISId :: DropConstraintInsSetId dropConstIS -> AlterTableInsSetId ('DropConstraintIS dropConstIS)
+  DropColumnISId :: AlterTableInsSetId 'DropColumnIS
+
+data AlterColumnInsSetId :: AlterColumnInsSetK -> Type where
+  SetNotNullISId :: AlterColumnInsSetId 'SetNotNullIS
+  DropNotNullISId :: AlterColumnInsSetId 'DropNotNullIS
+  ChangeTypeISId :: AlterColumnInsSetId 'ChangeTypeIS
+  AddDefaultISId :: AlterColumnInsSetId 'AddDefaultIS
+  DropDefaultISId :: AlterColumnInsSetId 'DropDefaultIS
+
+deriving instance Show (AlterColumnInsSetId is)
+deriving instance Eq (AlterColumnInsSetId is)
+deriving instance Ord (AlterColumnInsSetId is)
+
+data AddConstraintInsSetId :: AddConstraintInsSetK -> Type where
+  AddPrimaryKeyISId :: AddConstraintInsSetId 'AddPrimaryKeyIS
+  AddUniqueISId :: AddConstraintInsSetId 'AddUniqueIS
+  AddCheckISId :: AddConstraintInsSetId 'AddCheckIS
+  AddForeignKeyISId :: AddConstraintInsSetId 'AddForeignKeyIS
+
+deriving instance Show (AddConstraintInsSetId is)
+deriving instance Eq (AddConstraintInsSetId is)
+deriving instance Ord (AddConstraintInsSetId is)
+
+data DropConstraintInsSetId :: DropConstraintInsSetK -> Type where
+  DropPrimaryKeyISId :: DropConstraintInsSetId 'DropPrimaryKeyIS
+  DropUniqueISId :: DropConstraintInsSetId 'DropUniqueIS
+  DropCheckISId :: DropConstraintInsSetId 'DropCheckIS
+  DropForeignKeyISId :: DropConstraintInsSetId 'DropForeignKeyIS
+
+deriving instance Show (DropConstraintInsSetId is)
+deriving instance Eq (DropConstraintInsSetId is)
+deriving instance Ord (DropConstraintInsSetId is)
 
 deriving instance Show (AlterTableInsSetId is)
 deriving instance Eq (AlterTableInsSetId is)
 deriving instance Ord (AlterTableInsSetId is)
 
 data AlterTypeInsSetId :: AlterTypeInsSetK -> Type where
+  RenameTypeISId :: Oid ('AttrOid 'TypeOid) -> AlterTypeInsSetId 'RenameTypeIS
+  AddAttributeISId :: Oid ('AttrOid 'TypeOid) -> AlterTypeInsSetId 'AddAttributeIS
+  AlterAttributeISId :: Oid ('AttrOid 'TypeOid) -> AlterAttributeInsSetId alterAttrIS -> AlterTypeInsSetId ('AlterAttributeIS alterAttrIS)
+  AddEnumValISId :: Oid ('AttrOid 'TypeOid) -> AlterTypeInsSetId 'AddEnumValIS
+  AddAfterEnumValISId :: Oid ('AttrOid 'TypeOid) -> AlterTypeInsSetId 'AddAfterEnumValIS
+  AddBeforeEnumValISId :: Oid ('AttrOid 'TypeOid) -> AlterTypeInsSetId 'AddBeforeEnumValIS
+  DropAttributeISId :: Oid ('AttrOid 'TypeOid) -> AlterTypeInsSetId 'DropAttributeIS
+
+data AlterAttributeInsSetId :: AlterAttributeInsSetK -> Type where
+  ChangeAttrTypeISId :: AlterAttributeInsSetId 'ChangeAttrTypeIS
 
 deriving instance Show (AlterTypeInsSetId is)
 deriving instance Eq (AlterTypeInsSetId is)
 deriving instance Ord (AlterTypeInsSetId is)
 
+deriving instance Show (AlterAttributeInsSetId is)
+deriving instance Eq (AlterAttributeInsSetId is)
+deriving instance Ord (AlterAttributeInsSetId is)
+
 data AlterSeqInsSetId :: AlterSeqInsSetK -> Type where
+  AddOwnerISId :: AlterSeqInsSetId 'AddOwnerIS
 
 deriving instance Show (AlterSeqInsSetId is)
 deriving instance Eq (AlterSeqInsSetId is)
@@ -153,70 +267,193 @@ data SomeDDLInsSetId where
 
 deriving instance Show SomeDDLInsSetId
 
+mkRootNode :: SomeDDLInsSetId -> (BaseLinePrimDDL, SomeDDLInsSetId, [SomeDDLInsSetId])
+mkRootNode root = (NoOp, root, [])
+
+mkSomeRootISId :: forall sc oidk. (Schema sc) => Proxy sc -> Oid oidk -> SomeDDLInsSetId
+mkSomeRootISId _ oid = SomeDDLInsSetId $ RootISId oid (_getSchemaName $ schemaName @sc)
+
 instance Eq SomeDDLInsSetId where
-  (==) sis1@(SomeDDLInsSetId (CreateTypeISId {})) = \case
-    sis2@(SomeDDLInsSetId (CreateTypeISId {})) -> sis1 == sis2
+  (==) (SomeDDLInsSetId (RootISId oid1 sn1)) = \case
+    (SomeDDLInsSetId (RootISId oid2 sn2)) -> (SomeOid oid1 == SomeOid oid2) && (sn1 == sn2)
     _ -> False
-  (==) sis1@(SomeDDLInsSetId (CreateEnumISId {})) = \case
-    sis2@(SomeDDLInsSetId (CreateEnumISId {})) -> sis1 == sis2
+  (==) (SomeDDLInsSetId isid1@(CreateTypeISId {})) = \case
+    (SomeDDLInsSetId isid2@(CreateTypeISId {})) -> isid1 == isid2
     _ -> False
-  (==) sis1@(SomeDDLInsSetId (CreateSeqISId {})) = \case
-    sis2@(SomeDDLInsSetId (CreateSeqISId {})) -> sis1 == sis2
+  (==) (SomeDDLInsSetId isid1@(CreateEnumISId {})) = \case
+    (SomeDDLInsSetId isid2@(CreateEnumISId {})) -> isid1 == isid2
     _ -> False
-  (==) sis1@(SomeDDLInsSetId (CreateTableISId {})) = \case
-    sis2@(SomeDDLInsSetId (CreateTableISId {})) -> sis1 == sis2
+  (==) (SomeDDLInsSetId isid1@(CreateSeqISId {})) = \case
+    (SomeDDLInsSetId isid2@(CreateSeqISId {})) -> isid1 == isid2
     _ -> False
-  (==) sis1@(SomeDDLInsSetId (AlterTypeISId {})) = \case
-    sis2@(SomeDDLInsSetId (AlterTypeISId {})) -> sis1 == sis2
+  (==) (SomeDDLInsSetId isid1@(CreateTableISId {})) = \case
+    (SomeDDLInsSetId isid2@(CreateTableISId {})) -> isid1 == isid2
     _ -> False
-  (==) sis1@(SomeDDLInsSetId (AlterSeqISIs {})) = \case
-    sis2@(SomeDDLInsSetId (AlterSeqISIs {})) -> sis1 == sis2
+  (==) (SomeDDLInsSetId (AlterTypeISId oid1 altTy1)) = \case
+    (SomeDDLInsSetId (AlterTypeISId oid2 altTy2)) -> (SomeOid oid1 == SomeOid oid2) && (fromSing (SingAltTyId altTy1) == fromSing (SingAltTyId altTy2))
     _ -> False
-  (==) sis1@(SomeDDLInsSetId (AlterTableISId {})) = \case
-    sis2@(SomeDDLInsSetId (AlterTableISId {})) -> sis1 == sis2
+  (==) (SomeDDLInsSetId (AlterSeqISId altSeq1)) = \case
+    (SomeDDLInsSetId (AlterSeqISId altSeq2)) -> (fromSing (SingAltSeqId altSeq1) == fromSing (SingAltSeqId altSeq2))
     _ -> False
-  (==) sis1@(SomeDDLInsSetId (DropTableISId {})) = \case
-    sis2@(SomeDDLInsSetId (DropTableISId {})) -> sis1 == sis2
+  (==) (SomeDDLInsSetId (AlterTableISId oid1 altTab1)) = \case
+    (SomeDDLInsSetId (AlterTableISId oid2 altTab2)) -> (SomeOid oid1 == SomeOid oid2) && (fromSing (SingAltTabId altTab1) == fromSing (SingAltTabId altTab2))
     _ -> False
-  (==) sis1@(SomeDDLInsSetId (DropTypeISId {})) = \case
-    sis2@(SomeDDLInsSetId (DropTypeISId {})) -> sis1 == sis2
+  (==) (SomeDDLInsSetId isid1@(DropTableISId {})) = \case
+    (SomeDDLInsSetId isid2@(DropTableISId {})) -> isid1 == isid2
     _ -> False
-  (==) sis1@(SomeDDLInsSetId (DropSeqISId {})) = \case
-    sis2@(SomeDDLInsSetId (DropSeqISId {})) -> sis1 == sis2
+  (==) (SomeDDLInsSetId isid1@(DropTypeISId {})) = \case
+    (SomeDDLInsSetId isid2@(DropTypeISId {})) -> isid1 == isid2
+    _ -> False
+  (==) (SomeDDLInsSetId isid1@(DropSeqISId {})) = \case
+    (SomeDDLInsSetId isid2@(DropSeqISId {})) -> isid1 == isid2
     _ -> False
 
 instance Ord SomeDDLInsSetId where
-  compare sis1@(SomeDDLInsSetId (CreateTypeISId {})) = \case
-    sis2@(SomeDDLInsSetId (CreateTypeISId {})) -> sis1 `compare` sis2
-    _ -> undefined
-  compare sis1@(SomeDDLInsSetId (CreateEnumISId {})) = \case
-    sis2@(SomeDDLInsSetId (CreateEnumISId {})) -> sis1 `compare` sis2
-    _ -> undefined
-  compare sis1@(SomeDDLInsSetId (CreateSeqISId {})) = \case
-    sis2@(SomeDDLInsSetId (CreateSeqISId {})) -> sis1 `compare` sis2
-    _ -> undefined
-  compare sis1@(SomeDDLInsSetId (CreateTableISId {})) = \case
-    sis2@(SomeDDLInsSetId (CreateTableISId {})) -> sis1 `compare` sis2
-    _ -> undefined
-  compare sis1@(SomeDDLInsSetId (AlterTypeISId {})) = \case
-    sis2@(SomeDDLInsSetId (AlterTypeISId {})) -> sis1 `compare` sis2
-    _ -> undefined
-  compare sis1@(SomeDDLInsSetId (AlterSeqISIs {})) = \case
-    sis2@(SomeDDLInsSetId (AlterSeqISIs {})) -> sis1 `compare` sis2
-    _ -> undefined
-  compare sis1@(SomeDDLInsSetId (AlterTableISId {})) = \case
-    sis2@(SomeDDLInsSetId (AlterTableISId {})) -> sis1 `compare` sis2
-    _ -> undefined
-  compare sis1@(SomeDDLInsSetId (DropTableISId {})) = \case
-    sis2@(SomeDDLInsSetId (DropTableISId {})) -> sis1 `compare` sis2
-    _ -> undefined
-  compare sis1@(SomeDDLInsSetId (DropTypeISId {})) = \case
-    sis2@(SomeDDLInsSetId (DropTypeISId {})) -> sis1 `compare` sis2
-    _ -> undefined
-  compare sis1@(SomeDDLInsSetId (DropSeqISId {})) = \case
-    sis2@(SomeDDLInsSetId (DropSeqISId {})) -> sis1 `compare` sis2
-    _ -> undefined    
+  compare (SomeDDLInsSetId isid1@(RootISId oid1 sn1)) = \case
+    SomeDDLInsSetId (RootISId oid2 sn2) -> (sn1 `compare` sn2) `compare` (SomeOid oid1 `compare` SomeOid oid2)
+    SomeDDLInsSetId isid2 -> fromSing (SingIS isid1) `compare` fromSing (SingIS isid2)
+  compare (SomeDDLInsSetId isid1@(CreateTypeISId {})) = \case
+    (SomeDDLInsSetId isid2@(CreateTypeISId {})) -> isid1 `compare` isid2
+    SomeDDLInsSetId isid2 -> fromSing (SingIS isid1) `compare` fromSing (SingIS isid2)
+  compare (SomeDDLInsSetId isid1@(CreateEnumISId {})) = \case
+    (SomeDDLInsSetId isid2@(CreateEnumISId {})) -> isid1 `compare` isid2
+    SomeDDLInsSetId isid2 -> fromSing (SingIS isid1) `compare` fromSing (SingIS isid2)
+  compare (SomeDDLInsSetId isid1@(CreateSeqISId {})) = \case
+    (SomeDDLInsSetId isid2@(CreateSeqISId {})) -> isid1 `compare` isid2
+    SomeDDLInsSetId isid2 -> fromSing (SingIS isid1) `compare` fromSing (SingIS isid2)
+  compare (SomeDDLInsSetId isid1@(CreateTableISId {})) = \case
+    (SomeDDLInsSetId isid2@(CreateTableISId {})) -> isid1 `compare` isid2
+    SomeDDLInsSetId isid2 -> fromSing (SingIS isid1) `compare` fromSing (SingIS isid2)
+  compare (SomeDDLInsSetId isid1@(AlterTypeISId oid1 altTy1)) = \case
+    (SomeDDLInsSetId (AlterTypeISId oid2 altTy2)) -> (SomeOid oid1 `compare` SomeOid oid2) `compare` (fromSing (SingAltTyId altTy1) `compare` fromSing (SingAltTyId altTy2))
+    SomeDDLInsSetId isid2 -> fromSing (SingIS isid1) `compare` fromSing (SingIS isid2)
+  compare (SomeDDLInsSetId isid1@(AlterSeqISId altSeq1)) = \case
+    (SomeDDLInsSetId (AlterSeqISId altSeq2)) -> (fromSing (SingAltSeqId altSeq1) `compare` fromSing (SingAltSeqId altSeq2))
+    SomeDDLInsSetId isid2 -> fromSing (SingIS isid1) `compare` fromSing (SingIS isid2)
+  compare (SomeDDLInsSetId isid1@(AlterTableISId oid1 altTab1)) = \case
+    (SomeDDLInsSetId (AlterTableISId oid2 altTab2)) -> (SomeOid oid1 `compare` SomeOid oid2) `compare` (fromSing (SingAltTabId altTab1) `compare` fromSing (SingAltTabId altTab2))
+    SomeDDLInsSetId isid2 -> fromSing (SingIS isid1) `compare` fromSing (SingIS isid2)
+  compare (SomeDDLInsSetId isid1@(DropTableISId {})) = \case
+    (SomeDDLInsSetId isid2@(DropTableISId {})) -> isid1 `compare` isid2
+    SomeDDLInsSetId isid2 -> fromSing (SingIS isid1) `compare` fromSing (SingIS isid2)
+  compare (SomeDDLInsSetId isid1@(DropTypeISId {})) = \case
+    (SomeDDLInsSetId isid2@(DropTypeISId {})) -> isid1 `compare` isid2
+    SomeDDLInsSetId isid2 -> fromSing (SingIS isid1) `compare` fromSing (SingIS isid2)
+  compare (SomeDDLInsSetId isid1@(DropSeqISId {})) = \case
+    (SomeDDLInsSetId isid2@(DropSeqISId {})) -> isid1 `compare` isid2
+    SomeDDLInsSetId isid2 -> fromSing (SingIS isid1) `compare` fromSing (SingIS isid2)
 
+newtype instance Sing (is :: InsSetK) where
+  SingIS :: DDLInsSetId is -> Sing is
+
+newtype instance Sing (altTyk :: AlterTypeInsSetK) where
+  SingAltTyId :: AlterTypeInsSetId altTyk -> Sing altTyk
+
+newtype instance Sing (altTabk :: AlterTableInsSetK) where
+  SingAltTabId :: AlterTableInsSetId altTabk -> Sing altTabk
+
+newtype instance Sing (altSeqk :: AlterSeqInsSetK) where
+  SingAltSeqId :: AlterSeqInsSetId altSeqk -> Sing altSeqk
+
+newtype instance Sing (altAttrk :: AlterAttributeInsSetK) where
+  SingAltAttributeId :: AlterAttributeInsSetId altAttrk -> Sing altAttrk
+
+newtype instance Sing (altColk :: AlterColumnInsSetK) where
+  SingAltColumnId :: AlterColumnInsSetId altColk -> Sing altColk
+
+newtype instance Sing (addColk :: AddConstraintInsSetK) where
+  SingAddConstId :: AddConstraintInsSetId addColk -> Sing addColk
+
+newtype instance Sing (dropColk :: DropConstraintInsSetK) where
+  SingDropConstId :: DropConstraintInsSetId dropColk -> Sing dropColk
+
+
+newtype instance Sing (oidk :: OidK) where
+  SingOid :: Oid oidk -> Sing oidk
+
+instance SingE (is :: InsSetK) where
+  type Demote is = InsSetK
+  fromSing = \case
+    (SingIS (RootISId oid _)) -> RootIS (fromSing $ SingOid oid)
+    (SingIS (CreateTypeISId {})) -> CreateTypeIS
+    (SingIS (CreateEnumISId {})) -> CreateEnumIS
+    (SingIS (CreateSeqISId {})) -> CreateSeqIS
+    (SingIS (CreateTableISId {})) -> CreateTableIS
+
+    (SingIS (AlterTypeISId _ altTy)) -> AlterTypeIS $ fromSing $ SingAltTyId altTy
+    (SingIS (AlterSeqISId altSeq)) -> AlterSeqIS $ fromSing $ SingAltSeqId altSeq
+    (SingIS (AlterTableISId _ altTab)) -> AlterTableIS $ fromSing $ SingAltTabId altTab
+
+    (SingIS (DropTableISId {})) -> DropTableIS
+    (SingIS (DropTypeISId {})) -> DropTypeIS
+    (SingIS (DropSeqISId {})) -> DropSeqIS
+
+instance SingE (is :: AlterTypeInsSetK) where
+  type Demote is = AlterTypeInsSetK
+  fromSing = \case
+    SingAltTyId (RenameTypeISId {}) -> RenameTypeIS
+    SingAltTyId (AddAttributeISId {}) -> AddAttributeIS
+    SingAltTyId (AlterAttributeISId _ altAttr) -> AlterAttributeIS $ fromSing $ SingAltAttributeId altAttr
+    SingAltTyId (AddEnumValISId {}) -> AddEnumValIS
+    SingAltTyId (AddAfterEnumValISId {}) -> AddAfterEnumValIS
+    SingAltTyId (AddBeforeEnumValISId {}) -> AddBeforeEnumValIS
+    SingAltTyId (DropAttributeISId {}) -> DropAttributeIS
+
+instance SingE (is :: AlterAttributeInsSetK) where
+  type Demote is = AlterAttributeInsSetK
+  fromSing = \case
+    SingAltAttributeId (ChangeAttrTypeISId {}) -> ChangeAttrTypeIS
+
+instance SingE (is :: AlterTableInsSetK) where
+  type Demote is = AlterTableInsSetK
+  fromSing = \case
+    SingAltTabId (AddColumnISId {}) -> AddColumnIS
+    SingAltTabId (RenameColumnISId {}) -> RenameColumnIS
+    SingAltTabId (AlterColumnISId _ altCol) -> AlterColumnIS $ fromSing $ SingAltColumnId altCol
+    SingAltTabId (RenameTableISId {}) -> RenameTableIS
+    SingAltTabId (AddConstraintISId addConst) -> AddConstraintIS $ fromSing $ SingAddConstId addConst
+    SingAltTabId (DropConstraintISId dropConst) -> DropConstraintIS $ fromSing $ SingDropConstId dropConst
+    SingAltTabId (DropColumnISId {}) -> DropColumnIS
+
+instance SingE (is :: AlterColumnInsSetK) where
+  type Demote is = AlterColumnInsSetK
+  fromSing = \case
+    SingAltColumnId (SetNotNullISId {}) -> SetNotNullIS
+    SingAltColumnId (DropNotNullISId {}) -> DropNotNullIS
+    SingAltColumnId (ChangeTypeISId {}) -> ChangeTypeIS
+    SingAltColumnId (AddDefaultISId {}) -> AddDefaultIS
+    SingAltColumnId (DropDefaultISId {}) -> DropDefaultIS
+
+instance SingE (is :: AddConstraintInsSetK) where
+  type Demote is = AddConstraintInsSetK
+  fromSing = \case
+    SingAddConstId (AddPrimaryKeyISId {}) -> AddPrimaryKeyIS
+    SingAddConstId (AddUniqueISId {}) -> AddUniqueIS
+    SingAddConstId (AddCheckISId {}) -> AddCheckIS
+    SingAddConstId (AddForeignKeyISId {}) -> AddForeignKeyIS
+
+instance SingE (is :: DropConstraintInsSetK) where
+  type Demote is = DropConstraintInsSetK
+  fromSing = \case
+    SingDropConstId (DropPrimaryKeyISId {}) -> DropPrimaryKeyIS
+    SingDropConstId (DropUniqueISId {}) -> DropUniqueIS
+    SingDropConstId (DropCheckISId {}) -> DropCheckIS
+    SingDropConstId (DropForeignKeyISId {}) -> DropForeignKeyIS
+
+instance SingE (is :: AlterSeqInsSetK) where
+  type Demote is = AlterSeqInsSetK
+  fromSing = \case
+    SingAltSeqId (AddOwnerISId {}) -> AddOwnerIS
+
+instance SingE (oidk :: OidK) where
+  type Demote oidk = OidK
+  fromSing = \case
+    SingOid (TableOid_ {}) -> TableOid
+    SingOid (TypeOid_ {}) -> TypeOid
+    SingOid (SchemaOid_ {}) -> SchemaOid
+    SingOid (OwnerOid_ {}) -> OwnerOid
+    SingOid (AttrOid_ own _ _) -> AttrOid (fromSing (SingOid own))
+    SingOid (EnumOid_ {}) -> EnumOid
 
 data DataSafety
   = Lossy
@@ -305,6 +542,7 @@ data PrimDDLF (f :: Type -> Type)
   | DropTable   PQ.TableId
   | DropType    DBTypeName
   | DropSeq     SeqName
+  | NoOp
 
 
 deriving instance (Show (f [Column]), Show (f [EnumVal])) => Show (PrimDDLF f)

@@ -76,7 +76,7 @@ hprop_additionCommutative = property $ do
 data DVDRentalState (f :: Type -> Type) = DVDRentalState
   {
   }
-  
+
 data DVDRentalIn (f :: Type -> Type) = DVDRentalIn
   deriving (Generic, Show)
 data DVDRentalOut = DVDRentalOut
@@ -96,7 +96,7 @@ cbEns :: DVDRentalState Concrete
       -> DVDRentalIn Concrete
       -> DVDRentalOut
       -> Test ()
-cbEns _ _ _ _ = 'a' === 'a'      
+cbEns _ _ _ _ = 'a' === 'a'
 
 cmdCBs :: [Callback DVDRentalIn DVDRentalOut DVDRentalState]
 cmdCBs =
@@ -122,7 +122,7 @@ cmd = Command
   , commandExecute = cmdExec
   , commandCallbacks = cmdCBs
   }
-  
+
 hprop_smt :: Property
 hprop_smt = property $ do
   actions <- forAll $ Gen.sequential (Range.linear 1 1) DVDRentalState
@@ -188,7 +188,7 @@ hprop_test5 = withTests 1 $ property $ test $ do
 
 
 -- pgExprTripping =
-  
+
 -- hprop_test6 :: Property
 -- hprop_test6 = withTests 1 $ property $ test $ exprTripping (Proxy @TestDB) (1 :: Int32)
 
@@ -246,15 +246,19 @@ test_mig = Test.Tasty.withResource
   (const $ pure ())
   (\_e -> testGroup "Migration Instruction Set"
     [ testProperty "Create Table" $ withTests 1 $ property $ do
-        let (up, down) = getDDLForSchema (Proxy @(TestMig 1)) Nothing
+        let (up, down) = evolveSchema @TestMig @1
         withUpDDL up (\upIS -> upIS === [])
         withDownDDL down (\downIS -> downIS === [])
     , testProperty "New Column" $ withTests 1 $ property $ do
         let
-          base = getDDLForSchema (Proxy @(TestMig 1)) Nothing
-          (up, down) = getDDLForSchema (Proxy @(TestMig 2)) (Just $ undefined base)
+          (up, down) = evolveSchema @TestMig @2
         withUpDDL up (\upIS -> upIS === [])
-        withDownDDL down (\downIS -> downIS === [])              
+        withDownDDL down (\downIS -> downIS === [])
+    , testProperty "Rename Column" $ withTests 1 $ property $ do
+        let
+          (up, down) = evolveSchema @TestMig @3
+        withUpDDL up (\upIS -> upIS === [])
+        withDownDDL down (\downIS -> downIS === [])
     ]
   )
 
@@ -268,7 +272,7 @@ timeOfDayGen = Gen.element
   [ midnight
   , midday
   , fromMaybe (error "Invalid TimeOfDay") $ makeTimeOfDayValid 13 40 55.556
-  ]  
+  ]
 
 localTimeGen :: HasCallStack => Gen LocalTime
 localTimeGen = LocalTime <$> dayGen <*> timeOfDayGen
@@ -303,5 +307,3 @@ uuidGen = Gen.element
 
 vectorGen :: Gen [a] -> Gen (V.Vector a)
 vectorGen = fmap V.fromList
-  
-    

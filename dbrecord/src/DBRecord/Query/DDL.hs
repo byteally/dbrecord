@@ -50,10 +50,10 @@ downDDLHashSHA256 :: UpDDLGraph scc -> Text
 downDDLHashSHA256 _ = mempty
 
 withUpDDL :: UpDDLGraph scc -> ([(BaseLinePrimDDL, SomeDDLInsSetId, [SomeDDLInsSetId])] -> r) -> r
-withUpDDL (UpDDLGraph (DDLGraph (g, lkpFn, _))) f = f (fmap lkpFn $ G.topSort g)
+withUpDDL (UpDDLGraph (DDLGraph (g, lkpFn, _))) f = f (fmap lkpFn $ G.reverseTopSort g)
 
 withDownDDL :: DownDDLGraph scc -> ([(BaseLinePrimDDL, SomeDDLInsSetId, [SomeDDLInsSetId])] -> r) -> r
-withDownDDL (DownDDLGraph (DDLGraph (g, lkpFn, _))) f = f (fmap lkpFn $ G.topSort g)
+withDownDDL (DownDDLGraph (DDLGraph (g, lkpFn, _))) f = f (fmap lkpFn $ G.reverseTopSort g)
 
 getDDLForSchema :: forall scc.
   ( SchemaCatalog scc
@@ -74,7 +74,7 @@ getDDLForSchema _ base =
       ( AutoMigrationDDL (SchemaOf scc) a (ToDBType (DB (SchemaDB (SchemaOf scc))) a)
       ) => Sing a -> [(BaseLinePrimDDL, SomeDDLInsSetId, [SomeDDLInsSetId])]
     getDownDDL _ = autoGetDownDLL (Proxy @'(a, SchemaOf scc, ToDBType (DB (SchemaDB (SchemaOf scc))) a)) dstate
-    
+
     getAllUpDDL :: AllMigCxt (SchemaOf scc) tabs => Sing (tabs :: [Type]) -> [[(BaseLinePrimDDL, SomeDDLInsSetId, [SomeDDLInsSetId])]]
     getAllUpDDL = \case
       SNil -> []
@@ -84,7 +84,7 @@ getDDLForSchema _ base =
     getAllDownDDL = \case
       SNil -> []
       SCons strep stabs -> getDownDDL strep : getAllDownDDL stabs
-      
+
     tabsUpDDL = concat $ getAllUpDDL ((sing :: Sing (Tables scc)))
     tabsDownDDL = concat $ getAllDownDDL ((sing :: Sing (Tables scc)))
     tysUpDDL = concat $ getAllUpDDL ((sing :: Sing (Types scc)))
@@ -109,15 +109,21 @@ instance ( Table sc t
          , AllFkCxt (ForeignKey sc t)
          , All KnownSymbol (PrimaryKey sc t)
          , AllUniqCxt (Unique sc t)
+         , AutoTableMigrationDDL sc t (Fields t)
          ) => AutoMigrationDDL sc t 'TableObj where
-  autoGetUpDLL _ _dbstate = concat
-                   [ [(CreateTable tabId Proxy, oid, [])]
+  autoGetUpDLL _ dbstate = concat
+                   [ [ mkRootNode rootISId
+                     , (CreateTable tabId Proxy, oid, [rootISId])
+                     ]
                    , [(AlterTable tabId $ AddConstraint pkn $ AddPrimaryKey pks, oid, [])]
                    , addUqs
                    , addFks
+                   , addCols
                    ]
     where
-      oid = SomeDDLInsSetId $ undefined TableOid_ $ fromInteger @Int $ natVal (Proxy @(Snd (TableId sc t)))
+      tabOid = TableOid_ $ fromInteger @Int $ natVal (Proxy @(Snd (TableId sc t)))
+      rootISId = mkSomeRootISId (Proxy @sc) tabOid
+      oid = SomeDDLInsSetId $ CreateTableISId tabOid
       tabId = getTableId @sc @t Proxy Proxy
       pks = fmap ColName $ getPrimaryKeysText (Proxy @'(sc,t))
       pkn = ConstraintName $ _getPrimaryKeyName $ primaryKeyName @sc @t
@@ -126,6 +132,7 @@ instance ( Table sc t
       addFk (fkn, Left (col, rtab)) = (AlterTable tabId $ AddConstraint (ConstraintName fkn) $ AddForeignKey [ColName col] rtab [ColName col], oid, [])
       addFk (fkn, Right (cols, rtab, rcols)) = (AlterTable tabId $ AddConstraint (ConstraintName fkn) $ AddForeignKey (ColName <$> cols) rtab (ColName <$> rcols), oid, [])
       addFks = fmap addFk $ getForeignKeys (Proxy @'(sc,t))
+      addCols = autoGetTableUpDLL (Proxy @'(t, sc, Fields t)) dbstate
 
   autoGetDownDLL _ _ = concat
                      [ [(AlterTable tabId $ DropConstraint $ DropPrimaryKey pkn, oid, [])]
@@ -387,10 +394,12 @@ instance ( HasField cn t cty
     let
       colN = getConst $ getColumnNameText @sc @t @cn
       tabId = getTableId @sc @t Proxy Proxy
-      tabOid = TableOid_ $ fromInteger $ natVal (Proxy @(Snd (TableId sc t)))
-      attrOid = SomeDDLInsSetId $ undefined $ AttrOid_ tabOid 0 undefined
+      tabOid = TableOid_ $ fromInteger @Int $ natVal (Proxy @(Snd (TableId sc t)))
+      rootTabISId = mkSomeRootISId (Proxy @sc) tabOid
+      attrOid = AttrOid_ tabOid 0 (TypeOid_ 1)
+      addAttrISId = SomeDDLInsSetId $ AlterTableISId tabOid $ AddColumnISId attrOid
       colDDL = autoGetUpDLL @sc @cty @(ToDBType (DB (SchemaDB sc)) cty) Proxy dbstate
-    in [(AlterTable tabId $ AddColumn (Column (ColName colN) (ColType $ dbTypeOf (Proxy @(sc, cty)))), attrOid, [])] ++ colDDL
+    in [(AlterTable tabId $ AddColumn (Column (ColName colN) (ColType $ dbTypeOf (Proxy @(sc, cty)))), addAttrISId, [rootTabISId])] ++ colDDL
   autoGetTableDownDLL _ _ = undefined
 
 

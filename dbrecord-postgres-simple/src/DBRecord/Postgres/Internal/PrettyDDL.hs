@@ -123,7 +123,8 @@ ppPrimDDL (AlterSeq seqN alter) =
       text "ALTER SEQUENCE"
   <+> ppSeqName seqN
   <+> ppAlterSeqType alter
-  <+> semi  
+  <+> semi
+ppPrimDDL NoOp = mempty  
 
 ppAlterSeqType :: AlterSeq -> Doc
 ppAlterSeqType (AddOwner tabn coln) =
