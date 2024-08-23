@@ -42,6 +42,9 @@ newtype Interval = Interval T.Text
 newtype LTree = LTree [T.Text]
               deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
+newtype LQuery = LQuery LTree
+              deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
 escapeSequences :: [(T.Text, T.Text)]
 escapeSequences =
   [ ("-", "_h")
