@@ -39,6 +39,7 @@ import           Test.Tasty
 import           Test.Tasty.Hedgehog
 import Data.Typeable
 import DBRecord.Internal.DBTypes
+import Database.PostgreSQL.Simple.FromField.Composite
 
 
 --deriving newtype instance FromField Year
@@ -206,6 +207,21 @@ pgsExprTripper env' = exprTripping
       liftIO @(PropertyT IO) $ flip runReaderT env $ runDVDRentalPGM $ runSession act
   )
 
+runSUTSession :: forall m x.
+  ( MonadIO m
+  ) => IO (SessionConfig PGS) -> DVDRentalPGM x -> m x
+runSUTSession envM sut = do
+  env <- liftIO envM
+  liftIO $ flip runReaderT env $ runDVDRentalPGM $ runSession sut
+
+runSUTTransaction :: forall m x.
+  ( MonadIO m
+  ) => IO (SessionConfig PGS) -> DVDRentalPGM x -> m x
+runSUTTransaction envM sut = do
+  env <- liftIO envM
+  liftIO $ flip runReaderT env $ runDVDRentalPGM $ runTransaction sut  
+  
+
 test_const :: TestTree
 test_const = Test.Tasty.withResource
   (fmap PGSConfig $ pgDefaultPool $ testDBConnectInfo)
@@ -237,6 +253,18 @@ test_const = Test.Tasty.withResource
     , testProperty "EnumType" $ withTests 10 $ property $ (forAll $ Gen.enumBounded @_ @EnumTy) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "EnumText" $ withTests 10 $ property $ (forAll $ Gen.enumBounded @_ @EnumTxt) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "EnumNum" $ withTests 10 $ property $ (forAll $ Gen.enumBounded @_ @EnumI64) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "CompRec" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @CompRec1 (CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True})) >>= pgsExprTripper e (Proxy @TestDB)
+    ]
+  )
+
+test_comp_parser :: TestTree
+test_comp_parser = Test.Tasty.withResource
+  (fmap PGSConfig $ pgDefaultPool $ testDBConnectInfo)
+  (const $ pure ())
+  (\e -> testGroup "Raw Queries"
+    [ testProperty "Composite" $ withTests 1 $ property $ do
+        r <- runSUTSession e $ runRawQuery @_ @(Int, Row1) "select 1, row(2, '3')"
+        V.head r === (1,Row1 2 "3")
     ]
   )
 
@@ -307,3 +335,11 @@ uuidGen = Gen.element
 
 vectorGen :: Gen [a] -> Gen (V.Vector a)
 vectorGen = fmap V.fromList
+
+
+-- Orphans
+instance FromField Row1 where
+  fromField = compositeToField
+
+instance FromComposite Row1 where
+  fromComposite = Row1 <$> compositeField <*> compositeField

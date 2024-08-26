@@ -97,6 +97,7 @@ module DBRecord.Query2
   , runQueryMaybe
   , runQuery_
   , runMQuery
+  , runRawQuery
   , runSession
   , runTransaction
   , getQueryShow
@@ -1033,6 +1034,23 @@ runQueryMaybe q = do
     [a] -> return $ Just a
     _ -> return Nothing
 
+runRawQuery :: forall m a env driver.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , Session driver
+  , U.MonadUnliftIO m
+  , U.MonadBaseControl IO m
+  , HasRawQuery driver
+  , FromDBRow driver a
+  ) => T.Text -> m (Vector a)
+runRawQuery q = do
+  scfg <- reader getSessionConfig
+  let
+    execRawQ = do
+      driver <- ask
+      liftIO $ dbRawQuery driver q
+  runSession_ scfg (V.fromList <$> execRawQ) (flip const)  
+  
 runSession :: forall m a env driver.
   ( MonadReader env m
   , HasSessionConfig env driver

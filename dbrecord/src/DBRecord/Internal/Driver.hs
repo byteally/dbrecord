@@ -9,6 +9,7 @@ module DBRecord.Internal.Driver
   , HasUpdateRet (..)
   , HasDelete (..)
   , HasDeleteRet (..)
+  , HasRawQuery (..)
   , ShowQuery (..)
   , HasDDLQuery (..)
   , HasSessionConfig (..)
@@ -22,6 +23,7 @@ import qualified UnliftIO as U
 import qualified Control.Monad.Trans.Control as U
 import Data.Int
 import Data.Proxy
+import Data.Text (Text)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified DBRecord.Internal.DDL as PDDLQ
 import Control.Monad.Reader
@@ -63,6 +65,14 @@ class (DBDecoder driver) => HasQuery driver where
 
   dbQuery :: (DBDecoder driver, FromDBRow driver a) => driver -> PQ.PrimQuery -> IO [a]
   dbQuery = dbQueryWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
+
+class (DBDecoder driver) => HasRawQuery driver where
+  dbRawQueryWith :: FromDBRowParser driver a -> driver -> Text -> IO [a]
+
+  dbRawQuery :: (DBDecoder driver, FromDBRow driver a) => driver -> Text -> IO [a]
+  dbRawQuery = dbRawQueryWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
+
+  dbRawQuery_ :: (DBDecoder driver) => driver -> Text -> IO Int64
 
 class HasInsert driver where
   dbInsert :: driver -> PQ.InsertQuery -> IO Int64

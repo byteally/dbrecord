@@ -95,7 +95,7 @@ data CompRec1 = CompRec1
   , cr2 :: Maybe Text
   , cr3 :: Maybe Bool
   } deriving (Show, Eq, Generic)
-    deriving (DBRepr 'Postgres) via AsEnum CompRec1 -- AsCompositeRec CompRec1
+    deriving (DBRepr 'Postgres) via AsCompositeRec CompRec1
 
 data FlatRec1 = FlatRec1
   { fr1 :: Int32
@@ -266,6 +266,22 @@ data USumOfCol2 (sc :: Type)
   | USOC29 (Expr sc TaggedSum4)
   deriving (Generic)
 
+-- Composite
+-- Annon
+data Row1 = Row1 {f1 :: Int, f2 :: Text}
+  deriving (Show, Eq, Generic)
+
+instance DBRepr 'Postgres Row1 where
+  type ToDBType 'Postgres Row1 = ToDBType 'Postgres (AsCompositeRec Row1)
+  type AutoCodec 'Postgres Row1 = 'False
+  type Fields Row1 = Fields (AsCompositeRec Row1)
+  type Ctors Row1 = Ctors (AsCompositeRec Row1)
+  
+  typeName = "record"
+
+-- instance FromField Row1 where
+--   fromField = undefined
+--
 -- Mig
 
 data TestMig (rev :: Nat) = TestMig

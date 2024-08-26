@@ -96,7 +96,8 @@ library
                     DBRecord.Postgres.Internal.Interval
                     DBRecord.Postgres.Internal.TextSearch
                     DBRecord.Postgres.Internal.TextSearch.Query
-                    DBRecord.Postgres.Internal.TextSearch.Vector                    
+                    DBRecord.Postgres.Internal.TextSearch.Vector
+                    Database.PostgreSQL.Simple.FromField.Composite
 
 
                   

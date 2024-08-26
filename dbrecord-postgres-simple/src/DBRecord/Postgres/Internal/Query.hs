@@ -34,6 +34,7 @@ import           DBRecord.Internal.Table (MQuery, execMQuery)
 import qualified DBRecord.Internal.Table as DBRI
 import           DBRecord.Postgres.Internal.RegClass
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
+import           Database.PostgreSQL.Simple.FromField.Composite
 -- import           DBRecord.Old.Query
 import           DBRecord.Types
 import           DBRecord.Driver
@@ -48,7 +49,7 @@ import           Database.PostgreSQL.Simple as PGS
 import           Database.PostgreSQL.Simple.Types (PGArray (..))
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow as PGS
-import qualified Database.PostgreSQL.Simple.Internal as PGSInt
+-- import qualified Database.PostgreSQL.Simple.Internal as PGSInt
 import qualified UnliftIO as U
 import           Data.Kind
 import           GHC.Generics
@@ -65,7 +66,8 @@ import qualified Data.Text.Encoding as T
 -- import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 import qualified Data.Attoparsec.ByteString.Char8 as Atto
-import Control.Monad.Trans.State.Strict
+-- import Control.Monad.Trans.State.Strict
+import Record
 
 newtype PostgresDBT (db :: Type) m a = PostgresDBT { runPostgresDB :: ReaderT PGS m a}
   deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader PGS, U.MonadUnliftIO, MonadThrow, MonadCatch)
@@ -233,16 +235,8 @@ parseInt8 :: ByteString -> Either String Int64
 parseInt8 bs = Atto.parseOnly (Atto.signed Atto.decimal) bs
 --
 
-rowToCompositeFieldParser :: RowParser a -> FieldParser a
-rowToCompositeFieldParser (PGSInt.RP rp) = \fld bs -> do
-  let
-    PGSInt.Field {result = res, column = _col} = fld
-    r = PGSInt.Row {row = 0, rowresult = res}
-  maybe (pure ()) (PGSInt.liftConversion . putStrLn . Char8.unpack) $ bs
-  evalStateT (runReaderT rp r) 0
-
-instance (Generic t, GFromRow (Rep t)) => UDFromField t ('UDRec 'CompositeRec) where
-  udFromField _ = rowToCompositeFieldParser $ to <$> gfromRow @(Rep t)
+instance (Typeable t, DBRepr 'Postgres t, FromHK t, GConstructHK t (GFromComposite t) (TypeFields t)) => UDFromField t ('UDRec 'CompositeRec) where
+  udFromField _ = compositeToFieldWith gFromComp
 
 instance (TypeError ('GHC.Text "TODO: UDRec for JsonRec")) => UDFromField t ('UDRec 'JsonRec) where
   udFromField = error "TODO"
@@ -332,6 +326,19 @@ instance (KnownSymbol cn) => GFromSumOfRow (C1 ('MetaCons cn p isr) U1) where
        then pure $ Just $ M1 U1
        else pure Nothing
 
+gFromComp :: forall t.
+  (DBRepr 'Postgres t
+  , FromHK t
+  , GConstructHK t (GFromComposite t) (TypeFields t)
+  ) => CompositeParser t
+gFromComp = fromHK $ constructHK @(GFromComposite t) @CompositeParser @t (gfromComposte (Proxy @t))
+
+class GFromComposite (t :: Type) (fn :: Symbol) (fty :: Type) where
+  gfromComposte :: Proxy t -> Proxy '(fn, fty) -> CompositeParser fty
+
+instance (FromCompositeField fty) => GFromComposite t fn fty where
+  gfromComposte _ _ = compositeField @fty
+  
 
 data PGS where
   PGS :: PGS.Connection -> PGS
@@ -380,6 +387,10 @@ instance HasDeleteRet PGS where
   dbDeleteRetWith parser (PGS conn) deleteQ = do
     let delSQL = PG.renderDelete $ PG.deleteSql $ deleteQ
     queryWith_ parser conn (fromString delSQL)
+
+instance HasRawQuery PGS where
+  dbRawQueryWith parser (PGS conn) q = queryWith_ parser conn (fromString $ T.unpack q)
+  dbRawQuery_ (PGS conn) q = execute_ conn (fromString $ T.unpack q)
 
 instance ShowQuery PGS where
   showQuery _ = PG.renderQuery . PG.sql
