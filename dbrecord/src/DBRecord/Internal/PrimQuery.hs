@@ -77,7 +77,7 @@ data PrimQuery = Table (Maybe (TableExpr PrimQuery)) Clauses
                | Binary BinType PrimQuery PrimQuery (Maybe Text)
                | CTEQuery (CTE PrimQuery PrimQuery)
                -- Values
-               deriving (Show)
+               deriving (Show, Eq)
 
 {-
 1. "a" X| "b"
@@ -94,7 +94,7 @@ data InlineJoin p
   = InlineJoinBase (TableExpr p)
   | InlineJoinL (InlineJoin p) JoinType Lateral (TableExpr p) PrimExpr
   | InlineJoinR (TableExpr p) JoinType Lateral (InlineJoin p) PrimExpr
-  deriving (Show)
+  deriving (Show, Eq)
 
 data InsertQuery = InsertQuery TableId [Attribute] InsertValues (Maybe Conflict) [PrimExpr]
                  deriving (Show)
@@ -128,7 +128,7 @@ type Projection = (Text, PrimExpr)
 data Option =
     All
   | Distinct (Maybe (NEL.NonEmpty PrimExpr))
-  deriving Show
+  deriving (Show, Eq)
 
 data Clauses = Clauses { projections :: [Projection]
                        , options     :: Maybe Option
@@ -140,7 +140,7 @@ data Clauses = Clauses { projections :: [Projection]
                        , limit       :: Maybe PrimExpr
                        , offset      :: Maybe PrimExpr
                        , alias       :: Maybe Text  
-                       } deriving (Show)
+                       } deriving (Show, Eq)
 
 clauses :: Clauses
 clauses =
@@ -159,12 +159,12 @@ clauses =
 data WindowClause = WindowClause
   { windowName    :: Text
   , wpartitionbys :: WindowPart
-  } deriving (Show)
+  } deriving (Show, Eq)
 
 data WindowPart = WindowPart
   { wpartExpr :: [PrimExpr]
   , worderbys :: [OrderExpr]
-  } deriving (Show)
+  } deriving (Show, Eq)
              
 data TableId = TableId
   { database  :: Name
@@ -251,23 +251,12 @@ data PrimExpr = AttrExpr Sym -- Eg?
               | RowExpr [PrimExpr]
               | NamedWindowExpr WindowName PrimExpr -- OVER
               | AnonWindowExpr [PrimExpr] [OrderExpr] PrimExpr -- OVER
-              | TableExpr PQFun PrimExpr
+              | TableExpr PrimQuery
               | FlatComposite [Projection]
             -- For Raw Expressions
               | RawExpr T.Text
               deriving ({-Read,-} Show, Eq{-, Generic, Eq, Ord-})
 
-newtype PQFun = PQFun { getPqFun :: PrimExpr -> PrimQuery }
-
-pqFun :: (PrimExpr -> PrimQuery) -> PQFun
-pqFun = PQFun
-
-instance Show PQFun where
-  show (PQFun f) = "PQ: <" ++ show (f (FlatComposite [])) ++ ">"
-
-instance Eq PQFun where
-  _ == _ = False
-  
 instance Uniplate PrimExpr where
   uniplate (AttrExpr s)           = plate AttrExpr |- s
   uniplate (RawExpr s)            = plate RawExpr |- s  
@@ -286,7 +275,7 @@ instance Uniplate PrimExpr where
   uniplate (DefaultInsertExpr)    = plate DefaultInsertExpr
   uniplate (ArrayExpr pes)        = plate ArrayExpr ||* pes
   uniplate (RowExpr pes)          = plate RowExpr ||* pes
-  uniplate (TableExpr {})         = error "Panic: not implemented for TableExpr"
+  uniplate (TableExpr {})         = error "TODO" -- plate TableExpr |+ te
   uniplate (NamedWindowExpr n pe) = plate NamedWindowExpr |- n |* pe
   uniplate (AnonWindowExpr p o e) = plate AnonWindowExpr ||* p |- o |* e
   uniplate (FlatComposite tpes)   = plate FlatComposite ||+ tpes

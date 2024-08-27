@@ -263,8 +263,7 @@ defaultSqlExpr gen expr = case expr of
   PQ.CastExpr typ e1     -> CastSqlExpr typ (sqlExpr gen e1)
   PQ.DefaultInsertExpr   -> DefaultSqlExpr
   PQ.ArrayExpr es        -> ArraySqlExpr (map (sqlExpr gen) es)
-  PQ.TableExpr f pe      -> TableSqlExpr (sql (PQ.getPqFun f
-                                               (updateFlatComposite pe)))
+  PQ.TableExpr tq        -> TableSqlExpr (sql tq)
   PQ.NamedWindowExpr w e -> NamedWindowSqlExpr (T.unpack w) (sqlExpr gen e)
   PQ.AnonWindowExpr p o e -> AnonWindowSqlExpr (map (sqlExpr gen) p)
                                               (map (sqlOrder gen) o)

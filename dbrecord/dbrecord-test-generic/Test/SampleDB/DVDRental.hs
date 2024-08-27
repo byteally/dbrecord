@@ -334,6 +334,18 @@ selectNoneEg :: forall db.
   Query (DVDRentalDB db) ()
 selectNoneEg = rel @(DVDRentalDB db) @Customer $ selectNone
 
+selectWithSubselect :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("customerId", Int32), '("totalCust", Int64)])
+selectWithSubselect = rel @(DVDRentalDB db) @Customer $ do
+  e <- subSelect (aggregate $ rel @(DVDRentalDB db) @Customer) $ do
+         selectAgg $ \_ _ -> #sumAmount .= sumOf 1 .& end
+  
+  select $ \customer ->
+       customer.customerId
+    .& #totalCust  .= e
+    .& end
+  
 -- order by
 
 orderByOneColumn :: forall db.
@@ -472,6 +484,21 @@ whereWithOr = rel @(DVDRentalDB db) @Customer $ do
     .& customer.lastName
     .& end
 
+-- | Fetch first name and last name of latest customer(s) created
+whereWithSubselect :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("firstName", Text)
+                               , '("lastName", Text)
+                               ])
+whereWithSubselect = rel @(DVDRentalDB db) @Customer $ do
+  e <- subSelect (aggregate $ rel @(DVDRentalDB db) @Customer) $ do
+         selectAgg $ \_ r -> #sumAmount .= maxOf (val r.createDate) .& end
+            
+  restrict $ \customer -> customer.createDate .== e
+  select $ \customer ->
+    customer.firstName
+    .& customer.lastName
+    .& end
 
 -- TODO: in_ arg order & usage of native `in`
 whereWithIn :: forall db.

@@ -671,3 +671,6 @@ count = coerce . funOp "count"
 
 sumOf :: NumExpr n => Expr sc n -> AggExpr sc n
 sumOf = coerce . funOp "sum"
+
+maxOf :: OrdExpr sc n => Expr sc n -> AggExpr sc n
+maxOf = coerce . funOp "max"
