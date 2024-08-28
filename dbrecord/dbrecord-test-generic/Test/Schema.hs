@@ -132,6 +132,14 @@ data XmlBlob1 = XmlBlob1
   } deriving (Show, Eq, Generic)
     deriving (DBRepr 'Postgres) via AsXmlBlob XmlBlob1
 
+data CompRec2 = CompRec2
+  { cr1 :: Int32
+  , ncr2 :: Maybe CompRec1
+  , ncr3 :: CompRec1
+--  , ncr4 :: [CompRec1]
+  } deriving (Show, Eq, Generic)
+    deriving (DBRepr 'Postgres) via AsCompositeRec CompRec2
+
 data NestCompRec1 = NestCompRec1
   { ncrEty :: Maybe EnumTy
   , ncrEtxt :: Maybe EnumTxt

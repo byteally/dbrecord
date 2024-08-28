@@ -1,8 +1,9 @@
 {-# LANGUAGE DerivingStrategies      #-}
 {-# LANGUAGE DeriveAnyClass          #-}
 {-# LANGUAGE UndecidableInstances    #-}
-{-# LANGUAGE OverloadedRecordDot    #-}
+{-# LANGUAGE OverloadedRecordDot     #-}
 {-# LANGUAGE OverloadedStrings       #-}
+{-# LANGUAGE DuplicateRecordFields   #-}
 {-# OPTIONS_GHC -fno-warn-orphans    #-}
 module Test.PGS.SampleDB.DVDRentalTest where
 
@@ -254,6 +255,10 @@ test_const = Test.Tasty.withResource
     , testProperty "EnumText" $ withTests 10 $ property $ (forAll $ Gen.enumBounded @_ @EnumTxt) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "EnumNum" $ withTests 10 $ property $ (forAll $ Gen.enumBounded @_ @EnumI64) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "CompRec" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @CompRec1 (CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True})) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "List of CompRec" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @[CompRec1] ([CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True}])) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "CompRec Nested" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @CompRec2 (CompRec2{cr1 = 1, ncr2 = Just $ CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True}, ncr3 = CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True}})) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "TaggedSum Mono Comp Unary Con" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum4 (Tag41 123)) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "TaggedSum Mono Comp Nullary Con" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum4 Tag40) >>= pgsExprTripper e (Proxy @TestDB)
     ]
   )
 

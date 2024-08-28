@@ -13,6 +13,11 @@ import qualified Data.Text.Lazy.Builder as LTB
 import Data.Proxy
 import Record
 
+infixr 5 :++
+type family (:++) (as :: [k]) (bs :: [k]) :: [k] where
+  '[] :++ bs       = bs
+  (a ': as) :++ bs = a ': (as :++ bs)
+
 type family GenTyCon (rep :: Type -> Type) :: Symbol where
   GenTyCon (D1 ('MetaData tyName _ _ _) _) = tyName
   GenTyCon r                               = TypeError ('Text "GenTyCon expects only generic rep of type, but found " ':<>: 'ShowType r)
@@ -26,8 +31,12 @@ type family GGetFieldsOrEmpty (t :: Type) (rep :: Type -> Type) :: [(Symbol, Typ
   GGetFieldsOrEmpty t _ = GGetFields t (Rep t)
 
 type family GGetCtorsOrEmpty (t :: Type) (rep :: Type -> Type) :: [(Symbol, Maybe Type)] where
-  GGetCtorsOrEmpty t (D1 _ (f :+: g)) = '[] -- TODO: Fix this
+  GGetCtorsOrEmpty t (D1 _ (f :+: g)) = GGetCtorsOrEmpty t f :++ GGetCtorsOrEmpty t g
   GGetCtorsOrEmpty t (D1 _ _) = '[]
+  GGetCtorsOrEmpty t (f :+: g) = GGetCtorsOrEmpty t f :++ GGetCtorsOrEmpty t g
+  GGetCtorsOrEmpty t (C1 ('MetaCons cn _ _) U1) = '[ '(cn, 'Nothing)]
+  GGetCtorsOrEmpty t (C1 ('MetaCons cn _ _) (S1 s (K1 _ carg))) = '[ '(cn, 'Just carg)]
+  GGetCtorsOrEmpty t (C1 ('MetaCons cn _ _) (_ :*: _)) = TypeError ('Text "[DBR-123] Sum Type:" ':<>: 'ShowType t ':<>: 'Text " constructor is having more than one argument: " ':<>: 'ShowType cn)
 
 type family ValidatePfxConName (ty :: Type) (k :: Symbol) (pfx :: Char) (rep :: Type -> Type) (unconsedConName :: Maybe (Char, Symbol)) :: Constraint where
   ValidatePfxConName ty cn _ _ 'Nothing = TypeError ('Text "[DBR-123] Invalid Constructor Name: " ':<>: 'ShowType cn ':<>: 'Text " for type " ':<>: 'ShowType ty)

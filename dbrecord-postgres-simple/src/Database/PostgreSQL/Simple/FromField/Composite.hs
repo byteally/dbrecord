@@ -26,6 +26,7 @@ import           Data.Typeable
 import           Data.Ratio
 import           Control.Exception (Exception)
 -- import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.Types (Null (..))
 import           Database.PostgreSQL.Simple.FromField
 -- import           Database.PostgreSQL.Simple.FromRow
 -- import           Database.PostgreSQL.Simple.Internal
@@ -57,10 +58,10 @@ class FromCompositeField (t :: Type) where
   fromCompositeField :: CompositeFieldParser t
 
 newtype CompositeParser t = CompositeParser {runCompParser :: StateT CPState Conversion t}
-  deriving newtype (Functor, Applicative, Monad)
+  deriving newtype (Functor, Applicative, Monad, Alternative)
 
 data CPState = CPState
-  { cField' :: !Field
+  { cField' :: !(Either Field CompositeField)
   , parsedFields :: !(Vector ByteString)
   , currentField :: !Int
   }
@@ -93,7 +94,17 @@ compositeToFieldWith compP f = \case
   Nothing -> returnError UnexpectedNull f ""
   Just bs -> case A.parseOnly parseCompositeFields bs of
     Left err -> returnError ConversionFailed f err
-    Right flds -> evalStateT (runCompParser compP) (CPState f flds 0)
+    Right flds -> evalStateT (runCompParser compP) (CPState (Left f) flds 0)
+
+compositeToCompositeField :: (FromComposite t, Typeable t) => CompositeFieldParser t
+compositeToCompositeField = compositeToCompositeFieldWith fromComposite
+
+compositeToCompositeFieldWith :: Typeable t => CompositeParser t -> CompositeFieldParser t
+compositeToCompositeFieldWith compP f = \case
+  Nothing -> returnCompositeError UnexpectedNull f ""
+  Just bs -> case A.parseOnly parseCompositeFields bs of
+    Left err -> returnCompositeError ConversionFailed f err
+    Right flds -> evalStateT (runCompParser compP) (CPState (Right f) flds 0)
 
 compositeField :: forall t.FromCompositeField t => CompositeParser t
 compositeField = compositeFieldWith (fromCompositeField @t)
@@ -105,14 +116,12 @@ compositeFieldWith fp = do
   fldBS <- lookupCompositeField currIx
   CompositeParser $ lift $ fp cfld fldBS
 
-{-
-T <$> compositeField
-  <*> compositeFieldWith $ nestedComposite @NCT
-  <*> compositeField
--}
+optionalCompositeFieldParser :: CompositeFieldParser t -> CompositeFieldParser (Maybe t)
+optionalCompositeFieldParser fp f = \case
+  Nothing -> pure Nothing
+  bs' -> Just <$> fp f bs'
 
-
-data CompositeField = CompositeField { cField :: !Field}
+data CompositeField = CompositeField { cField :: !(Either Field CompositeField)}
 
 -- ^ Parsers
 
@@ -160,7 +169,7 @@ quoted = A.char '"' *> A.option "" contents <* A.char '"'
 
 -- | Recognizes a plain string literal, not containing comma, quotes, or parens.
 plain :: A.Parser ByteString
-plain = A.takeWhile1 (A.notInClass ",\"()")
+plain = A.takeWhile (A.notInClass ",\"()")
 
 -- TODO: Clarify
 -- plain_ :: A.Parser ByteString
@@ -177,8 +186,8 @@ returnCompositeError :: forall a err . (Typeable a, Exception err)
             => (String -> Maybe Oid -> String -> String -> String -> err)
             -> CompositeField -> String -> Conversion a
 returnCompositeError mkErr f msg = do
-  tyn <- Char8.unpack <$> (typename $ cField f)
-  conversionError $ mkErr tyn (Just $ typeOid $ cField f) "" (show (typeOf (undefined :: a))) msg
+  tyn <- either (fmap Char8.unpack . typename) (const $ pure "") $ cField f
+  conversionError $ mkErr tyn (Nothing) "" (show (typeOf (undefined :: a))) msg
 
 attoCompositeFieldParser :: forall a. (Typeable a)
      => A.Parser a
@@ -237,6 +246,11 @@ instance FromCompositeField Bool where
     "t" -> pure True
     "f" -> pure False
     s -> returnCompositeError ConversionFailed f (Char8.unpack s)) f
+
+instance FromCompositeField Null where
+  fromCompositeField f = \case
+    Nothing -> pure Null
+    Just _ -> returnCompositeError ConversionFailed f "data is not null"
 
 instance FromCompositeField t => FromCompositeField (Maybe t) where
   fromCompositeField _ Nothing = pure Nothing
