@@ -68,7 +68,7 @@ module DBRecord.Query2
   , optionOn
   , lateral
   , crossJoins
-  , scalarSubQuery
+  , subSelect
   , insertOne
   , insertMany
   , insertFrom
@@ -828,8 +828,26 @@ A scalar subquery is an ordinary SELECT query in parentheses that returns exactl
 SELECT name, (SELECT max(pop) FROM cities WHERE cities.state = states.name)
     FROM states;
 -}
-scalarSubQuery :: forall t par r sc ps.((forall s.Clause s sc r (TableValue sc Identity t)) -> Query sc t) -> (forall s1.Clause s1 sc r {- + par -} (Scalar sc t)) -> Clause ps sc par (Scalar sc t)
-scalarSubQuery _ _ = undefined
+-- scalarSubQuery :: forall t par r sc ps.((forall s.Clause s sc r (TableValue sc Identity t)) -> Query sc t) -> (forall s1.Clause s1 sc r {- + par -} (Scalar sc t)) -> Clause ps sc par (Scalar sc t)
+
+
+{-
+
+
+-}
+
+subSelect ::
+  forall t r n f sc ps.
+  ( Typeable t
+  , KnownSymbol n
+  ) =>
+  ((forall s.Clause s sc r (TableValue sc f (Rec '[ '(n, t)]))) -> Query sc (Rec '[ '(n, t)])) ->
+  (forall s1.Clause s1 sc r (TableValue sc f (Rec '[ '(n, t)]))) ->
+  Clause ps sc r (Expr sc t)
+subSelect f cls = do
+  let tabExpr = Expr (PQ.TableExpr (execQuery $ f cls))
+  
+  pure tabExpr
 
 runQueryAsList :: forall r m sc driver.
   ( MonadIO m
