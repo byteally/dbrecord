@@ -735,7 +735,7 @@ selectAgg :: forall i os sc s.
 selectAgg selFn = scoped $ \(clau, scopes) -> let selCols = selFn unGroup (SelectScope scopes)
                                               in (clau, aggSelectListToTable selCols)
 
-using :: forall o i os sc s.ValidateRecToType os o => Clause s sc i (TableValue sc Identity (Rec os)) -> Clause s sc i (TableValue sc Identity o)
+using :: forall o i os sc s f.ValidateRecToType os o => Clause s sc i (TableValue sc f (Rec os)) -> Clause s sc i (TableValue sc f o)
 using clau = clau >>= pure . tableRecAsType
 
 -- TODO: Consider the alt strategy of having index representing Plain | Agg | Insert | Update | Delete  in `Clause` which will let us reuse the combinators
