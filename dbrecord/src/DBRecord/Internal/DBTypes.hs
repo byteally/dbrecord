@@ -23,6 +23,7 @@ import Data.Maybe
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
 import Data.Coerce
+import qualified Data.List as List
 import Data.Proxy
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -231,6 +232,12 @@ type family GetMatcherRep (mat :: MatcherK) :: Type where
   GetMatcherRep ('PrimMatcher m) = PrimMatchRep m
   GetMatcherRep ('SumMatcher dbk pfx t m) = SumMatchRep dbk pfx t m
   GetMatcherRep 'NoMatcher = NoMatcherRep
+
+defaultEnumMatcher :: (Eq t) => [(Text, t)] -> (Text -> Int64 -> PQ.PrimExpr) -> t -> PQ.PrimExpr
+defaultEnumMatcher m f a =
+  case List.find (\(_, a0) -> a == a0) m of
+    Just (k, _) -> f k 0
+    Nothing     -> error "Panic: impossible case @defaultEnumMatcher"
 
 
 class HasSumRepr (dbObjK :: DBObjK) (dbk :: DbK) (t :: Type) (mat :: MatcherK) where
@@ -551,15 +558,22 @@ instance DBRepr dbk (Rec xs) where
 newtype Row xs = Row (Rec xs)
 
 newtype Composite t = Composite_ t
+                    deriving (Show)
 
 getComposite :: Composite t -> t
 getComposite (Composite_ c) = c
+
+instance DBRepr 'Postgres (Composite t) where
+  type ToDBType 'Postgres (Composite t) = 'UDTypeObj ('UDRec 'CompositeRec)
+  type AutoCodec 'Postgres (Composite t) = 'False
+  typeName = ""
 
 newtype TableVal t = TableVal t
 
 
 instance DBRepr dbk (Row xs) where
-  type ToDBType dbk (Row xs) = 'UDTypeObj ('UDRec 'FlatRec)
+  type ToDBType dbk (Row xs) = 'UDTypeObj ('UDRec 'CompositeRec)
+  type AutoCodec dbk (Row xs) = 'False
   typeName = ""
 
 -- newtype AsNewTypeOf (nt :: Type) (t :: Type) = AsNewTypeOf t

@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE CPP                        #-}
 {-# LANGUAGE DataKinds                  #-}
@@ -46,7 +47,7 @@ import           Data.Functor.Identity
 import qualified Data.Pool as P
 import           Data.String
 import           Database.PostgreSQL.Simple as PGS
-import           Database.PostgreSQL.Simple.Types (PGArray (..), Null)
+import           Database.PostgreSQL.Simple.Types (PGArray (..), Query (..), Null)
 import           Database.PostgreSQL.Simple.FromField hiding (Text)
 import           Database.PostgreSQL.Simple.FromRow as PGS
 -- import qualified Database.PostgreSQL.Simple.Internal as PGSInt
@@ -167,6 +168,12 @@ instance (UDFromField t udRep) => FromRow (AnnEntity ('NullableObjOf t ('UDTypeO
 instance (UDFromField t udRep, Typeable t) => FromRow (AnnEntity ('ArrayObjOf t ('UDTypeObj udRep)) 'True meta [t]) where
   fromRow = AnnEntity <$> fieldWith (\v cn -> fromPGArray <$> pgArrayFieldParser (udFromField @t (Proxy @udRep)) v cn)
 
+instance (FromField t) => FromRow (AnnEntity ('NullableObjOf  t ('UDTypeObj udRep)) 'False meta (Maybe t)) where
+  fromRow = AnnEntity <$> fieldWith (optionalField (fromField @t))
+
+instance (FromField t, Typeable t) => FromRow (AnnEntity ('ArrayObjOf t ('UDTypeObj udRep)) 'False meta [t]) where
+  fromRow = AnnEntity <$> fieldWith (\v cn -> fromPGArray <$> pgArrayFieldParser (fromField @t) v cn)
+
 instance (FromField t) => FromRow (AnnEntity ('UDTypeObj udRep) 'False meta t) where
   fromRow = AnnEntity <$> fieldWith (fromField @t)
 
@@ -252,28 +259,39 @@ instance ( Typeable t
          , Matcher 'Postgres t ~ 'SumMatcher 'Postgres pfx t m
          , GMkCtorList t (Ctors t)
          ) => UDFromField t ('TaggedSum enk 'CompositeRec) where
-  udFromField _ = compositeToFieldWith $ do
-    ctag <- T.encodeUtf8 <$> compositeField @T.Text
-    let
-      mat cn = matchEnumTag (Proxy @enk) ctag (conAliases @'Postgres @t) cn
-      SumMatchRep { sumCtors = ctors } = sumRepr (Proxy @'( 'Postgres, t))
+  udFromField _ = compositeToFieldWith $ taggedSumCompositeParser (Proxy :: Proxy ('TaggedSum enk 'CompositeRec))
 
-      getNullaryVal :: forall cn cs.KnownSymbol cn => CtorList t ('(cn, 'Nothing) ': cs) -> CompositeParser (Maybe t)
-      getNullaryVal (NullaryCtorCons v _) =
-        if mat (T.pack $ symbolVal (Proxy @cn))
-        then pure (Just v)
-        else pure Nothing
-      getUnaryVal :: forall cn carg cs.(KnownSymbol cn, DBRepr 'Postgres carg, Typeable carg, GFromComposite '(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg)) cn carg) => CtorList t ('(cn, 'Just carg) ': cs) -> CompositeParser (Maybe t)
-      getUnaryVal (UnaryCtorCons f _) =
-        if mat (T.pack $ symbolVal (Proxy @cn))
-        then Just <$> (fmap f $ gfromComposite (Proxy @'(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg))) (Proxy @'(cn, carg)))
-        else compositeField @Null >> pure Nothing
-      matchCon :: forall cs.AllConsCxt t (cs) => CtorList t cs -> [CompositeParser (Maybe t)]
-      matchCon CtorNil = []
-      matchCon ncs@(NullaryCtorCons _ cs) = getNullaryVal ncs : matchCon cs
-      matchCon ucs@(UnaryCtorCons _ cs) = getUnaryVal ucs : matchCon cs
+taggedSumCompositeParser ::
+  forall t enk pfx m.
+  ( Typeable t
+  , MatchEnumTag enk
+  , DBRepr 'Postgres t
+  , AllConsCxt t (Ctors t)
+  , Matcher 'Postgres t ~ 'SumMatcher 'Postgres pfx t m
+  , GMkCtorList t (Ctors t)
+  ) => Proxy ('TaggedSum enk 'CompositeRec) -> CompositeParser t
+taggedSumCompositeParser _ = do
+  ctag <- T.encodeUtf8 <$> compositeField @T.Text
+  let
+    mat cn = matchEnumTag (Proxy @enk) ctag (conAliases @'Postgres @t) cn
+    SumMatchRep { sumCtors = ctors } = sumRepr (Proxy @'( 'Postgres, t))
 
-    fmap (maybe (error $ "[DBR-123] Panic: Unexpected sum tag in db:" ++ (Char8.unpack ctag)) id) $ fmap asum $ sequenceA $ matchCon ctors
+    getNullaryVal :: forall cn cs.KnownSymbol cn => CtorList t ('(cn, 'Nothing) ': cs) -> CompositeParser (Maybe t)
+    getNullaryVal (NullaryCtorCons v _) =
+      if mat (T.pack $ symbolVal (Proxy @cn))
+      then pure (Just v)
+      else pure Nothing
+    getUnaryVal :: forall cn carg cs.(KnownSymbol cn, DBRepr 'Postgres carg, Typeable carg, GFromComposite '(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg)) cn carg) => CtorList t ('(cn, 'Just carg) ': cs) -> CompositeParser (Maybe t)
+    getUnaryVal (UnaryCtorCons f _) =
+      if mat (T.pack $ symbolVal (Proxy @cn))
+      then Just <$> (fmap f $ gfromComposite (Proxy @'(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg))) (Proxy @'(cn, carg)))
+      else compositeField @Null >> pure Nothing
+    matchCon :: forall cs.AllConsCxt t (cs) => CtorList t cs -> [CompositeParser (Maybe t)]
+    matchCon CtorNil = []
+    matchCon ncs@(NullaryCtorCons _ cs) = getNullaryVal ncs : matchCon cs
+    matchCon ucs@(UnaryCtorCons _ cs) = getUnaryVal ucs : matchCon cs
+  
+  fmap (maybe (error $ "[DBR-123] Panic: Unexpected sum tag in db:" ++ (Char8.unpack ctag)) id) $ fmap asum $ sequenceA $ matchCon ctors
 
 instance (TypeError ('GHC.Text "TODO: UDRec for JsonRec")) => UDFromField t ('TaggedSum enk 'JsonRec) where
   udFromField = error "TODO"
@@ -285,28 +303,39 @@ instance ( Typeable t
          , Matcher 'Postgres t ~ 'SumMatcher 'Postgres pfx t m
          , GMkCtorList t (Ctors t)
          ) => UDFromField t ('TaggedSumMono enk ct 'CompositeRec) where
-  udFromField _ = compositeToFieldWith $ do
-    ctag <- T.encodeUtf8 <$> compositeField @T.Text
-    let
-      mat cn = matchEnumTag (Proxy @enk) ctag (conAliases @'Postgres @t) cn
-      SumMatchRep { sumCtors = ctors } = sumRepr (Proxy @'( 'Postgres, t))
+  udFromField _ = compositeToFieldWith $ taggedSumMonoCompositeParser (Proxy :: Proxy ('TaggedSumMono enk ct 'CompositeRec))
 
-      getNullaryVal :: forall cn cs.KnownSymbol cn => CtorList t ('(cn, 'Nothing) ': cs) -> Maybe (CompositeParser t)
-      getNullaryVal (NullaryCtorCons v _) =
-        if mat (T.pack $ symbolVal (Proxy @cn))
-        then Just (compositeField @Null >> pure v)
-        else Nothing
-      getUnaryVal :: forall cn carg cs.(KnownSymbol cn, DBRepr 'Postgres carg, Typeable carg, GFromComposite '(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg)) cn carg) => CtorList t ('(cn, 'Just carg) ': cs) -> Maybe (CompositeParser t)
-      getUnaryVal (UnaryCtorCons f _) =
-        if mat (T.pack $ symbolVal (Proxy @cn))
-        then Just (fmap f $ gfromComposite (Proxy @'(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg))) (Proxy @'(cn, carg)))
-        else Nothing
-      matchCon :: forall cs.AllConsCxt t (cs) => CtorList t cs -> [Maybe (CompositeParser t)]
-      matchCon CtorNil = []
-      matchCon ncs@(NullaryCtorCons _ cs) = getNullaryVal ncs : matchCon cs
-      matchCon ucs@(UnaryCtorCons _ cs) = getUnaryVal ucs : matchCon cs
+taggedSumMonoCompositeParser ::
+  forall t enk ct pfx m.
+  ( Typeable t
+  , MatchEnumTag enk
+  , DBRepr 'Postgres t
+  , AllConsCxt t (Ctors t)
+  , Matcher 'Postgres t ~ 'SumMatcher 'Postgres pfx t m
+  , GMkCtorList t (Ctors t)
+  ) => Proxy ('TaggedSumMono enk ct 'CompositeRec) -> CompositeParser t
+taggedSumMonoCompositeParser _ = do
+  ctag <- T.encodeUtf8 <$> compositeField @T.Text
+  let
+    mat cn = matchEnumTag (Proxy @enk) ctag (conAliases @'Postgres @t) cn
+    SumMatchRep { sumCtors = ctors } = sumRepr (Proxy @'( 'Postgres, t))
 
-    maybe (error $ "[DBR-123] Panic: Unexpected sum tag in db:" ++ (Char8.unpack ctag)) id $ asum $ matchCon ctors
+    getNullaryVal :: forall cn cs.KnownSymbol cn => CtorList t ('(cn, 'Nothing) ': cs) -> Maybe (CompositeParser t)
+    getNullaryVal (NullaryCtorCons v _) =
+      if mat (T.pack $ symbolVal (Proxy @cn))
+      then Just (compositeField @Null >> pure v)
+      else Nothing
+    getUnaryVal :: forall cn carg cs.(KnownSymbol cn, DBRepr 'Postgres carg, Typeable carg, GFromComposite '(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg)) cn carg) => CtorList t ('(cn, 'Just carg) ': cs) -> Maybe (CompositeParser t)
+    getUnaryVal (UnaryCtorCons f _) =
+      if mat (T.pack $ symbolVal (Proxy @cn))
+      then Just (fmap f $ gfromComposite (Proxy @'(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg))) (Proxy @'(cn, carg)))
+      else Nothing
+    matchCon :: forall cs.AllConsCxt t (cs) => CtorList t cs -> [Maybe (CompositeParser t)]
+    matchCon CtorNil = []
+    matchCon ncs@(NullaryCtorCons _ cs) = getNullaryVal ncs : matchCon cs
+    matchCon ucs@(UnaryCtorCons _ cs) = getUnaryVal ucs : matchCon cs
+
+  maybe (error $ "[DBR-123] Panic: Unexpected sum tag in db:" ++ (Char8.unpack ctag)) id $ asum $ matchCon ctors  
 
 instance (TypeError ('GHC.Text "TODO: UDRec for JsonRec")) => UDFromField t ('TaggedSumMono enk ct 'JsonRec) where
   udFromField = error "TODO"
@@ -317,20 +346,30 @@ instance ( Typeable t
          , Matcher 'Postgres t ~ 'SumMatcher 'Postgres pfx t m
          , GMkCtorList t (Ctors t)
          ) => UDFromField t ('SumOfCol 'CompositeRec) where
-  udFromField _ = compositeToFieldWith $ do
-    ctag <- T.encodeUtf8 <$> compositeField @T.Text
-    let
-      SumMatchRep { sumCtors = ctors } = sumRepr (Proxy @'( 'Postgres, t))
+  udFromField _ = compositeToFieldWith taggedSumOfColCompositeParser
 
-      getUnaryVal :: forall cn carg cs.(KnownSymbol cn, DBRepr 'Postgres carg, Typeable carg, GFromComposite '(t, 'Just '(ToDBType 'Postgres (Maybe carg), AutoCodec 'Postgres (Maybe carg))) cn (Maybe carg)) => CtorList t ('(cn, 'Just carg) ': cs) -> CompositeParser (Maybe t)
-      getUnaryVal (UnaryCtorCons f _) =
-        (fmap . fmap) f $ gfromComposite (Proxy @'(t, 'Just '(ToDBType 'Postgres (Maybe carg), AutoCodec 'Postgres (Maybe carg)))) (Proxy @'(cn, Maybe carg))
-      matchCon :: forall cs.AllSOCConsCxt t (cs) => CtorList t cs -> [CompositeParser (Maybe t)]
-      matchCon CtorNil = []
-      matchCon (NullaryCtorCons _ _) = error "[DBR-123] Panic! Unreachable code"
-      matchCon ucs@(UnaryCtorCons _ cs) = getUnaryVal ucs : matchCon cs
+taggedSumOfColCompositeParser ::
+    forall t pfx m.
+    ( Typeable t
+    , DBRepr 'Postgres t
+    , AllSOCConsCxt t (Ctors t)
+    , Matcher 'Postgres t ~ 'SumMatcher 'Postgres pfx t m
+    , GMkCtorList t (Ctors t)
+    ) => CompositeParser t
+taggedSumOfColCompositeParser = do
+  ctag <- T.encodeUtf8 <$> compositeField @T.Text
+  let
+    SumMatchRep { sumCtors = ctors } = sumRepr (Proxy @'( 'Postgres, t))
 
-    fmap (maybe (error $ "[DBR-123] Panic: Unexpected sum tag in db:" ++ (Char8.unpack ctag)) id) $ asum $ matchCon ctors
+    getUnaryVal :: forall cn carg cs.(KnownSymbol cn, DBRepr 'Postgres carg, Typeable carg, GFromComposite '(t, 'Just '(ToDBType 'Postgres (Maybe carg), AutoCodec 'Postgres (Maybe carg))) cn (Maybe carg)) => CtorList t ('(cn, 'Just carg) ': cs) -> CompositeParser (Maybe t)
+    getUnaryVal (UnaryCtorCons f _) =
+      (fmap . fmap) f $ gfromComposite (Proxy @'(t, 'Just '(ToDBType 'Postgres (Maybe carg), AutoCodec 'Postgres (Maybe carg)))) (Proxy @'(cn, Maybe carg))
+    matchCon :: forall cs.AllSOCConsCxt t (cs) => CtorList t cs -> [CompositeParser (Maybe t)]
+    matchCon CtorNil = []
+    matchCon (NullaryCtorCons _ _) = error "[DBR-123] Panic! Unreachable code"
+    matchCon ucs@(UnaryCtorCons _ cs) = getUnaryVal ucs : matchCon cs
+
+  fmap (maybe (error $ "[DBR-123] Panic: Unexpected sum tag in db:" ++ (Char8.unpack ctag)) id) $ asum $ matchCon ctors  
 
 type family AllConsCxt (t :: Type) (cons :: [(Symbol, Maybe Type)]) :: Constraint where
   AllConsCxt t '[] = ()
@@ -358,7 +397,6 @@ instance (FromRow (AnnEntity (ToDBType 'Postgres a) (AutoCodec 'Postgres a) () a
 
 instance GFromRow U1 where
     gfromRow = pure U1
-
 
 class GFromRowOpt f where
   gfromRowOpt :: RowParser (Maybe (f p))
@@ -428,6 +466,38 @@ instance (FromCompositeField fty) => GFromComposite '(t, 'Just '( 'NativeTypeObj
 instance (DBRepr 'Postgres fty, Typeable fty, Generic fty, FromHK fty, GConstructHK fty (GFromComposite '(fty, 'Nothing)) (TypeFields fty)) => GFromComposite '(t, 'Just '( 'UDTypeObj ('UDRec 'CompositeRec), 'True)) fn fty where
   gfromComposite _ _ = compositeFieldWith $ compositeToCompositeFieldWith $ gFromComp @fty
 
+instance
+  ( DBRepr 'Postgres fty
+  , Typeable fty
+  , MatchEnumTag enk
+  , DBRepr 'Postgres fty
+  , AllConsCxt fty (Ctors fty)
+  , Matcher 'Postgres fty ~ 'SumMatcher 'Postgres pfx fty m
+  , GMkCtorList fty (Ctors fty)
+  ) => GFromComposite '(t, 'Just '( 'UDTypeObj ('TaggedSum enk 'CompositeRec), 'True)) fn fty where
+  gfromComposite _ _ = compositeFieldWith $ compositeToCompositeFieldWith $ taggedSumCompositeParser (Proxy :: Proxy ('TaggedSum enk 'CompositeRec))
+
+instance
+  ( DBRepr 'Postgres fty
+  , Typeable fty
+  , MatchEnumTag enk
+  , DBRepr 'Postgres fty
+  , AllConsCxt fty (Ctors fty)
+  , Matcher 'Postgres fty ~ 'SumMatcher 'Postgres pfx fty m
+  , GMkCtorList fty (Ctors fty)
+  ) => GFromComposite '(t, 'Just '( 'UDTypeObj ('TaggedSumMono enk ct 'CompositeRec), 'True)) fn fty where
+  gfromComposite _ _ = compositeFieldWith $ compositeToCompositeFieldWith $ taggedSumMonoCompositeParser (Proxy :: Proxy ('TaggedSumMono enk ct 'CompositeRec))
+
+instance (DBRepr 'Postgres fty
+         , Typeable fty
+         , DBRepr 'Postgres fty
+         , AllSOCConsCxt fty (Ctors fty)
+         , Matcher 'Postgres fty ~ 'SumMatcher 'Postgres pfx fty m
+         , GMkCtorList fty (Ctors fty)         
+         ) => GFromComposite '(t, 'Just '( 'UDTypeObj ('SumOfCol 'CompositeRec), 'True)) fn fty where
+  gfromComposite _ _ = compositeFieldWith $ compositeToCompositeFieldWith $ taggedSumOfColCompositeParser
+
+
 instance (Typeable fty, A.FromJSON fty) => GFromComposite '(t, 'Just '( 'UDTypeObj ('SerializedBlob ('JsonContent 'Nothing)), 'True)) fn fty where
   gfromComposite _ _ = compositeFieldWith $ \f -> (nonNullCompositeField @fty $ \bs -> case A.eitherDecodeStrict bs of
                                               Left e -> returnCompositeError ConversionFailed f e
@@ -454,6 +524,9 @@ instance (TypeError ('Text "[DBR-123] Panic: Nested flat composite not allowed")
 
 instance (FromCompositeField ety) => GFromComposite '(t, 'Just '( 'NullableObjOf ety ('NativeTypeObj enat), 'True)) fn (Maybe ety) where
   gfromComposite _ _ = compositeFieldWith $ optionalCompositeFieldParser $ fromCompositeField @ety
+
+instance (FromCompositeField ety, Typeable ety) => GFromComposite '(t, 'Just '( 'ArrayObjOf ety ('NativeTypeObj enat), 'True)) fn [ety] where
+  gfromComposite _ _ = fmap V.toList $ compositeFieldWith $ arrayCompositeFieldParser $ fromCompositeField @ety
 
 instance (FromCompositeField ety) => GFromComposite '(t, 'Just '( 'NullableObjOf ety ('UDTypeObj ('UDEnum enk)), 'True)) fn (Maybe ety) where
   gfromComposite _ _ = compositeFieldWith $ optionalCompositeFieldParser $ fromCompositeField @ety
@@ -572,3 +645,12 @@ showMQuery mQ = execMQuery
 -- TODO: Remove this
 showQuery :: DBRI.Query' qt sc r -> T.Text
 showQuery q = PG.renderQuery $ PG.sql $ DBRI.execQuery q
+
+
+-- TODO: Orphan
+instance (FromComposite a, Typeable a) => FromField (Composite a) where
+  fromField b = fmap Composite_ <$> compositeToField b
+
+instance (FromComposite a, Typeable a) => FromRow (Composite a) where
+  fromRow = field
+  

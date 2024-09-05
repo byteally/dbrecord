@@ -748,6 +748,18 @@ qGroupByWithSum = aggregate (rel @(DVDRentalDB db) @Payment) $ do
     .& #customerId .= groupSel custIdGrp
     .& end
 
+qGroupByWithArrayAgg :: forall db.
+  (db ~ 'Postgres) =>
+  Query (DVDRentalDB db) (Rec '[ '("releaseYear", YearI32)
+                               , '("row", [Composite (Text, Int16, MPAA)])
+                               ])
+qGroupByWithArrayAgg = aggregate (rel @(DVDRentalDB db) @Film) $ do
+  yearGrp <- groupBy $ \r -> r.releaseYear
+  selectAgg $ \groupSel r ->
+       #releaseYear .= groupSel yearGrp 
+    .& #row .= arrayOf (row3 (val r.title) (val r.length) (val r.rating))
+    .& end
+
 qGroupByWithMultipleCol :: forall db.
   (db ~ 'Postgres) =>
   Query (DVDRentalDB db) (Rec '[ '("staffId", Int16)

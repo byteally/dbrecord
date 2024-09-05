@@ -674,3 +674,26 @@ sumOf = coerce . funOp "sum"
 
 maxOf :: OrdExpr sc n => Expr sc n -> AggExpr sc n
 maxOf = coerce . funOp "max"
+
+arrayOf :: Expr sc n -> AggExpr sc [n]
+arrayOf = coerce . funOp "array_agg"
+
+row2 :: Expr sc a -> Expr sc b -> Expr sc (Composite (a, b))
+row2 a b =
+  Expr (PQ.RowExpr [getExpr a, getExpr b])
+
+row3 :: Expr sc a -> Expr sc b ->  Expr sc c -> Expr sc (Composite (a, b, c))
+row3 a b c =
+  Expr (PQ.RowExpr [getExpr a, getExpr b, getExpr c])
+
+row4 :: Expr sc a -> Expr sc b -> Expr sc c ->  Expr sc d -> Expr sc (Composite (a, b, c, d))
+row4 a b c d =
+  Expr (PQ.RowExpr [getExpr a, getExpr b, getExpr c, getExpr d])
+
+row5 :: Expr sc a -> Expr sc b -> Expr sc c ->  Expr sc d -> Expr sc e -> Expr sc (Composite (a, b, c, d, e))
+row5 a b c d e =
+  Expr (PQ.RowExpr [getExpr a, getExpr b, getExpr c, getExpr d, getExpr e])
+
+row6 :: Expr sc a -> Expr sc b -> Expr sc c ->  Expr sc d -> Expr sc e -> Expr sc f -> Expr sc (Composite (a, b, c, d, e, f))
+row6 a b c d e f =
+  Expr (PQ.RowExpr [getExpr a, getExpr b, getExpr c, getExpr d, getExpr e, getExpr f])

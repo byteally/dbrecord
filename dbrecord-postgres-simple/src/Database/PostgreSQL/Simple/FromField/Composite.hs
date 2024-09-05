@@ -50,10 +50,29 @@ import qualified Data.UUID.Types as UUID
 import           Data.Scientific (Scientific)
 -}
 
-
 class FromComposite (t :: Type) where
   fromComposite :: CompositeParser t
 
+instance (FromCompositeField a, FromCompositeField b) => FromComposite (a,b) where
+  fromComposite =
+    (,) <$> compositeField <*> compositeField
+    
+instance (FromCompositeField a, FromCompositeField b, FromCompositeField c) => FromComposite (a,b,c) where
+  fromComposite =
+    (,,) <$> compositeField <*> compositeField <*> compositeField
+    
+instance (FromCompositeField a, FromCompositeField b, FromCompositeField c, FromCompositeField d) => FromComposite (a,b,c,d) where
+  fromComposite =
+    (,,,) <$> compositeField <*> compositeField <*> compositeField <*> compositeField
+  
+instance (FromCompositeField a, FromCompositeField b, FromCompositeField c, FromCompositeField d, FromCompositeField e) => FromComposite (a,b,c,d,e) where
+  fromComposite =
+    (,,,,) <$> compositeField <*> compositeField <*> compositeField <*> compositeField <*> compositeField
+  
+instance (FromCompositeField a, FromCompositeField b, FromCompositeField c, FromCompositeField d, FromCompositeField e, FromCompositeField f) => FromComposite (a,b,c,d,e,f) where
+  fromComposite =
+    (,,,,,) <$> compositeField <*> compositeField <*> compositeField <*> compositeField <*> compositeField <*> compositeField
+  
 class FromCompositeField (t :: Type) where
   fromCompositeField :: CompositeFieldParser t
 
@@ -130,6 +149,11 @@ optionalCompositeFieldParser fp f = \case
 data CompositeField = CompositeField { cField :: !(Either Field CompositeField)
                                      , cPos :: !Int
                                      }
+
+arrayCompositeFieldParser :: forall a .(Typeable a) => CompositeFieldParser a -> CompositeFieldParser (Vector a)
+arrayCompositeFieldParser _ _f (Just _bs) = pure mempty
+arrayCompositeFieldParser _ f _ = returnCompositeError UnexpectedNull f ""
+{-# INLINE arrayCompositeFieldParser #-}
 
 -- ^ Parsers
 
@@ -249,6 +273,9 @@ instance FromCompositeField Bool where
     "f" -> pure False
     s -> returnCompositeError ConversionFailed f (Char8.unpack s)) f
 
+instance FromCompositeField ByteString where
+  fromCompositeField f = nonNullCompositeField pure f
+
 instance FromCompositeField Null where
   fromCompositeField f = \case
     Nothing -> pure Null
@@ -257,7 +284,6 @@ instance FromCompositeField Null where
 instance FromCompositeField t => FromCompositeField (Maybe t) where
   fromCompositeField _ Nothing = pure Nothing
   fromCompositeField cf bs = Just <$> fromCompositeField @t cf bs
-
 
 nonNullCompositeField :: forall a . (Typeable a)
   => (ByteString -> Conversion a) -> CompositeFieldParser a

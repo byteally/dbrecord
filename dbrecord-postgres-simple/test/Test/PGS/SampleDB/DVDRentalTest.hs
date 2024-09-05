@@ -369,3 +369,12 @@ instance FromField Row1 where
 
 instance FromComposite Row1 where
   fromComposite = Row1 <$> compositeField <*> compositeField
+
+instance FromCompositeField MPAA where
+  fromCompositeField f = nonNullCompositeField (\case
+    "G" -> pure G
+    "PG" -> pure PG
+    "R" -> pure R
+    "PG-13" -> pure PG'13
+    "NC-17" -> pure NC'17
+    _ -> returnCompositeError ConversionFailed f "dead") f
