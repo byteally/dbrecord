@@ -276,7 +276,7 @@ data USumOfCol2 (sc :: Type)
 
 -- Composite
 -- Annon
-data Row1 = Row1 {f1 :: Int, f2 :: Text}
+data Row1 = Row1 {f1 :: Maybe Int, f2 :: Maybe Text}
   deriving (Show, Eq, Generic)
 
 instance DBRepr 'Postgres Row1 where

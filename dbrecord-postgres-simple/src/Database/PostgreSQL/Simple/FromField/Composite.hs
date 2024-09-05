@@ -17,7 +17,7 @@ import           Control.Applicative
 import qualified Data.Attoparsec.ByteString.Char8 as A
 import           Data.ByteString ( ByteString )
 import qualified Data.ByteString.Char8 as Char8
-import           Data.Text
+import           Data.Text (Text)
 import           Data.Text.Encoding ( decodeUtf8' )
 import           Data.Kind
 import           Data.Int
@@ -33,15 +33,15 @@ import           Database.PostgreSQL.Simple.FromField
 import           GHC.Real (infinity, notANumber)
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.List as L
 import Control.Monad.State.Strict
-
+-- import qualified Data.Text as T
+-- import qualified Data.Text.Encoding as T
 
 {-
 import qualified Data.ByteString as SB
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as LB
-import qualified Data.Text as ST
-import qualified Data.Text.Encoding as ST
 import qualified Data.Text.Lazy as LT
 import           Data.CaseInsensitive (CI)
 import qualified Data.CaseInsensitive as CI
@@ -62,29 +62,36 @@ newtype CompositeParser t = CompositeParser {runCompParser :: StateT CPState Con
 
 data CPState = CPState
   { cField' :: !(Either Field CompositeField)
-  , parsedFields :: !(Vector ByteString)
+  , parsedFields :: !(Vector (Maybe ByteString))
   , currentField :: !Int
   }
 
 type CompositeFieldParser (t :: Type) = CompositeField -> Maybe ByteString -> Conversion t
 
-getAllParsedFields :: CompositeParser (Vector ByteString)
+getAllParsedFields :: CompositeParser (Vector (Maybe ByteString))
 getAllParsedFields = CompositeParser (gets parsedFields)
 
-lookupCompositeField :: Int -> CompositeParser (Maybe ByteString)
+lookupCompositeField :: Int -> CompositeParser (Maybe (Maybe ByteString))
 lookupCompositeField ix = CompositeParser (gets ((V.!? ix) . parsedFields))
 
 getCompositeFieldInfo :: CompositeParser CompositeField
 getCompositeFieldInfo = CompositeParser $ do
   cpst <- get
   pure $ CompositeField { cField = cField' cpst
+                        , cPos = currentField cpst
                         }
 
-consumeCurrentField :: CompositeParser Int
-consumeCurrentField = CompositeParser $ do
-  curr <- gets currentField
-  modify' $ \s -> s {currentField = curr + 1}
-  pure curr
+consumeCurrentField :: CompositeParser (Int, Maybe ByteString)
+consumeCurrentField = do
+  f <- getCompositeFieldInfo
+  (curr, fldE) <- CompositeParser $ do
+    curr <- gets currentField
+    pFlds <- gets parsedFields
+    modify' $ \s -> s {currentField = curr + 1}
+    pure (curr, maybe (Left $ "Trying tolookup fields more than available no. of fields: " ++ (show $ V.length pFlds)) Right (pFlds V.!? curr))
+  case fldE of
+    Left e -> CompositeParser $ lift $ returnCompositeError ConversionFailed f e
+    Right fld -> pure (curr, fld)
 
 compositeToField :: (FromComposite t, Typeable t) => FieldParser t
 compositeToField = compositeToFieldWith fromComposite
@@ -92,8 +99,8 @@ compositeToField = compositeToFieldWith fromComposite
 compositeToFieldWith :: Typeable t => CompositeParser t -> FieldParser t
 compositeToFieldWith compP f = \case
   Nothing -> returnError UnexpectedNull f ""
-  Just bs -> case A.parseOnly parseCompositeFields bs of
-    Left err -> returnError ConversionFailed f err
+  Just bs -> case A.parseOnly (parseCompositeFields <* A.endOfInput) bs of
+    Left err -> returnError ConversionFailed f (show (err, Char8.unpack bs))
     Right flds -> evalStateT (runCompParser compP) (CPState (Left f) flds 0)
 
 compositeToCompositeField :: (FromComposite t, Typeable t) => CompositeFieldParser t
@@ -102,7 +109,7 @@ compositeToCompositeField = compositeToCompositeFieldWith fromComposite
 compositeToCompositeFieldWith :: Typeable t => CompositeParser t -> CompositeFieldParser t
 compositeToCompositeFieldWith compP f = \case
   Nothing -> returnCompositeError UnexpectedNull f ""
-  Just bs -> case A.parseOnly parseCompositeFields bs of
+  Just bs -> case A.parseOnly (parseCompositeFields <* A.endOfInput) bs of
     Left err -> returnCompositeError ConversionFailed f err
     Right flds -> evalStateT (runCompParser compP) (CPState (Right f) flds 0)
 
@@ -112,8 +119,7 @@ compositeField = compositeFieldWith (fromCompositeField @t)
 compositeFieldWith :: CompositeFieldParser t -> CompositeParser t
 compositeFieldWith fp = do
   cfld <- getCompositeFieldInfo
-  currIx <- consumeCurrentField
-  fldBS <- lookupCompositeField currIx
+  (_currIx, fldBS) <- consumeCurrentField
   CompositeParser $ lift $ fp cfld fldBS
 
 optionalCompositeFieldParser :: CompositeFieldParser t -> CompositeFieldParser (Maybe t)
@@ -121,11 +127,13 @@ optionalCompositeFieldParser fp f = \case
   Nothing -> pure Nothing
   bs' -> Just <$> fp f bs'
 
-data CompositeField = CompositeField { cField :: !(Either Field CompositeField)}
+data CompositeField = CompositeField { cField :: !(Either Field CompositeField)
+                                     , cPos :: !Int
+                                     }
 
 -- ^ Parsers
 
-parseCompositeFields :: A.Parser (Vector ByteString)
+parseCompositeFields :: A.Parser (Vector (Maybe ByteString))
 parseCompositeFields = V.fromList <$> (parens $ commaSep byteContent)
 
 array :: A.Parser a -> A.Parser [a]
@@ -164,22 +172,16 @@ quoted :: A.Parser ByteString
 quoted = A.char '"' *> A.option "" contents <* A.char '"'
   where
     esc = A.char '\\' *> (A.char '\\' <|> A.char '"')
-    unQ = A.takeWhile1 (A.notInClass "\"\\") -- TODO: use `takeWhile1`, null field is blank
+    unQ = A.takeWhile1 (A.notInClass ",\"\\") -- TODO: use `takeWhile1`, null field is blank
     contents = mconcat <$> many (unQ <|> Char8.singleton <$> esc)
 
 -- | Recognizes a plain string literal, not containing comma, quotes, or parens.
 plain :: A.Parser ByteString
 plain = A.takeWhile (A.notInClass ",\"()")
 
--- TODO: Clarify
--- plain_ :: A.Parser ByteString
--- plain_ = A.takeWhile (A.notInClass ",")
 
--- textContent :: A.Parser Text
--- textContent = decodeUtf8 <$> byteContent
-
-byteContent :: A.Parser ByteString
-byteContent = quoted <|> plain
+byteContent :: A.Parser (Maybe ByteString)
+byteContent = (Just <$> quoted) <|> (fmap (\bs -> if Char8.null bs then Nothing else Just bs) plain)
 
 
 returnCompositeError :: forall a err . (Typeable a, Exception err)
@@ -195,8 +197,8 @@ attoCompositeFieldParser :: forall a. (Typeable a)
      -> CompositeFieldParser a
 attoCompositeFieldParser p f = \case
   Nothing -> returnCompositeError UnexpectedNull f ""
-  Just s -> case A.parseOnly p s of
-    Left err -> returnCompositeError ConversionFailed f err
+  Just s -> case A.parseOnly (p <* A.endOfInput) s of
+    Left err -> returnCompositeError ConversionFailed f (L.intercalate "|" [err, Char8.unpack s])
     Right  v -> pure v
 
 instance FromCompositeField Int where

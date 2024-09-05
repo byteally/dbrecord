@@ -220,8 +220,8 @@ runSUTTransaction :: forall m x.
   ) => IO (SessionConfig PGS) -> DVDRentalPGM x -> m x
 runSUTTransaction envM sut = do
   env <- liftIO envM
-  liftIO $ flip runReaderT env $ runDVDRentalPGM $ runTransaction sut  
-  
+  liftIO $ flip runReaderT env $ runDVDRentalPGM $ runTransaction sut
+
 
 test_const :: TestTree
 test_const = Test.Tasty.withResource
@@ -269,7 +269,22 @@ test_comp_parser = Test.Tasty.withResource
   (\e -> testGroup "Raw Queries"
     [ testProperty "Composite" $ withTests 1 $ property $ do
         r <- runSUTSession e $ runRawQuery @_ @(Int, Row1) "select 1, row(2, '3')"
-        V.head r === (1,Row1 2 "3")
+        V.head r === (1,Row1 (Just 2) (Just "3"))
+    , testProperty "Composite with nulls(1)" $ withTests 1 $ property $ do
+        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row1) "select 1, row(NULL, '3')"
+        V.head r === (1,Row1 Nothing (Just "3"))
+    , testProperty "Composite with nulls(2)" $ withTests 1 $ property $ do
+        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row1) "select 1, row(2, NULL)"
+        V.head r === (1,Row1 (Just 2) Nothing)
+    , testProperty "Composite with nulls(3)" $ withTests 1 $ property $ do
+        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row1) "select 1, row(NULL, NULL)"
+        V.head r === (1,Row1 Nothing Nothing)
+    , testProperty "Composite with empty string" $ withTests 1 $ property $ do
+        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row1) "select 1, row(NULL, '')"
+        V.head r === (1,Row1 Nothing (Just ""))
+    , testProperty "Composite with string with only spaces" $ withTests 1 $ property $ do
+        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row1) "select 1, row(NULL, ' ')"
+        V.head r === (1,Row1 Nothing (Just " "))        
     ]
   )
 
