@@ -18,7 +18,7 @@ import Data.Kind
 import Data.ByteString (ByteString)
 import Data.UUID (UUID)
 import Data.Scientific
-import Data.Aeson (Value)
+import Data.Aeson (Value, ToJSON, FromJSON)
 import Data.Vector (Vector)
 import Data.Map.Strict (Map)
 import Data.List.NonEmpty (NonEmpty)
@@ -116,13 +116,14 @@ data JBlob1 = JBlob1
   , jbComplex1 :: Vector (Either Text (Maybe Int64))
   , jbComplex2 :: Map Text (NonEmpty Int32)
   } deriving (Show, Eq, Generic)
+    deriving anyclass (ToJSON, FromJSON)
     deriving (DBRepr 'Postgres) via AsJsonBlob JBlob1
 
 data TBlob1 = TBlob1
   { tbPrim :: Int32
   , tbComplex1 :: Vector (Either Text (Maybe Int64))
   , tbComplex2 :: Map Text (NonEmpty Int32)
-  } deriving (Show, Eq, Generic)
+  } deriving (Show, Read, Eq, Generic)
     deriving (DBRepr 'Postgres) via AsTextBlob TBlob1
 
 data XmlBlob1 = XmlBlob1
@@ -178,22 +179,22 @@ data UTaggedSum1 (sc :: Type)
 data TaggedSum2
   = Tag20
   | Tag21 CompRec1
-  | Tag22 JsonRec1
+--  | Tag22 JsonRec1 -- TODO:
   | Tag23 JBlob1
   | Tag24 TBlob1
-  | Tag25 XmlBlob1
-  | Tag26 TBlob1
+  -- | Tag25 XmlBlob1
+  | Tag26 Text
   deriving (Show, Eq, Generic)
   deriving (DBRepr 'Postgres) via AsTaggedSumComposite UTaggedSum2 TaggedSum2
 
 data UTaggedSum2 (sc :: Type)
   = UTag20
   | UTag21 (Expr sc CompRec1)
-  | UTag22 (Expr sc JsonRec1)
+  -- | UTag22 (Expr sc JsonRec1)
   | UTag23 (Expr sc JBlob1)
   | UTag24 (Expr sc TBlob1)
-  | UTag25 (Expr sc XmlBlob1)
-  | UTag26 (Expr sc TBlob1)
+  -- | UTag25 (Expr sc XmlBlob1)
+  | UTag26 (Expr sc Text)
   deriving (Generic)
 
 data TaggedSum3

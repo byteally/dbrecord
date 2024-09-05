@@ -64,6 +64,7 @@ import           Data.ByteString (ByteString)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 -- import qualified Data.HashMap.Strict as HM
+import           Text.Read
 import qualified Data.Vector as V
 import qualified Data.Attoparsec.ByteString.Char8 as Atto
 -- import Control.Monad.Trans.State.Strict
@@ -257,22 +258,22 @@ instance ( Typeable t
       mat cn = matchEnumTag (Proxy @enk) ctag (conAliases @'Postgres @t) cn
       SumMatchRep { sumCtors = ctors } = sumRepr (Proxy @'( 'Postgres, t))
 
-      getNullaryVal :: forall cn cs.KnownSymbol cn => CtorList t ('(cn, 'Nothing) ': cs) -> Maybe (CompositeParser t)
+      getNullaryVal :: forall cn cs.KnownSymbol cn => CtorList t ('(cn, 'Nothing) ': cs) -> CompositeParser (Maybe t)
       getNullaryVal (NullaryCtorCons v _) =
         if mat (T.pack $ symbolVal (Proxy @cn))
-        then Just (pure v)
-        else Nothing
-      getUnaryVal :: forall cn carg cs.(KnownSymbol cn, DBRepr 'Postgres carg, Typeable carg, GFromComposite '(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg)) cn carg) => CtorList t ('(cn, 'Just carg) ': cs) -> Maybe (CompositeParser t)
+        then pure (Just v)
+        else pure Nothing
+      getUnaryVal :: forall cn carg cs.(KnownSymbol cn, DBRepr 'Postgres carg, Typeable carg, GFromComposite '(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg)) cn carg) => CtorList t ('(cn, 'Just carg) ': cs) -> CompositeParser (Maybe t)
       getUnaryVal (UnaryCtorCons f _) =
         if mat (T.pack $ symbolVal (Proxy @cn))
-        then Just (fmap f $ gfromComposite (Proxy @'(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg))) (Proxy @'(cn, carg)))
-        else Nothing
-      matchCon :: forall cs.AllConsCxt t (cs) => CtorList t cs -> [Maybe (CompositeParser t)]
+        then Just <$> (fmap f $ gfromComposite (Proxy @'(t, 'Just '(ToDBType 'Postgres carg, AutoCodec 'Postgres carg))) (Proxy @'(cn, carg)))
+        else compositeField @Null >> pure Nothing
+      matchCon :: forall cs.AllConsCxt t (cs) => CtorList t cs -> [CompositeParser (Maybe t)]
       matchCon CtorNil = []
       matchCon ncs@(NullaryCtorCons _ cs) = getNullaryVal ncs : matchCon cs
       matchCon ucs@(UnaryCtorCons _ cs) = getUnaryVal ucs : matchCon cs
 
-    maybe (error $ "[DBR-123] Panic: Unexpected sum tag in db:" ++ (Char8.unpack ctag)) id $ asum $ matchCon ctors
+    fmap (maybe (error $ "[DBR-123] Panic: Unexpected sum tag in db:" ++ (Char8.unpack ctag)) id) $ fmap asum $ sequenceA $ matchCon ctors
 
 instance (TypeError ('GHC.Text "TODO: UDRec for JsonRec")) => UDFromField t ('TaggedSum enk 'JsonRec) where
   udFromField = error "TODO"
@@ -426,6 +427,18 @@ instance (FromCompositeField fty) => GFromComposite '(t, 'Just '( 'NativeTypeObj
 
 instance (DBRepr 'Postgres fty, Typeable fty, Generic fty, FromHK fty, GConstructHK fty (GFromComposite '(fty, 'Nothing)) (TypeFields fty)) => GFromComposite '(t, 'Just '( 'UDTypeObj ('UDRec 'CompositeRec), 'True)) fn fty where
   gfromComposite _ _ = compositeFieldWith $ compositeToCompositeFieldWith $ gFromComp @fty
+
+instance (Typeable fty, A.FromJSON fty) => GFromComposite '(t, 'Just '( 'UDTypeObj ('SerializedBlob ('JsonContent 'Nothing)), 'True)) fn fty where
+  gfromComposite _ _ = compositeFieldWith $ \f -> (nonNullCompositeField @fty $ \bs -> case A.eitherDecodeStrict bs of
+                                              Left e -> returnCompositeError ConversionFailed f e
+                                              Right r -> pure r) f
+
+instance (Typeable fty, Read fty) => GFromComposite '(t, 'Just '( 'UDTypeObj ('SerializedBlob ('TextContent 'Nothing)), 'True)) fn fty where
+  gfromComposite _ _ = compositeFieldWith $ \f bs -> do
+    txt <- fromCompositeField @T.Text f bs
+    case readMaybe $ T.unpack txt of
+      Nothing -> returnCompositeError ConversionFailed f ("Unable to parse: " ++ T.unpack txt)
+      Just v -> pure v
 
 instance (TypeError ('Text "TODO: GFromComposite - UDRec JSONRec")) => GFromComposite '(t, 'Just '( 'UDTypeObj ('UDRec 'JsonRec), 'True)) fn fty where
   gfromComposite _ _ = error "[DBR-123]: Unreachable code"
