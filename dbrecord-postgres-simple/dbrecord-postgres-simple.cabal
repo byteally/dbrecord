@@ -107,7 +107,7 @@ library
                      , dbrecord-types
                      , rec               >= 0.2
                      -- , dbrecord-migration
-                     , pretty            == 1.1.*
+                     , prettyprinter     == 1.7.*
                      , base16-bytestring >= 0.1.1.6 && < 1.1
                      , attoparsec
                      , unordered-containers

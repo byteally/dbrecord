@@ -84,10 +84,10 @@ class (DBDecoder driver) => HasInsertRet driver where
   dbInsertRet = dbInsertRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
 
 class ShowQuery driver where
-  showQuery :: SessionConfig driver -> PQ.PrimQuery -> String
-  showInsertQuery :: SessionConfig driver -> PQ.InsertQuery -> String
-  showUpdateQuery :: SessionConfig driver -> PQ.UpdateQuery -> String
-  showDeleteQuery :: SessionConfig driver -> PQ.DeleteQuery -> String
+  showQuery :: SessionConfig driver -> PQ.PrimQuery -> Text
+  showInsertQuery :: SessionConfig driver -> PQ.InsertQuery -> Text
+  showUpdateQuery :: SessionConfig driver -> PQ.UpdateQuery -> Text
+  showDeleteQuery :: SessionConfig driver -> PQ.DeleteQuery -> Text
 
 class HasDDLQuery driver where
   dbDDLQuery :: driver -> [PDDLQ.PrimDDLF Proxy] -> IO () 

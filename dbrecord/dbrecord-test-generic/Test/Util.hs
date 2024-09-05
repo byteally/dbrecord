@@ -20,6 +20,7 @@ import Control.Monad.IO.Unlift
 import Control.Monad.Trans.Control
 import Control.Exception.Safe
 import GHC.TypeLits
+import qualified Data.Text as T
 
 -- TODO: Remove int deps
 import DBRecord.Internal.DBTypes
@@ -27,13 +28,13 @@ import DBRecord.Internal.Schema
 import DBRecord.Internal.Types
 
 
-newtype ShowableQ sc a = ShowableQ (Query sc a -> String, Query sc a)
+newtype ShowableQ sc a = ShowableQ (Query sc a -> T.Text, Query sc a)
 
 runShowableQ :: ShowableQ sc a -> Query sc a
 runShowableQ (ShowableQ (_, q)) = q
 
 instance Show (ShowableQ sc a) where
-  show (ShowableQ (showQ, q)) = showQ q
+  show (ShowableQ (showQ, q)) = T.unpack (showQ q)
 
 exprTripping :: forall a (sc :: Type) (sut :: Type -> Type) m env driver.
   ( Typeable a

@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ScopedTypeVariables           #-}
 {-# LANGUAGE ExplicitForAll                #-}
 {-# LANGUAGE KindSignatures                #-}
@@ -1096,7 +1097,7 @@ getQueryShow :: forall sc m a env driver.
   ( MonadReader env m
   , HasSessionConfig env driver
   , ShowQuery driver
-  ) => m (Query sc a -> String)
+  ) => m (Query sc a -> T.Text)
 getQueryShow = do
   scfg <- reader getSessionConfig
   pure $ \q -> showQuery scfg (execQuery q)
@@ -1105,7 +1106,7 @@ getMQueryShow :: forall sc m a env driver.
   ( MonadReader env m
   , HasSessionConfig env driver
   , ShowQuery driver
-  ) => m (MQuery sc a -> String)
+  ) => m (MQuery sc a -> T.Text)
 getMQueryShow = do
   scfg <- reader getSessionConfig
   pure $ \q -> execMQuery

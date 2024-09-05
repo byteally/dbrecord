@@ -474,40 +474,44 @@ instance HasTransaction PGS where
   withTransaction (PGS conn) dbact =
     U.withRunInIO (\f -> PGS.withTransaction conn (f dbact))
 
+encodeQuery :: T.Text -> Query
+encodeQuery =
+  Query . T.encodeUtf8
+
 instance HasUpdateRet PGS where
   dbUpdateRetWith parser (PGS conn) updateQ = do
     let updateSQL = PG.renderUpdate $ PG.updateSql $ updateQ
-    queryWith_ parser conn (fromString updateSQL)
+    queryWith_ parser conn (encodeQuery updateSQL)
 
 instance HasUpdate PGS where
   dbUpdate (PGS conn) updateQ = do
     let updateSQL = PG.renderUpdate $ PG.updateSql $ updateQ
-    execute_ conn (fromString updateSQL)
+    execute_ conn (encodeQuery updateSQL)
 
 instance HasQuery PGS where
   dbQueryWith parser (PGS conn) primQ = do
     let sqlQ = PG.renderQuery $ PG.sql primQ
-    queryWith_ parser conn (fromString sqlQ)
+    queryWith_ parser conn (encodeQuery sqlQ)
 
 instance HasInsert PGS where
   dbInsert (PGS conn) insQ = do
     let insSQL = PG.renderInsert $ PG.insertSql insQ
-    execute_ conn (fromString insSQL)
+    execute_ conn (encodeQuery insSQL)
 
 instance HasInsertRet PGS where
   dbInsertRetWith parser (PGS conn) insQ = do
     let insSQL = PG.renderInsert $ PG.insertSql insQ
-    queryWith_ parser conn (fromString insSQL)
+    queryWith_ parser conn (encodeQuery insSQL)
 
 instance HasDelete PGS where
   dbDelete (PGS conn) deleteQ = do
     let delSQL = PG.renderDelete $ PG.deleteSql $ deleteQ
-    execute_ conn (fromString delSQL)
+    execute_ conn (encodeQuery delSQL)
 
 instance HasDeleteRet PGS where
   dbDeleteRetWith parser (PGS conn) deleteQ = do
     let delSQL = PG.renderDelete $ PG.deleteSql $ deleteQ
-    queryWith_ parser conn (fromString delSQL)
+    queryWith_ parser conn (encodeQuery delSQL)
 
 instance HasRawQuery PGS where
   dbRawQueryWith parser (PGS conn) q = queryWith_ parser conn (fromString $ T.unpack q)
@@ -522,7 +526,7 @@ instance ShowQuery PGS where
 instance HasDDLQuery PGS where
   dbDDLQuery (PGS _conn) _ddlQs = undefined
 
-runPGExpr :: Expr sc a -> String
+runPGExpr :: Expr sc a -> T.Text
 runPGExpr = PG.renderExpr . PG.toSqlExpr . getExpr
 
 pgDefaultPool :: ConnectInfo -> IO (P.Pool Connection)
@@ -558,7 +562,7 @@ withResource :: (U.MonadUnliftIO m) => P.Pool a -> (a -> m r) -> m r
 withResource p k = U.withRunInIO $ \f -> P.withResource p (\a -> f $ k a)
 
 -- TODO: Remove this
-showMQuery :: MQuery sc r -> String
+showMQuery :: MQuery sc r -> T.Text
 showMQuery mQ = execMQuery
   (PG.renderInsert . PG.insertSql)
   (PG.renderUpdate . PG.updateSql)
@@ -566,5 +570,5 @@ showMQuery mQ = execMQuery
   "" mQ
 
 -- TODO: Remove this
-showQuery :: DBRI.Query' qt sc r -> String
+showQuery :: DBRI.Query' qt sc r -> T.Text
 showQuery q = PG.renderQuery $ PG.sql $ DBRI.execQuery q

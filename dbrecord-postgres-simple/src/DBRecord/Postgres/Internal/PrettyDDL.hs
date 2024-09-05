@@ -2,19 +2,21 @@
 module DBRecord.Postgres.Internal.PrettyDDL where
 
 import DBRecord.Internal.DDL
--- import DBRecord.Internal.Postgres (ppExpr)
 import Data.Text (Text, unpack, pack)
-import qualified Text.PrettyPrint.HughesPJ as Pretty
-import Text.PrettyPrint.HughesPJ (Doc, (<+>), text, 
-                                  parens, comma, punctuate,
-                                  hsep, semi, render, char,
-                                  (<>))
+import qualified Prettyprinter as PP
+import Data.Monoid ( (<>) )
+import Prettyprinter ( (<+>) , squotes
+                     , parens, comma, punctuate
+                     , hsep, semi, dquotes, pretty
+                     )
+
 import Prelude hiding ((<>))
-import DBRecord.Internal.Types (DBTypeName (..))
 import qualified DBRecord.Internal.PrimQuery as PQ
 import DBRecord.Postgres.Internal.Sql.Pretty
 import DBRecord.Internal.Sql.SqlGen
 import Data.Functor.Identity
+
+type Doc = PP.Doc ()
 
 escQuote :: Text -> Text
 escQuote = escapeBy (Just '\'')
@@ -31,29 +33,17 @@ escapeBy esc s = pack $ go esc (unpack s)
       | ch' == esch          = esch : ch': go esc xs
     go esc' (x:xs)          = x : go esc' xs
 
-text_ :: Text -> Doc
-text_ = text . unpack
-
-quotes :: Text -> Doc
-quotes = Pretty.quotes . text_ . escQuote
-
-doubleQuotes :: Text -> Doc
-doubleQuotes = Pretty.doubleQuotes . text_ . escDoubleQuote
-
 ppColumnName :: ColName -> Doc
-ppColumnName (ColName colN) = doubleQuotes colN
+ppColumnName (ColName colN) = dquotes (pretty colN)
 
 ppTableName :: PQ.TableId -> Doc
 ppTableName tabId =
-  doubleQuotes (PQ.schema tabId)
-  <> char '.'
-  <> doubleQuotes (PQ.tableName tabId)
-
-ppTypeName :: DBTypeName -> Doc
-ppTypeName = text . ppDBTypeName
+  dquotes (pretty (PQ.schema tabId))
+  <> pretty '.'
+  <> dquotes (pretty (PQ.tableName tabId))
 
 ppColumnType :: ColType -> Doc
-ppColumnType (ColType tn) = text (ppPGType tn)
+ppColumnType (ColType tn) = ppPGType tn
 
 ppCheckExpr :: CheckExpr -> Doc
 ppCheckExpr (CheckExpr e) = parens (ppExpr (genSqlExpr e))
@@ -62,10 +52,10 @@ ppDefaultExpr :: DefExpr -> Doc
 ppDefaultExpr (DefExpr e) = parens (ppExpr (genSqlExpr e))
 
 ppEnumVal :: EnumVal -> Doc
-ppEnumVal (EnumVal e) = quotes e
+ppEnumVal (EnumVal e) = squotes (pretty e)
 
 ppSeqName :: SeqName -> Doc
-ppSeqName (SeqName seqN) = text_ seqN
+ppSeqName (SeqName seqN) = pretty seqN
 
 ppColumn :: Column -> Doc
 ppColumn (Column name ty) =
@@ -73,54 +63,54 @@ ppColumn (Column name ty) =
   <+> ppColumnType ty
 
 ppConstraintName :: ConstraintName -> Doc
-ppConstraintName (ConstraintName c) = doubleQuotes c
+ppConstraintName (ConstraintName c) = dquotes (pretty c)
 
 ppPrimDDL :: PrimDDL -> Doc
 ppPrimDDL (CreateTable tab (Identity cols)) =
-      text "CREATE TABLE"
+      "CREATE TABLE"
   <+> ppTableName tab
   <+> parens (hsep (punctuate comma (map ppColumn cols)))
   <+> semi
 ppPrimDDL (CreateType ty (Identity cols)) =
-      text "CREATE TYPE"
-  <+> ppTypeName ty
-  <+> text "AS"
+      "CREATE TYPE"
+  <+> ppDBTypeName ty
+  <+> "AS"
   <+> parens (hsep (punctuate comma (map ppColumn cols)))
   <+> semi
 ppPrimDDL (CreateSeq seqN) =
-      text "CREATE SEQUENCE"
+      "CREATE SEQUENCE"
   <+> ppSeqName seqN
   <+> semi
 ppPrimDDL (DropSeq seqN) =
-      text "DROP SEQUENCE"
+      "DROP SEQUENCE"
   <+> ppSeqName seqN
   <+> semi    
 ppPrimDDL (CreateEnum ty (Identity cols)) =
-      text "CREATE TYPE"
-  <+> ppTypeName ty
-  <+> text "AS ENUM"
+      "CREATE TYPE"
+  <+> ppDBTypeName ty
+  <+> "AS ENUM"
   <+> parens (hsep (punctuate comma (map ppEnumVal cols)))
   <+> semi
 ppPrimDDL (DropTable tab) =
-      text "DROP TABLE"
+      "DROP TABLE"
   <+> ppTableName tab
   <+> semi
 ppPrimDDL (DropType ty) =
-      text "DROP TYPE"
-  <+> ppTypeName ty
+      "DROP TYPE"
+  <+> ppDBTypeName ty
   <+> semi
 ppPrimDDL (AlterTable tab alter) =
-      text "ALTER TABLE"
+      "ALTER TABLE"
   <+> ppTableName tab
   <+> ppAlterTable alter
   <+> semi
 ppPrimDDL (AlterType typ alter) =
-      text "ALTER TYPE"
-  <+> ppTypeName typ
+      "ALTER TYPE"
+  <+> ppDBTypeName typ
   <+> ppAlterType alter
   <+> semi  
 ppPrimDDL (AlterSeq seqN alter) =
-      text "ALTER SEQUENCE"
+      "ALTER SEQUENCE"
   <+> ppSeqName seqN
   <+> ppAlterSeqType alter
   <+> semi
@@ -128,108 +118,108 @@ ppPrimDDL NoOp = mempty
 
 ppAlterSeqType :: AlterSeq -> Doc
 ppAlterSeqType (AddOwner tabn coln) =
-      text "OWNED BY"
+      "OWNED BY"
   <+> ppTableName tabn
-  <>  char '.'
+  <>  pretty '.'
   <>  ppColumnName coln
   
 ppAlterTable :: AlterTable -> Doc
 ppAlterTable (AddColumn coln) =
-      text "ADD COLUMN"
+      "ADD COLUMN"
   <+> ppColumn coln
 ppAlterTable (DropColumn coln) =
-      text "DROP COLUMN"
+      "DROP COLUMN"
   <+> ppColumnName coln
 ppAlterTable (RenameColumn oldn newn) =
-      text "RENAME COLUMN"
+      "RENAME COLUMN"
   <+> ppColumnName oldn
-  <+> text "TO"
+  <+> "TO"
   <+> ppColumnName newn
 ppAlterTable (AlterColumn coln alter) =
-      text "ALTER COLUMN"
+      "ALTER COLUMN"
   <+> ppColumnName coln
   <+> ppAlterColumn alter
 ppAlterTable (RenameTable newn) =
-      text "RENAME TO"
+      "RENAME TO"
   <+> ppTableName newn
 ppAlterTable (AddConstraint cname con) =
-      text "ADD CONSTRAINT"
+      "ADD CONSTRAINT"
   <+> ppConstraintName cname
   <+> ppAddConstraint con
 ppAlterTable (DropConstraint (DropPrimaryKey cname)) =
-      text "DROP CONSTRAINT"
+      "DROP CONSTRAINT"
   <+> ppConstraintName cname
 ppAlterTable (DropConstraint (DropUnique cname)) =
-      text "DROP CONSTRAINT"
+      "DROP CONSTRAINT"
   <+> ppConstraintName cname
 ppAlterTable (DropConstraint (DropCheck cname)) =
-      text "DROP CONSTRAINT"
+      "DROP CONSTRAINT"
   <+> ppConstraintName cname
 ppAlterTable (DropConstraint (DropForeignKey cname)) =
-      text "DROP CONSTRAINT"
+      "DROP CONSTRAINT"
   <+> ppConstraintName cname
 
 ppAddConstraint :: AddConstraint -> Doc
 ppAddConstraint (AddPrimaryKey cols) =
-      text "PRIMARY KEY"
+      "PRIMARY KEY"
   <+> parens (hsep (punctuate comma (map ppColumnName cols)))
 ppAddConstraint (AddUnique cols) =
-      text "UNIQUE"
+      "UNIQUE"
   <+> parens (hsep (punctuate comma (map ppColumnName cols)))
 ppAddConstraint (AddCheck chkExpr) =
-      text "CHECK"
+      "CHECK"
   <+> ppCheckExpr chkExpr
 ppAddConstraint (AddForeignKey fcols rtab rcols) =
-      text "FOREIGN KEY"
+      "FOREIGN KEY"
   <+> parens (hsep (punctuate comma (map ppColumnName fcols)))
-  <+> text "REFERENCES"
+  <+> "REFERENCES"
   <+> ppTableName rtab
   <+> parens (hsep (punctuate comma (map ppColumnName rcols)))
 
 ppAlterColumn :: AlterColumn -> Doc
-ppAlterColumn SetNotNull  = text "SET NOT NULL"
-ppAlterColumn DropNotNull = text "DROP NOT NULL"
+ppAlterColumn SetNotNull  = "SET NOT NULL"
+ppAlterColumn DropNotNull = "DROP NOT NULL"
 ppAlterColumn (ChangeType ctype) =
-      text "TYPE"
+      "TYPE"
   <+> ppColumnType ctype
 ppAlterColumn (AddDefault defV) =
-      text "SET DEFAULT"
+      "SET DEFAULT"
   <+> ppDefaultExpr defV
 ppAlterColumn DropDefault =
-     text "DROP DEFAULT"
+     "DROP DEFAULT"
 
 ppAlterType :: AlterType -> Doc
 ppAlterType (RenameType typ) =
-      text "RENAME TO"
-  <+> ppTypeName typ
+      "RENAME TO"
+  <+> ppDBTypeName typ
   <+> semi
 ppAlterType (AddAttribute col) =
-      text "ADD ATTRIBUTE"
+      "ADD ATTRIBUTE"
   <+> ppColumn col
   <+> semi
 ppAlterType (DropAttribute col) =
-      text "DROP ATTRIBUTE"
+      "DROP ATTRIBUTE"
   <+> ppColumnName col
   <+> semi
 ppAlterType (AlterAttribute col altAttr) =
-      text "ALTER ATTRIBUTE"
+      "ALTER ATTRIBUTE"
   <+> ppColumnName col
   <+> ppAlterAttr altAttr
   <+> semi
 ppAlterType (AddAfterEnumVal newEnum prevEnum) =
-      text "ADD VALUE"
+      "ADD VALUE"
   <+> ppEnumVal newEnum
-  <+> text "AFTER"
+  <+> "AFTER"
   <+> ppEnumVal prevEnum
 ppAlterType e =
   error ("Panic: not implemented @ppAlterType: " ++ show e)
 
 ppAlterAttr :: AlterAttribute -> Doc
 ppAlterAttr (ChangeAttrType ty) =
-     text "SET DATA TYPE"
+     "SET DATA TYPE"
   <+> ppColumnType ty  
 
-renderDDL :: PrimDDL -> String
+renderDDL :: PrimDDL -> Text
 renderDDL = render . ppPrimDDL
 
 {-
