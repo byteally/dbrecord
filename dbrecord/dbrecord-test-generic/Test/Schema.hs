@@ -141,6 +141,13 @@ data CompRec2 = CompRec2
   } deriving (Show, Eq, Generic)
     deriving (DBRepr 'Postgres) via AsCompositeRec CompRec2
 
+data CompRec21 = CompRec21
+  { cr1 :: Int32
+  , ncr2 :: Maybe CompRec2
+--  , ncr4 :: [CompRec1]
+  } deriving (Show, Eq, Generic)
+    deriving (DBRepr 'Postgres) via AsCompositeRec CompRec21
+
 data NestCompRec1 = NestCompRec1
   { ncrEty :: Maybe EnumTy
   , ncrEtxt :: Maybe EnumTxt
@@ -223,6 +230,19 @@ data UTaggedSum4 (sc :: Type)
   | UTag42 (Expr sc Int64)
   deriving (Generic)
 
+data TaggedSum41
+  = Tag410
+  | Tag411 TaggedSum2
+  | Tag412 TaggedSum2
+  deriving (Show, Eq, Generic)
+  deriving (DBRepr 'Postgres) via AsTaggedSumMonoComposite TaggedSum2 UTaggedSum41 TaggedSum41
+
+data UTaggedSum41 (sc :: Type)
+  = UTag410
+  | UTag411 (Expr sc TaggedSum2)
+  | YTag412 (Expr sc TaggedSum2)
+  deriving (Generic)
+
 data SumOfCol1
   = SOC1 Int64
   | SOC2 EnumTy
@@ -287,6 +307,21 @@ instance DBRepr 'Postgres Row1 where
   type Ctors Row1 = Ctors (AsCompositeRec Row1)
   
   typeName = "record"
+
+data Row2 = Row2 { f1 :: Maybe Int
+                 , f2 :: Maybe Text
+                 , f3 :: Maybe [Int]
+                 , f4 :: Maybe [Text]
+                 }
+  deriving (Show, Eq, Generic)
+
+instance DBRepr 'Postgres Row2 where
+  type ToDBType 'Postgres Row2 = ToDBType 'Postgres (AsCompositeRec Row2)
+  type AutoCodec 'Postgres Row2 = 'False
+  type Fields Row2 = Fields (AsCompositeRec Row2)
+  type Ctors Row2 = Ctors (AsCompositeRec Row2)
+  
+  typeName = "record"  
 
 -- instance FromField Row1 where
 --   fromField = undefined

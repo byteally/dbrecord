@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedRecordDot     #-}
 {-# LANGUAGE OverloadedStrings       #-}
 {-# LANGUAGE DuplicateRecordFields   #-}
+{-# LANGUAGE LambdaCase              #-}
 {-# OPTIONS_GHC -fno-warn-orphans    #-}
 module Test.PGS.SampleDB.DVDRentalTest where
 
@@ -257,6 +258,7 @@ test_const = Test.Tasty.withResource
     , testProperty "CompRec" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @CompRec1 (CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True})) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "List of CompRec" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @[CompRec1] ([CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True}])) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "CompRec Nested" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @CompRec2 (CompRec2{cr1 = 1, ncr2 = Just $ CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True}, ncr3 = CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True}})) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "CompRec Nested (1)" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @CompRec21 (CompRec21 {cr1 = 1, ncr2 = Just (CompRec2{cr1 = 1, ncr2 = Just $ CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True}, ncr3 = CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True}})})) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "TaggedSum Mono Comp Unary Con" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum4 (Tag41 123)) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "TaggedSum Mono Comp Nullary Con" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum4 Tag40) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "TaggedSum Comp Nullary Con" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum2 Tag20) >>= pgsExprTripper e (Proxy @TestDB)
@@ -265,6 +267,9 @@ test_const = Test.Tasty.withResource
     , testProperty "TaggedSum Comp JBlob Con" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum2 (Tag23 (JBlob1 123 mempty mempty))) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "TaggedSum Comp Text Blob Con" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum2 (Tag24 (TBlob1 123 mempty mempty))) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "TaggedSum Comp Prim Con - Text" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum2 (Tag26 ("sdfd,b"))) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "TaggedSum Mono - Nested Sum - Nullary" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum41 Tag410) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "TaggedSum Mono - Nested Sum - Unary - Prim" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum41 (Tag411 (Tag26 "hello"))) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "TaggedSum Mono - Nested Sum - Unary - Comp" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum41 (Tag411 (Tag21 (CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True})))) >>= pgsExprTripper e (Proxy @TestDB)
     ]
   )
 
@@ -290,7 +295,7 @@ test_comp_parser = Test.Tasty.withResource
         V.head r === (1,Row1 Nothing (Just ""))
     , testProperty "Composite with string with only spaces" $ withTests 1 $ property $ do
         r <- runSUTSession e $ runRawQuery @_ @(Int,  Row1) "select 1, row(NULL, ' ')"
-        V.head r === (1,Row1 Nothing (Just " "))        
+        V.head r === (1,Row1 Nothing (Just " "))
     ]
   )
 
@@ -369,7 +374,17 @@ instance FromField Row1 where
 
 instance FromComposite Row1 where
   fromComposite = Row1 <$> compositeField <*> compositeField
+{-
+instance FromField Row2 where
+  fromField = compositeToField
 
+instance FromComposite Row2 where
+  fromComposite = Row2
+                  <$> compositeField
+                  <*> compositeField
+                  <*> compositeFieldWith (arrayCompositeFieldParser compositeField)
+                  <*> compositeField
+-}
 instance FromCompositeField MPAA where
   fromCompositeField f = nonNullCompositeField (\case
     "G" -> pure G

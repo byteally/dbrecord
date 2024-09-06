@@ -56,23 +56,23 @@ class FromComposite (t :: Type) where
 instance (FromCompositeField a, FromCompositeField b) => FromComposite (a,b) where
   fromComposite =
     (,) <$> compositeField <*> compositeField
-    
+
 instance (FromCompositeField a, FromCompositeField b, FromCompositeField c) => FromComposite (a,b,c) where
   fromComposite =
     (,,) <$> compositeField <*> compositeField <*> compositeField
-    
+
 instance (FromCompositeField a, FromCompositeField b, FromCompositeField c, FromCompositeField d) => FromComposite (a,b,c,d) where
   fromComposite =
     (,,,) <$> compositeField <*> compositeField <*> compositeField <*> compositeField
-  
+
 instance (FromCompositeField a, FromCompositeField b, FromCompositeField c, FromCompositeField d, FromCompositeField e) => FromComposite (a,b,c,d,e) where
   fromComposite =
     (,,,,) <$> compositeField <*> compositeField <*> compositeField <*> compositeField <*> compositeField
-  
+
 instance (FromCompositeField a, FromCompositeField b, FromCompositeField c, FromCompositeField d, FromCompositeField e, FromCompositeField f) => FromComposite (a,b,c,d,e,f) where
   fromComposite =
     (,,,,,) <$> compositeField <*> compositeField <*> compositeField <*> compositeField <*> compositeField <*> compositeField
-  
+
 class FromCompositeField (t :: Type) where
   fromCompositeField :: CompositeFieldParser t
 
@@ -184,16 +184,9 @@ between open close p = open *> p <* close
 {-# INLINE between #-}
 
 
-optQuoted :: A.Parser a -> A.Parser a
-optQuoted p =
-  (q *> p <* q) <|> p
-
-  where
-    q = A.char '"' <|> (A.char '\\' *> A.char '"')
-
 -- | Recognizes a quoted string.
-quoted :: A.Parser ByteString
-quoted = A.char '"' *> A.option "" contents <* A.char '"'
+old'quoted :: A.Parser ByteString
+old'quoted = A.char '"' *> A.option "" contents <* A.char '"'
   where
     esc = A.char '\\' *> (A.char '\\' <|> A.char '"')
     unQ = A.takeWhile1 (A.notInClass "\"\\") -- TODO: use `takeWhile1`, null field is blank
@@ -203,6 +196,24 @@ quoted = A.char '"' *> A.option "" contents <* A.char '"'
 plain :: A.Parser ByteString
 plain = A.takeWhile (A.notInClass ",\"()")
 
+quoted :: A.Parser ByteString
+quoted = do
+  qs <- A.many1 (A.char '"')
+  let !qc = length qs
+  A.peekChar' >>= \case
+    ',' -> pure Char8.empty
+    ')' -> pure Char8.empty
+    _ -> Char8.dropEnd qc <$> A.scan (False, 0)
+      (\(!isEsc, !qc') ch -> case ch of
+          '\\' -> if isEsc then Just (False, qc') else Just (True, qc')
+          '"'
+            | isEsc -> Just (False, qc')
+            | otherwise -> Just (isEsc, qc' + 1)
+          _
+            | qc' == qc  -> Nothing
+            | qc' > qc -> Just (isEsc, 0)
+            | otherwise -> Just (isEsc, 0)
+      )
 
 byteContent :: A.Parser (Maybe ByteString)
 byteContent = (Just <$> quoted) <|> (fmap (\bs -> if Char8.null bs then Nothing else Just bs) plain)
