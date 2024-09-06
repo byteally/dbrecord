@@ -196,7 +196,7 @@ quoted :: A.Parser ByteString
 quoted = A.char '"' *> A.option "" contents <* A.char '"'
   where
     esc = A.char '\\' *> (A.char '\\' <|> A.char '"')
-    unQ = A.takeWhile1 (A.notInClass ",\"\\") -- TODO: use `takeWhile1`, null field is blank
+    unQ = A.takeWhile1 (A.notInClass "\"\\") -- TODO: use `takeWhile1`, null field is blank
     contents = mconcat <$> many (unQ <|> Char8.singleton <$> esc)
 
 -- | Recognizes a plain string literal, not containing comma, quotes, or parens.
