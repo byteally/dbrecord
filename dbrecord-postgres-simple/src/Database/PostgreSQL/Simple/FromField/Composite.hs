@@ -151,8 +151,9 @@ data CompositeField = CompositeField { cField :: !(Either Field CompositeField)
                                      }
 
 arrayCompositeFieldParser :: forall a .(Typeable a) => CompositeFieldParser a -> CompositeFieldParser (Vector a)
-arrayCompositeFieldParser _ _f (Just _bs) = pure mempty
-arrayCompositeFieldParser _ f _ = returnCompositeError UnexpectedNull f ""
+arrayCompositeFieldParser cfp f bs = do
+  bss <- attoCompositeFieldParser (braces $ commaSep byteContentArr) f bs
+  V.fromList <$> (mapM (cfp f) bss)
 {-# INLINE arrayCompositeFieldParser #-}
 
 -- ^ Parsers
@@ -203,9 +204,15 @@ quoted = quotes (A.option "" contents)
 plain :: A.Parser ByteString
 plain = A.takeWhile (A.notInClass ",\"()")
 
+plainArr :: A.Parser ByteString
+plainArr = A.takeWhile (A.notInClass ",\"{}")
+
 
 byteContent :: A.Parser (Maybe ByteString)
 byteContent = (Just <$> quoted) <|> (fmap (\bs -> if Char8.null bs then Nothing else Just bs) plain)
+
+byteContentArr :: A.Parser (Maybe ByteString)
+byteContentArr = (Just <$> quoted) <|> (fmap (\bs -> if Char8.null bs then Nothing else Just bs) plainArr)
 
 
 returnCompositeError :: forall a err . (Typeable a, Exception err)
@@ -284,6 +291,12 @@ instance FromCompositeField Null where
 instance FromCompositeField t => FromCompositeField (Maybe t) where
   fromCompositeField _ Nothing = pure Nothing
   fromCompositeField cf bs = Just <$> fromCompositeField @t cf bs
+
+instance (FromCompositeField t, Typeable t) => FromCompositeField (V.Vector t) where
+  fromCompositeField = arrayCompositeFieldParser (fromCompositeField @t)
+
+instance (FromCompositeField t, Typeable t) => FromCompositeField [t] where
+  fromCompositeField = (fmap . fmap . fmap) V.toList $ arrayCompositeFieldParser (fromCompositeField @t)
 
 nonNullCompositeField :: forall a . (Typeable a)
   => (ByteString -> Conversion a) -> CompositeFieldParser a

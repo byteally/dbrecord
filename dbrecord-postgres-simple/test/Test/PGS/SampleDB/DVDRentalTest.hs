@@ -269,7 +269,7 @@ test_const = Test.Tasty.withResource
     , testProperty "TaggedSum Comp Prim Con - Text" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum2 (Tag26 ("sdfd,b"))) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "TaggedSum Mono - Nested Sum - Nullary" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum41 Tag410) >>= pgsExprTripper e (Proxy @TestDB)
     , testProperty "TaggedSum Mono - Nested Sum - Unary - Prim" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum41 (Tag411 (Tag26 "hello"))) >>= pgsExprTripper e (Proxy @TestDB)
-    , testProperty "TaggedSum Mono - Nested Sum - Unary - Comp" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum41 (Tag411 (Tag21 (CompRec1{cr1 = Just 1, cr2 = Just "foo", cr3 = Just True})))) >>= pgsExprTripper e (Proxy @TestDB)
+    , testProperty "TaggedSum Mono - Nested Sum - Unary - Comp" $ withTests 1 $ property $ (forAll $ Gen.constant @_ @TaggedSum41 (Tag411 (Tag21 (CompRec1{cr1 = Just 1, cr2 = Just "foo\"123\"", cr3 = Just True})))) >>= pgsExprTripper e (Proxy @TestDB)
     ]
   )
 
@@ -302,6 +302,12 @@ test_comp_parser = Test.Tasty.withResource
     , testProperty "Composite with quoted string(1)" $ withTests 1 $ property $ do
         r <- runSUTSession e $ runRawQuery @_ @(Int,  Row1) "select 1, row(NULL, E'a\"b\"')"
         V.head r === (1,Row1 Nothing (Just "a\"b\""))
+    , testProperty "Composite with array(1)" $ withTests 1 $ property $ do
+        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row2) "select 1, row(NULL, E'abc', array[1,2,3], array[E'a', E'b', E'c'], NULL)"
+        V.head r === (1,Row2 Nothing (Just "abc") (Just [1,2,3]) (Just ["a","b","c"]) Nothing)
+    , testProperty "Composite with array(2)" $ withTests 1 $ property $ do
+        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row2) "select 1, row(NULL, E'abc', array[1,2,3], array[E'a', E'b', E'c'], array [row(NULL, E'a\"b\"'), row(1, E'a\"b\"')])"
+        V.head r === (1,Row2 Nothing (Just "abc") (Just [1,2,3]) (Just ["a","b","c"]) (Just [Row1 Nothing (Just "a\"b\""), Row1 (Just 1) (Just "a\"b\"")]))
     ]
   )
 
@@ -380,7 +386,7 @@ instance FromField Row1 where
 
 instance FromComposite Row1 where
   fromComposite = Row1 <$> compositeField <*> compositeField
-{-
+
 instance FromField Row2 where
   fromField = compositeToField
 
@@ -388,9 +394,13 @@ instance FromComposite Row2 where
   fromComposite = Row2
                   <$> compositeField
                   <*> compositeField
-                  <*> compositeFieldWith (arrayCompositeFieldParser compositeField)
                   <*> compositeField
--}
+                  <*> compositeField
+                  <*> compositeField
+
+instance FromCompositeField Row1 where
+  fromCompositeField = compositeToCompositeField
+
 instance FromCompositeField MPAA where
   fromCompositeField f = nonNullCompositeField (\case
     "G" -> pure G
