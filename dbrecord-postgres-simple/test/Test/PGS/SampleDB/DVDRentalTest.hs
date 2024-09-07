@@ -296,6 +296,12 @@ test_comp_parser = Test.Tasty.withResource
     , testProperty "Composite with string with only spaces" $ withTests 1 $ property $ do
         r <- runSUTSession e $ runRawQuery @_ @(Int,  Row1) "select 1, row(NULL, ' ')"
         V.head r === (1,Row1 Nothing (Just " "))
+    , testProperty "Composite with quoted string" $ withTests 1 $ property $ do
+        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row1) "select 1, row(NULL, E'a\"b\"c')"
+        V.head r === (1,Row1 Nothing (Just "a\"b\"c"))
+    , testProperty "Composite with quoted string(1)" $ withTests 1 $ property $ do
+        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row1) "select 1, row(NULL, E'a\"b\"')"
+        V.head r === (1,Row1 Nothing (Just "a\"b\""))
     ]
   )
 

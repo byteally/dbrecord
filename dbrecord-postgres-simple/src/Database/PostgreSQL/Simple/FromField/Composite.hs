@@ -175,6 +175,10 @@ braces :: A.Parser a -> A.Parser a
 braces = between (A.char '{') (A.char '}')
 {-# INLINE braces  #-}
 
+quotes :: A.Parser a -> A.Parser a
+quotes = between (A.char '"') (A.char '"')
+{-# INLINE quotes  #-}
+
 commaSep :: A.Parser a -> A.Parser [a]
 commaSep p  = p `A.sepBy'` (A.char ',')
 {-# INLINE commaSep #-}
@@ -185,35 +189,20 @@ between open close p = open *> p <* close
 
 
 -- | Recognizes a quoted string.
-old'quoted :: A.Parser ByteString
-old'quoted = A.char '"' *> A.option "" contents <* A.char '"'
+quoted :: A.Parser ByteString
+quoted = quotes (A.option "" contents)
   where
+    escQ = A.char '"' *> A.char '"'
     esc = A.char '\\' *> (A.char '\\' <|> A.char '"')
-    unQ = A.takeWhile1 (A.notInClass "\"\\") -- TODO: use `takeWhile1`, null field is blank
-    contents = mconcat <$> many (unQ <|> Char8.singleton <$> esc)
+    unQ = A.takeWhile1 (A.notInClass "\"\\")
+    contents = mconcat <$> many (unQ
+                                 <|> Char8.singleton <$> esc
+                                 <|> Char8.singleton <$> escQ)
 
 -- | Recognizes a plain string literal, not containing comma, quotes, or parens.
 plain :: A.Parser ByteString
 plain = A.takeWhile (A.notInClass ",\"()")
 
-quoted :: A.Parser ByteString
-quoted = do
-  qs <- A.many1 (A.char '"')
-  let !qc = length qs
-  A.peekChar' >>= \case
-    ',' -> pure Char8.empty
-    ')' -> pure Char8.empty
-    _ -> Char8.dropEnd qc <$> A.scan (False, 0)
-      (\(!isEsc, !qc') ch -> case ch of
-          '\\' -> if isEsc then Just (False, qc') else Just (True, qc')
-          '"'
-            | isEsc -> Just (False, qc')
-            | otherwise -> Just (isEsc, qc' + 1)
-          _
-            | qc' == qc  -> Nothing
-            | qc' > qc -> Just (isEsc, 0)
-            | otherwise -> Just (isEsc, 0)
-      )
 
 byteContent :: A.Parser (Maybe ByteString)
 byteContent = (Just <$> quoted) <|> (fmap (\bs -> if Char8.null bs then Nothing else Just bs) plain)
