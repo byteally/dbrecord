@@ -85,7 +85,7 @@ ppOptions =
   where
     go SelectAll                  = space <>  "ALL"
     go (SelectDistinct Nothing)   = space <>  "DISTINCT" 
-    go (SelectDistinct (Just vs)) = space <> ( "DISTINCT" <+> commaH ppExpr (NEL.toList vs))
+    go (SelectDistinct (Just vs)) = space <> ( "DISTINCT ON" <+> parens (commaH ppExpr (NEL.toList vs)))
 
 nameAs :: (SqlExpr, Maybe SqlColumn) -> Doc
 nameAs (expr, n) = ppAs (fmap unColumn n) (ppExpr expr)
