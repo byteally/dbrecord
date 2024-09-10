@@ -1046,14 +1046,15 @@ instance ( DBRepr (DB (SchemaDB sc)) t
   autoConstExpr _ t =
     let
       SumMatchRep { sumMatcher = sMatcher } = sumRepr (Proxy @'((DB (SchemaDB sc)), t))
-      allCons = getPatArgs (Proxy @'(Matcher (DB (SchemaDB sc)) t, sc , t)) $ sumRepr (Proxy @'((DB (SchemaDB sc)), t))
-      mat cn cpos = \case
+      allCons =
+        getPatArgs (Proxy @'(Matcher (DB (SchemaDB sc)) t, sc , t)) $ sumRepr (Proxy @'((DB (SchemaDB sc)), t))        
+      mat cn _cpos = \case
         Nothing -> error $ "Panic: [DBR-123]: Unexpected nullary constructor: " ++ (T.unpack cn) ++ " for sum type " ++ (show $ typeRep (Proxy @t)) ++ " while using SumOfCol synthesis"
-        Just carg -> PQ.RowExpr $ fmap (\(cpos', _) ->
-                                           if cpos == cpos'
+        Just carg -> PQ.RowExpr $ fmap (\(cn0, _, _) ->
+                                           if cn == cn0
                                            then carg
                                            else PQ.ConstExpr PQ.Null
-                                       ) (zip [1..] allCons)
+                                       ) allCons
     in annotateType @t (Expr $ sMatcher @sc Proxy mat t)
 
 instance (Generic t, TypeError ('Text "TODO: @AutoConstExpr SumOfCol")) => AutoConstExpr sc t ('UDTypeObj ('SumOfCol 'JsonRec)) 'True where

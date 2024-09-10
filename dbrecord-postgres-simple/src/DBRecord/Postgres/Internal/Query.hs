@@ -346,9 +346,9 @@ instance ( Typeable t
          , Matcher 'Postgres t ~ 'SumMatcher 'Postgres pfx t m
          , GMkCtorList t (Ctors t)
          ) => UDFromField t ('SumOfCol 'CompositeRec) where
-  udFromField _ = compositeToFieldWith taggedSumOfColCompositeParser
+  udFromField _ = compositeToFieldWith sumOfColCompositeParser
 
-taggedSumOfColCompositeParser ::
+sumOfColCompositeParser ::
     forall t pfx m.
     ( Typeable t
     , DBRepr 'Postgres t
@@ -356,8 +356,7 @@ taggedSumOfColCompositeParser ::
     , Matcher 'Postgres t ~ 'SumMatcher 'Postgres pfx t m
     , GMkCtorList t (Ctors t)
     ) => CompositeParser t
-taggedSumOfColCompositeParser = do
-  ctag <- T.encodeUtf8 <$> compositeField @T.Text
+sumOfColCompositeParser = do
   let
     SumMatchRep { sumCtors = ctors } = sumRepr (Proxy @'( 'Postgres, t))
 
@@ -366,10 +365,10 @@ taggedSumOfColCompositeParser = do
       (fmap . fmap) f $ gfromComposite (Proxy @'(t, 'Just '(ToDBType 'Postgres (Maybe carg), AutoCodec 'Postgres (Maybe carg)))) (Proxy @'(cn, Maybe carg))
     matchCon :: forall cs.AllSOCConsCxt t (cs) => CtorList t cs -> [CompositeParser (Maybe t)]
     matchCon CtorNil = []
-    matchCon (NullaryCtorCons _ _) = error "[DBR-123] Panic! Unreachable code"
+    matchCon (NullaryCtorCons _ _) = error "[DBR-123] Panic: using Sum-Of-Col repr has nullary constructor"
     matchCon ucs@(UnaryCtorCons _ cs) = getUnaryVal ucs : matchCon cs
 
-  fmap (maybe (error $ "[DBR-123] Panic: Unexpected sum tag in db:" ++ (Char8.unpack ctag)) id) $ asum $ matchCon ctors  
+  fmap (maybe (error $ "[DBR-123] Panic: Atleast one of the constructor should match") id) $ fmap asum $ sequenceA $ matchCon ctors  
 
 type family AllConsCxt (t :: Type) (cons :: [(Symbol, Maybe Type)]) :: Constraint where
   AllConsCxt t '[] = ()
@@ -495,7 +494,7 @@ instance (DBRepr 'Postgres fty
          , Matcher 'Postgres fty ~ 'SumMatcher 'Postgres pfx fty m
          , GMkCtorList fty (Ctors fty)         
          ) => GFromComposite '(t, 'Just '( 'UDTypeObj ('SumOfCol 'CompositeRec), 'True)) fn fty where
-  gfromComposite _ _ = compositeFieldWith $ compositeToCompositeFieldWith $ taggedSumOfColCompositeParser
+  gfromComposite _ _ = compositeFieldWith $ compositeToCompositeFieldWith $ sumOfColCompositeParser
 
 
 instance (Typeable fty, A.FromJSON fty) => GFromComposite '(t, 'Just '( 'UDTypeObj ('SerializedBlob ('JsonContent 'Nothing)), 'True)) fn fty where
