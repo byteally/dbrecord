@@ -98,6 +98,7 @@ module DBRecord.Query2
   , runQueryMaybe
   , runQuery_
   , runMQuery
+  , runMQueryMaybe
   , runRawQuery
   , runSession
   , runTransaction
@@ -1034,9 +1035,30 @@ runMQuery q = do
   scfg <- reader getSessionConfig
   runSession_ scfg (V.fromList <$> runMQueryAsList q) (flip const)  
 
+-- runMQueryMaybe returns 'Just' constructor only if
+-- the response contains a single value.
+-- for other cases, it returns Nothing.
+runMQueryMaybe :: forall sc m a env driver.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , Session driver
+  , U.MonadUnliftIO m
+  , U.MonadBaseControl IO m
+  , HasInsertRet driver
+  , HasUpdateRet driver
+  , HasDeleteRet driver
+  , FromDBRow driver a
+  ) => MQuery sc a -> m (Maybe a)
+runMQueryMaybe q = do
+  scfg <- reader getSessionConfig
+  results <- runSession_ scfg (runMQueryAsList q) (flip const)
+  case results of
+    [a] -> return $ Just a
+    _  -> return Nothing
+
 -- runQueryMaybe returns 'Just' constructor only if
 -- the response contains a single value.
--- for other cases, it returns nothing.
+-- for other cases, it returns Nothing.
 runQueryMaybe :: forall sc m a env driver.
   ( MonadReader env m
   , HasSessionConfig env driver
