@@ -96,6 +96,7 @@ module DBRecord.Query2
   , runQueryWithSession
   , runQueryWithTransaction
   , runMQuery
+  , runMQueryMaybe  
   , runMQueryWithTransaction
   , runMQueryWithSession
   , runMQuery_
@@ -1097,12 +1098,25 @@ runMQueryWithTransaction_ q = do
   scfg <- reader getSessionConfig
   runSession_ scfg (runMQuery_ q) withTransaction
 
+-- runMQueryMaybe returns 'Just' constructor only if
+-- the response contains a single value.
+-- for other cases, it returns Nothing.
+runMQueryMaybe :: forall sc m a env driver.
+  ( 
+  ) => MQuery sc a -> m (Maybe a)
+runMQueryMaybe q = do
+  r <- runMQuery q
+  case V.uncons r of
+    Just (r0, rs)
+      | V.null rs -> pure $ pure r0
+      | otherwise -> pure Nothing
+    _ -> pure Nothing
+
 -- runQueryMaybe returns 'Just' constructor only if
 -- the response contains a single value.
--- for other cases, it returns nothing.
-runQueryMaybe :: forall sc m a driver.
-  ( MonadIO m
-  , HasQuery driver
+-- for other cases, it returns Nothing.
+runQueryMaybe :: forall sc m a env driver.
+  ( HasQuery driver
   , FromDBRow driver a
   , MonadReader driver m
   ) => Query sc a -> m (Maybe a)
