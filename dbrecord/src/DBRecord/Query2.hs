@@ -1101,8 +1101,13 @@ runMQueryWithTransaction_ q = do
 -- runMQueryMaybe returns 'Just' constructor only if
 -- the response contains a single value.
 -- for other cases, it returns Nothing.
-runMQueryMaybe :: forall sc m a env driver.
-  ( 
+runMQueryMaybe :: forall sc m a driver.
+  ( FromDBRow driver a
+  , MonadReader driver m
+  , MonadIO m
+  , HasInsertRet driver
+  , HasUpdateRet driver
+  , HasDeleteRet driver
   ) => MQuery sc a -> m (Maybe a)
 runMQueryMaybe q = do
   r <- runMQuery q
@@ -1115,10 +1120,11 @@ runMQueryMaybe q = do
 -- runQueryMaybe returns 'Just' constructor only if
 -- the response contains a single value.
 -- for other cases, it returns Nothing.
-runQueryMaybe :: forall sc m a env driver.
+runQueryMaybe :: forall sc m a driver.
   ( HasQuery driver
   , FromDBRow driver a
   , MonadReader driver m
+  , MonadIO m
   ) => Query sc a -> m (Maybe a)
 runQueryMaybe q = do
   r <- runQuery q
