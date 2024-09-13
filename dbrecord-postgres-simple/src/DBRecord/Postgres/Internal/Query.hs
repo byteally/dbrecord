@@ -46,7 +46,8 @@ import           DBRecord.Internal.DBTypes
 import           Data.Functor.Identity
 import qualified Data.Pool as P
 import           Data.String
-import           Database.PostgreSQL.Simple as PGS
+import           Database.PostgreSQL.Simple as PGS hiding ( queryWith_ )
+import           Database.PostgreSQL.Simple.Vector ( queryWith_ )
 import           Database.PostgreSQL.Simple.Types (PGArray (..), Query (..), Null)
 import           Database.PostgreSQL.Simple.FromField hiding (Text)
 import           Database.PostgreSQL.Simple.FromRow as PGS
@@ -652,4 +653,3 @@ instance (FromComposite a, Typeable a) => FromField (Composite a) where
 
 instance (FromComposite a, Typeable a) => FromRow (Composite a) where
   fromRow = field
-  

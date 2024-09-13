@@ -76,9 +76,6 @@ module DBRecord.Query2
   , update
   , set
   , delete
-  , runQueryAsList
-  , runMQueryAsList
-  , runMQuery_
 
   , TableExpr
   , As
@@ -96,13 +93,23 @@ module DBRecord.Query2
   --
   , runQuery
   , runQueryMaybe
-  , runQuery_
+  , runQueryWithSession
+  , runQueryWithTransaction
   , runMQuery
+  , runMQueryWithTransaction
+  , runMQueryWithSession
+  , runMQuery_
+  , runMQueryWithTransaction_
+  , runMQueryWithSession_
   , runRawQuery
+  , execRawQuery
   , runSession
   , runTransaction
   , getQueryShow
   , getMQueryShow
+
+  , TransactionM (..)
+  , SessionM (..)
   --
   , module DBRecord.Internal.Order
   , module DBRecord.Internal.Expr
@@ -135,6 +142,7 @@ import Record
 import Record.Setter
 import GHC.OverloadedLabels
 import GHC.Records as R
+import Control.Monad.Catch
 
 -- TODO: Clean up
 import DBRecord.Driver
@@ -850,17 +858,6 @@ subSelect f cls = do
   
   pure tabExpr
 
-runQueryAsList :: forall r m sc driver.
-  ( MonadIO m
-  , HasQuery driver
-  , FromDBRow driver r
-  , MonadReader driver m
-  ) => Query sc r
-    -> m [r]
-runQueryAsList q = do
-  driver <- ask
-  liftIO $ dbQuery driver (execQuery q)
-
 -- MutationQ
 
 -- data InsertSetting
@@ -951,16 +948,66 @@ delete (Clause clau) = getMutQ @o @tab @sc $ \tabId basetab ->
     mkDeletePQ PQ.Clauses {criteria} = PQ.DeleteQuery tabId criteria []
   in DeleteMQuery (basetab, clau, mkDeletePQ)
 
-runMQueryAsList :: forall r m sc driver.
+-----
+
+
+newtype TransactionM r m a =
+  TransactionM { runTransactionM :: ReaderT r m a }
+  deriving (Functor, Applicative, Monad, MonadReader r, U.MonadUnliftIO, MonadIO, MonadThrow, MonadFail)
+
+newtype SessionM r m a =
+  SessionM { runSessionM :: ReaderT r m a }
+  deriving (Functor, Applicative, Monad, MonadReader r, U.MonadUnliftIO, MonadIO, MonadThrow, MonadFail)
+
+runQuery :: forall sc driver m a.
+  ( MonadIO m
+  , HasQuery driver
+  , FromDBRow driver a
+  , MonadReader driver m
+  ) => Query sc a -> m (Vector a)
+runQuery q = do
+  driver <- ask
+  liftIO $ dbQuery driver (execQuery q)
+
+runQueryWithSession ::
+  forall sc m a env driver.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , Session driver
+  , U.MonadUnliftIO m
+  , U.MonadBaseControl IO m
+  , HasQuery driver
+  , FromDBRow driver a
+  ) => Query sc a -> m (Vector a)
+runQueryWithSession q = do
+  scfg <- reader getSessionConfig
+  runSession_ scfg (runQuery q) (flip const)
+
+runQueryWithTransaction ::
+  forall sc m a env driver.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , Session driver
+  , U.MonadUnliftIO m
+  , U.MonadBaseControl IO m
+  , HasQuery driver
+  , FromDBRow driver a
+  , HasTransaction driver
+  ) => Query sc a -> m (Vector a)
+runQueryWithTransaction q = do
+  scfg <- reader getSessionConfig
+  runSession_ scfg (runQuery q) withTransaction
+
+runMQuery :: forall sc m a driver.
   ( MonadIO m
   , HasInsertRet driver
   , HasUpdateRet driver
   , HasDeleteRet driver
-  , FromDBRow driver r
+  , FromDBRow driver a
   , MonadReader driver m
-  ) => MQuery sc r
-    -> m [r]
-runMQueryAsList q = do
+  ) => MQuery sc a
+    -> m (Vector a)
+runMQuery q = do
   driver <- ask
   let
     runInsert iq = do
@@ -969,9 +1016,40 @@ runMQueryAsList q = do
       liftIO $ dbUpdateRet driver uq
     runDelete dq = do
       liftIO $ dbDeleteRet driver dq
-  execMQuery runInsert runUpdate runDelete (pure []) q
+  execMQuery runInsert runUpdate runDelete (pure mempty) q
 
-runMQuery_ :: forall m sc driver.
+runMQueryWithSession :: forall sc m a env driver.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , Session driver
+  , U.MonadUnliftIO m
+  , U.MonadBaseControl IO m
+  , HasInsertRet driver
+  , HasUpdateRet driver
+  , HasDeleteRet driver
+  , FromDBRow driver a
+  ) => MQuery sc a -> m (Vector a)
+runMQueryWithSession q = do
+  scfg <- reader getSessionConfig
+  runSession_ scfg (runMQuery q) (flip const)  
+
+runMQueryWithTransaction :: forall sc m a env driver.
+  ( MonadReader env m
+  , HasSessionConfig env driver
+  , Session driver
+  , U.MonadUnliftIO m
+  , U.MonadBaseControl IO m
+  , HasInsertRet driver
+  , HasUpdateRet driver
+  , HasDeleteRet driver
+  , FromDBRow driver a
+  , HasTransaction driver
+  ) => MQuery sc a -> m (Vector a)
+runMQueryWithTransaction q = do
+  scfg <- reader getSessionConfig
+  runSession_ scfg (runMQuery q) withTransaction  
+
+runMQuery_ :: forall sc m driver.
   ( MonadIO m
   , HasInsert driver
   , HasUpdate driver
@@ -989,23 +1067,8 @@ runMQuery_ q = do
     runDelete dq = do
       liftIO $ dbDelete driver dq
   execMQuery runInsert runUpdate runDelete (pure 0) q  
-  
 
------
-runQuery :: forall sc m a env driver.
-  ( MonadReader env m
-  , HasSessionConfig env driver
-  , Session driver
-  , U.MonadUnliftIO m
-  , U.MonadBaseControl IO m
-  , HasQuery driver
-  , FromDBRow driver a
-  ) => Query sc a -> m (Vector a)
-runQuery q = do
-  scfg <- reader getSessionConfig
-  runSession_ scfg (V.fromList <$> runQueryAsList q) (flip const)
-
-runQuery_ :: forall sc m env driver.
+runMQueryWithSession_ :: forall sc m env driver.
   ( MonadReader env m
   , HasSessionConfig env driver
   , Session driver
@@ -1015,60 +1078,60 @@ runQuery_ :: forall sc m env driver.
   , HasUpdate driver
   , HasDelete driver
   ) => MQuery sc () -> m Int64
-runQuery_ q = do
+runMQueryWithSession_ q = do
   scfg <- reader getSessionConfig
   runSession_ scfg (runMQuery_ q) (flip const)  
 
-runMQuery :: forall sc m a env driver.
+runMQueryWithTransaction_ :: forall sc m env driver.
   ( MonadReader env m
   , HasSessionConfig env driver
   , Session driver
   , U.MonadUnliftIO m
   , U.MonadBaseControl IO m
-  , HasInsertRet driver
-  , HasUpdateRet driver
-  , HasDeleteRet driver
-  , FromDBRow driver a
-  ) => MQuery sc a -> m (Vector a)
-runMQuery q = do
+  , HasInsert driver
+  , HasUpdate driver
+  , HasDelete driver
+  , HasTransaction driver
+  ) => MQuery sc () -> m Int64
+runMQueryWithTransaction_ q = do
   scfg <- reader getSessionConfig
-  runSession_ scfg (V.fromList <$> runMQueryAsList q) (flip const)  
+  runSession_ scfg (runMQuery_ q) withTransaction
 
 -- runQueryMaybe returns 'Just' constructor only if
 -- the response contains a single value.
 -- for other cases, it returns nothing.
-runQueryMaybe :: forall sc m a env driver.
-  ( MonadReader env m
-  , HasSessionConfig env driver
-  , Session driver
-  , U.MonadUnliftIO m
-  , U.MonadBaseControl IO m
+runQueryMaybe :: forall sc m a driver.
+  ( MonadIO m
   , HasQuery driver
   , FromDBRow driver a
+  , MonadReader driver m
   ) => Query sc a -> m (Maybe a)
 runQueryMaybe q = do
-  scfg <- reader getSessionConfig
-  results <- runSession_ scfg (runQueryAsList q) (flip const)
-  case results of
-    [a] -> return $ Just a
-    _ -> return Nothing
+  r <- runQuery q
+  case V.uncons r of
+    Just (r0, rs)
+      | V.null rs -> pure $ pure r0
+      | otherwise -> pure Nothing
+    _ -> pure Nothing
 
-runRawQuery :: forall m a env driver.
-  ( MonadReader env m
-  , HasSessionConfig env driver
-  , Session driver
-  , U.MonadUnliftIO m
-  , U.MonadBaseControl IO m
+runRawQuery :: forall m a driver.
+  ( MonadIO m
   , HasRawQuery driver
   , FromDBRow driver a
+  , MonadReader driver m
   ) => T.Text -> m (Vector a)
 runRawQuery q = do
-  scfg <- reader getSessionConfig
-  let
-    execRawQ = do
-      driver <- ask
-      liftIO $ dbRawQuery driver q
-  runSession_ scfg (V.fromList <$> execRawQ) (flip const)  
+  driver <- ask
+  liftIO $ dbRawQuery driver q
+
+execRawQuery :: forall m driver.
+  ( MonadIO m
+  , HasRawQuery driver
+  , MonadReader driver m
+  ) => T.Text -> m Int64
+execRawQuery q = do
+  driver <- ask
+  liftIO $ dbRawQuery_ driver q
   
 runSession :: forall m a env driver.
   ( MonadReader env m
@@ -1076,10 +1139,10 @@ runSession :: forall m a env driver.
   , Session driver
   , U.MonadUnliftIO m
   , U.MonadBaseControl IO m
-  ) => m a -> m a
+  ) => SessionM driver m a -> m a
 runSession dbQ = do
   scfg <- reader getSessionConfig
-  runSession_ scfg (lift dbQ) (flip const)
+  runSession_ scfg (runSessionM dbQ) (flip const)
 
 runTransaction :: forall m a env driver.
   ( MonadReader env m
@@ -1088,10 +1151,10 @@ runTransaction :: forall m a env driver.
   , HasTransaction driver
   , U.MonadUnliftIO m
   , U.MonadBaseControl IO m
-  ) => m a -> m a
+  ) => TransactionM driver m a -> m a
 runTransaction dbQ = do
   scfg <- reader getSessionConfig
-  runSession_ scfg (lift dbQ) withTransaction  
+  runSession_ scfg (runTransactionM dbQ) withTransaction
 
 getQueryShow :: forall sc m a env driver.
   ( MonadReader env m

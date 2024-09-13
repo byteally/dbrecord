@@ -27,6 +27,7 @@ import Data.Text (Text)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified DBRecord.Internal.DDL as PDDLQ
 import Control.Monad.Reader
+import Data.Vector ( Vector )
 
 type family DBM (db :: Type) = (r :: Type -> Type) | r -> db
 -- type family Driver (dbm :: Type -> Type) = (r :: Type -> Type) -- | r -> dbm
@@ -45,8 +46,8 @@ class HasUpdate driver where
   dbUpdate :: driver -> PQ.UpdateQuery -> IO Int64
 
 class (DBDecoder driver) => HasUpdateRet driver where
-  dbUpdateRetWith :: FromDBRowParser driver a -> driver -> PQ.UpdateQuery -> IO [a]
-  dbUpdateRet     :: (FromDBRow driver a) => driver -> PQ.UpdateQuery -> IO [a]
+  dbUpdateRetWith :: FromDBRowParser driver a -> driver -> PQ.UpdateQuery -> IO (Vector a)
+  dbUpdateRet     :: (FromDBRow driver a) => driver -> PQ.UpdateQuery -> IO (Vector a)
 
   dbUpdateRet = dbUpdateRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
   
@@ -55,21 +56,21 @@ class HasDelete driver where
   dbDelete :: driver -> PQ.DeleteQuery -> IO Int64
 
 class (DBDecoder driver) => HasDeleteRet driver where
-  dbDeleteRetWith :: FromDBRowParser driver a -> driver -> PQ.DeleteQuery -> IO [a]
-  dbDeleteRet :: (FromDBRow driver a) => driver -> PQ.DeleteQuery -> IO [a]
+  dbDeleteRetWith :: FromDBRowParser driver a -> driver -> PQ.DeleteQuery -> IO (Vector a)
+  dbDeleteRet :: (FromDBRow driver a) => driver -> PQ.DeleteQuery -> IO (Vector a)
 
   dbDeleteRet = dbDeleteRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
 
 class (DBDecoder driver) => HasQuery driver where
-  dbQueryWith :: FromDBRowParser driver a -> driver -> PQ.PrimQuery -> IO [a]
+  dbQueryWith :: FromDBRowParser driver a -> driver -> PQ.PrimQuery -> IO (Vector a)
 
-  dbQuery :: (DBDecoder driver, FromDBRow driver a) => driver -> PQ.PrimQuery -> IO [a]
+  dbQuery :: (DBDecoder driver, FromDBRow driver a) => driver -> PQ.PrimQuery -> IO (Vector a)
   dbQuery = dbQueryWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
 
 class (DBDecoder driver) => HasRawQuery driver where
-  dbRawQueryWith :: FromDBRowParser driver a -> driver -> Text -> IO [a]
+  dbRawQueryWith :: FromDBRowParser driver a -> driver -> Text -> IO (Vector a)
 
-  dbRawQuery :: (DBDecoder driver, FromDBRow driver a) => driver -> Text -> IO [a]
+  dbRawQuery :: (DBDecoder driver, FromDBRow driver a) => driver -> Text -> IO (Vector a)
   dbRawQuery = dbRawQueryWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
 
   dbRawQuery_ :: (DBDecoder driver) => driver -> Text -> IO Int64
@@ -78,9 +79,9 @@ class HasInsert driver where
   dbInsert :: driver -> PQ.InsertQuery -> IO Int64
 
 class (DBDecoder driver) => HasInsertRet driver where
-  dbInsertRetWith :: FromDBRowParser driver a -> driver -> PQ.InsertQuery -> IO [a]  
+  dbInsertRetWith :: FromDBRowParser driver a -> driver -> PQ.InsertQuery -> IO (Vector a)
   
-  dbInsertRet :: (FromDBRow driver a) => driver -> PQ.InsertQuery -> IO [a]
+  dbInsertRet :: (FromDBRow driver a) => driver -> PQ.InsertQuery -> IO (Vector a)
   dbInsertRet = dbInsertRetWith (dbDecoder (Proxy :: Proxy driver) (Proxy :: Proxy a))
 
 class ShowQuery driver where

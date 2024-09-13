@@ -206,19 +206,19 @@ pgsExprTripper :: forall a (sc :: Type).
 pgsExprTripper env' = exprTripping
   (\act -> do
       env <- liftIO $ env'
-      liftIO @(PropertyT IO) $ flip runReaderT env $ runDVDRentalPGM $ runSession act
+      liftIO @(PropertyT IO) $ flip runReaderT env $ runDVDRentalPGM act
   )
 
 runSUTSession :: forall m x.
   ( MonadIO m
-  ) => IO (SessionConfig PGS) -> DVDRentalPGM x -> m x
+  ) => IO (SessionConfig PGS) -> SessionM PGS DVDRentalPGM x -> m x
 runSUTSession envM sut = do
   env <- liftIO envM
   liftIO $ flip runReaderT env $ runDVDRentalPGM $ runSession sut
 
 runSUTTransaction :: forall m x.
   ( MonadIO m
-  ) => IO (SessionConfig PGS) -> DVDRentalPGM x -> m x
+  ) => IO (SessionConfig PGS) -> TransactionM PGS DVDRentalPGM x -> m x
 runSUTTransaction envM sut = do
   env <- liftIO envM
   liftIO $ flip runReaderT env $ runDVDRentalPGM $ runTransaction sut

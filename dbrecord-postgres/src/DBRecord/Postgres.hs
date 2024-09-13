@@ -75,3 +75,6 @@ a ~~ b = binOp (PQ.OpOther "~") a b
 
 prefixQ :: LTree -> LQuery
 prefixQ (LTree xs) = LQuery (LTree (xs <> ["*"]))
+
+(@>) :: Expr sc LTree -> Expr sc LTree -> Expr sc Bool
+a @> b = binOp (PQ.OpOther "@>") a b

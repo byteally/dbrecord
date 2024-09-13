@@ -54,7 +54,7 @@ exprTripping :: forall a (sc :: Type) (sut :: Type -> Type) m env driver.
   , MonadCatch m
   ) => (forall x. sut x -> m x) -> Proxy sc -> a -> m ()
 exprTripping toTestM _ v = trippingM v (\a -> do showQ <- toTestM getQueryShow
-                                                 pure $ ShowableQ . (showQ,) $ selectExpr (#col .= constExpr a)) (toTestM . (fmap . fmap) (\r -> r.col) . runQuery @sc . runShowableQ)
+                                                 pure $ ShowableQ . (showQ,) $ selectExpr (#col .= constExpr a)) (toTestM . (fmap . fmap) (\r -> r.col) . runQueryWithSession @sc . runShowableQ)
 
 
 ddlEvolution :: forall (scc :: Nat -> Type) (current :: Nat) (sut :: Type -> Type) m env driver.

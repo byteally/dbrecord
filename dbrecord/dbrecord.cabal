@@ -130,6 +130,8 @@ library
                      , unliftio          >= 0.2 && < 0.3
                      , path >= 0.9
                      , monad-control
+                     , exceptions
+                     
   default-extensions:  DuplicateRecordFields
                      , TypeFamilies
                      , TypeFamilyDependencies
