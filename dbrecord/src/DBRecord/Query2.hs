@@ -954,11 +954,11 @@ delete (Clause clau) = getMutQ @o @tab @sc $ \tabId basetab ->
 
 newtype TransactionM r m a =
   TransactionM { runTransactionM :: ReaderT r m a }
-  deriving (Functor, Applicative, Monad, MonadReader r, U.MonadUnliftIO, MonadIO, MonadThrow, MonadFail)
+  deriving (Functor, Applicative, Monad, MonadReader r, U.MonadUnliftIO, MonadIO, MonadThrow, MonadFail, MonadTrans)
 
 newtype SessionM r m a =
   SessionM { runSessionM :: ReaderT r m a }
-  deriving (Functor, Applicative, Monad, MonadReader r, U.MonadUnliftIO, MonadIO, MonadThrow, MonadFail)
+  deriving (Functor, Applicative, Monad, MonadReader r, U.MonadUnliftIO, MonadIO, MonadThrow, MonadFail, MonadTrans)
 
 runQuery :: forall sc driver m a.
   ( MonadIO m
