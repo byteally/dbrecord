@@ -399,6 +399,9 @@ instance OrdExpr sc LocalTime where
 instance OrdExpr sc Scientific where
   a .<= b = binOp PQ.OpLtEq a b
 
+instance OrdExpr sc UUID where
+  a .<= b = binOp PQ.OpLtEq a b
+
 infixr 3 .&&
 (.&&) :: Expr sc Bool -> Expr sc Bool -> Expr sc Bool
 (.&&) a b = binOp PQ.OpAnd a b
