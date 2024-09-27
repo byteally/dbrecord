@@ -11,6 +11,7 @@ module DBRecord.Sqlite.Internal.Sql.Pretty
   , renderUpdate
   , ppExpr
   , ppSqliteType
+  , ppDBTypeName
   ) where
 
 import           Data.ByteString (ByteString)
@@ -21,15 +22,13 @@ import qualified DBRecord.Internal.Sql.DML as DML
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 import Data.Foldable (toList)
-import Data.Monoid ((<>))
 import Data.List (intersperse)
 import Text.PrettyPrint.HughesPJ (Doc, ($$), (<+>), text, empty,
                                   parens, comma, punctuate,
                                   hcat, vcat, brackets, doubleQuotes,
                                    hsep, equals, char, empty, render,
                                   space)
-import DBRecord.Schema.Interface
-import qualified Data.List as L
+import DBRecord.Internal.Types
 
 ppSelect :: SqlSelect -> Doc
 ppSelect select = case select of
@@ -39,6 +38,7 @@ ppSelect select = case select of
   SqlBin binSt as              -> ppSelectBinary binSt as
   SqlCTE withs sql             -> ppSelectCTE withs sql  
   SqlValues vals als           -> ppAs (text <$> als) $ ppSelectValues vals
+  _                            -> error "TODO @ppSelect"
   -- SqlBin bin als               -> ppAs (text <$> als) $ ppSelectBinary bin
 
 ppSelectWith :: SelectFrom -> Maybe Doc -> Doc
@@ -245,7 +245,7 @@ ppExpr expr =
     ListSqlExpr es      -> parens (commaH ppExpr es)
     ParamSqlExpr _ v -> ppExpr v
     PlaceHolderSqlExpr -> text "?"
-    CastSqlExpr typ e -> text "CAST" <> parens (ppExpr e <+> text "AS" <+> text (ppSqliteType typ))
+    CastSqlExpr typ e -> text "CAST" <> parens (ppExpr e <+> text "AS" <+> ppSqliteType typ)
     DefaultSqlExpr    -> text "DEFAULT"
     ArraySqlExpr es -> text "ARRAY" <> brackets (commaH ppExpr es)
     ExistsSqlExpr s     -> text "EXISTS" <+> parens (ppSelect s)
@@ -254,6 +254,7 @@ ppExpr expr =
       where partPP     [] = empty
             partPP     xs = text "PARTITION BY" <+> (commaH ppExpr xs <> space)
     TableSqlExpr {} -> error "TODO: TableSqlExpr not implemented @ppExpr"
+    _               -> error "TODO: @ppExpr"
 
 ppBinOp :: BinOp -> Doc
 ppBinOp = text . go
@@ -335,7 +336,7 @@ ppUpdate (SqlUpdate table assigns criteria rets)
       ppAssign (c,e) = ppColumn c <+> equals <+> ppExpr e
 
 ppDelete :: SqlDelete -> Doc
-ppDelete (SqlDelete table criteria) =
+ppDelete (SqlDelete table criteria _) =
     text "DELETE FROM" <+> ppTableName table $$ ppWhere criteria
     
 ppReturning :: [SqlExpr] -> Doc
@@ -418,13 +419,13 @@ renderUpdate = stripExtraParens . render . ppUpdate
 --
 
 -- NOTE: Untested. 
-ppSqliteType :: DBType -> String
+ppSqliteType :: DBType -> Doc
 ppSqliteType = go
-  where go DBInt2             = "int"
-        go DBInt4             = "int"
-        go DBInt8             = "int"
+  where go DBInt2             = text "int"
+        go DBInt4             = text "int"
+        go DBInt8             = text "int"
         -- go (DBChar i)         = "nchar (" ++ show i ++ " )"
-        go DBText             = "text"
+        go DBText             = text "text"
         -- TODO: fix size of varbinary
         -- go DBTimestamptz      = "datetimeoffset"
         -- go DBInterval         = "INTERVAL"
@@ -437,13 +438,22 @@ ppSqliteType = go
         -- go DBJsonB            = "JSONB"        
         -- go (DBArray t)        = go t ++ "[]"
         go (DBNullable t)     = go t
-        go (DBTypeName t args)      = T.unpack (doubleQuote t) ++ ppArgs args        
-        go (DBCustomType t _) = go t
+        go (OtherType tn)     = ppDBTypeName tn
         go _                  = error "Panic: not implemented"
 
-        ppArgs []  = ""
-        ppArgs xs  = "(" ++ L.intercalate "," (map ppArg xs) ++ ")"
+ppDBTypeName :: DBTypeName -> Doc
+ppDBTypeName (DBTypeName qual t args) = case qual of
+  NoQualification -> ppDbTypeName t args
+  SchemaQualified scn -> doubleQuotes (text (T.unpack scn)) <> dot <> ppDbTypeName t args
+  DBQualified _ scn -> doubleQuotes (text (T.unpack scn)) <> dot <> ppDbTypeName t args
+  where
+    ppDbTypeName t' args' = doubleQuotes (text (T.unpack t')) <> ppArgs args'
 
-        ppArg (TextArg t)    = T.unpack t
-        ppArg (IntegerArg i) = show i
+    ppArgs []  = empty
+    ppArgs xs  = parens $ hcat $ punctuate comma (map ppArg xs)
 
+
+    ppArg (TextArg t')    = text (T.unpack t')
+    ppArg (IntegerArg i)  = text (show i)
+
+    dot = text "."

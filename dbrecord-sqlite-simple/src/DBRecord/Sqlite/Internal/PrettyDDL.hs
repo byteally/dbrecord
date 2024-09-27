@@ -1,26 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 module DBRecord.Sqlite.Internal.PrettyDDL where
 
-import DBRecord.Internal.DDL
--- import DBRecord.Internal.Postgres (ppPGExpr)
-import Data.Text (Text, unpack, pack)
-import qualified Text.PrettyPrint.HughesPJ as Pretty
+import           DBRecord.Internal.DDL
+import qualified DBRecord.Internal.PrimQuery as PQ
+import           DBRecord.Internal.Sql.SqlGen
+import           DBRecord.Sqlite.Internal.Sql.Pretty
+import           Data.Text (Text, unpack, pack)
+import           Prelude hiding ((<>))
 import Text.PrettyPrint.HughesPJ (Doc, (<+>), text, 
                                   parens, comma, punctuate,
                                   hsep, semi, render, char,
                                   (<>))
-import Prelude hiding ((<>))
-import DBRecord.Internal.DBTypes (DBType (DBTypeName))
--- import DBRecord.Migration (ChangeSet (..))
-import qualified Data.Text as T
-import DBRecord.Internal.Sql.SqlGen
-import DBRecord.Sqlite.Internal.Sql.Pretty
-
-typeName :: DBType -> TypeName
-typeName = TypeName . T.pack . ppSqliteType
-
-customTypeName :: T.Text -> TypeName
-customTypeName = TypeName . T.pack . ppSqliteType . flip DBTypeName []
+import qualified Text.PrettyPrint.HughesPJ as Pretty
+import Data.Functor.Identity
 
 escQuote :: Text -> Text
 escQuote = escapeBy (Just '\'')
@@ -47,16 +39,16 @@ doubleQuotes :: Text -> Doc
 doubleQuotes = Pretty.doubleQuotes . text_ . escDoubleQuote
 
 ppColumnName :: ColName -> Doc
-ppColumnName (ColName _ colN) = doubleQuotes colN
+ppColumnName (ColName tn) = doubleQuotes tn
 
-ppTableName :: TabName -> Doc
-ppTableName (TabName _ tabN) = doubleQuotes tabN
-
-ppTypeName :: TypeName -> Doc
-ppTypeName (TypeName typeN) = text_ typeN
+ppTableName :: PQ.TableId -> Doc
+ppTableName tabId =
+  doubleQuotes ((PQ.schema tabId))
+  <> text "."
+  <> doubleQuotes ((PQ.tableName tabId))
 
 ppColumnType :: ColType -> Doc
-ppColumnType (ColType tn) = text (ppSqliteType tn)
+ppColumnType (ColType tn) = ppSqliteType tn
 
 ppCheckExpr :: CheckExpr -> Doc
 ppCheckExpr (CheckExpr e) = parens (ppExpr (genSqlExpr e))
@@ -68,7 +60,7 @@ ppEnumVal :: EnumVal -> Doc
 ppEnumVal (EnumVal e) = quotes e
 
 ppSeqName :: SeqName -> Doc
-ppSeqName (SeqName _ seqN) = text_ seqN
+ppSeqName (SeqName seqN) = text_ seqN
 
 ppColumn :: Column -> Doc
 ppColumn (Column name ty) =
@@ -76,17 +68,17 @@ ppColumn (Column name ty) =
   <+> ppColumnType ty
 
 ppConstraintName :: ConstraintName -> Doc
-ppConstraintName (ConstraintName _ c) = doubleQuotes c
+ppConstraintName (ConstraintName c) = doubleQuotes c
 
 ppPrimDDL :: PrimDDL -> Doc
-ppPrimDDL (CreateTable tab cols) =
+ppPrimDDL (CreateTable tab (Identity cols)) =
       text "CREATE TABLE"
   <+> ppTableName tab
   <+> parens (hsep (punctuate comma (map ppColumn cols)))
   <+> semi
-ppPrimDDL (CreateType ty cols) =
+ppPrimDDL (CreateType ty (Identity cols)) =
       text "CREATE TYPE"
-  <+> ppTypeName ty
+  <+> ppDBTypeName ty
   <+> text "AS"
   <+> parens (hsep (punctuate comma (map ppColumn cols)))
   <+> semi
@@ -98,9 +90,9 @@ ppPrimDDL (DropSeq seqN) =
       text "DROP SEQUENCE"
   <+> ppSeqName seqN
   <+> semi    
-ppPrimDDL (CreateEnum ty cols) =
+ppPrimDDL (CreateEnum ty (Identity cols)) =
       text "CREATE TYPE"
-  <+> ppTypeName ty
+  <+> ppDBTypeName ty
   <+> text "AS ENUM"
   <+> parens (hsep (punctuate comma (map ppEnumVal cols)))
   <+> semi
@@ -110,7 +102,7 @@ ppPrimDDL (DropTable tab) =
   <+> semi
 ppPrimDDL (DropType ty) =
       text "DROP TYPE"
-  <+> ppTypeName ty
+  <+> ppDBTypeName ty
   <+> semi
 ppPrimDDL (AlterTable tab alter) =
       text "ALTER TABLE"
@@ -119,7 +111,7 @@ ppPrimDDL (AlterTable tab alter) =
   <+> semi
 ppPrimDDL (AlterType typ alter) =
       text "ALTER TYPE"
-  <+> ppTypeName typ
+  <+> ppDBTypeName typ
   <+> ppAlterType alter
   <+> semi  
 ppPrimDDL (AlterSeq seqN alter) =
@@ -127,6 +119,7 @@ ppPrimDDL (AlterSeq seqN alter) =
   <+> ppSeqName seqN
   <+> ppAlterSeqType alter
   <+> semi  
+ppPrimDDL _ = error "TODO: @ppPrimDDL"
 
 ppAlterSeqType :: AlterSeq -> Doc
 ppAlterSeqType (AddOwner tabn coln) =
@@ -203,7 +196,7 @@ ppAlterColumn DropDefault =
 ppAlterType :: AlterType -> Doc
 ppAlterType (RenameType typ) =
       text "RENAME TO"
-  <+> ppTypeName typ
+  <+> ppDBTypeName typ
   <+> semi
 ppAlterType (AddAttribute col) =
       text "ADD ATTRIBUTE"

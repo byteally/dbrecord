@@ -36,14 +36,10 @@ import qualified DBRecord.Internal.Table as DBRI
 import           DBRecord.Postgres.Internal.RegClass
 import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
 import           Database.PostgreSQL.Simple.FromField.Composite
--- import           DBRecord.Old.Query
-import           DBRecord.Types
 import           DBRecord.Driver
  -- TODO: Internal Modules
 import           DBRecord.Internal.Types
 import           DBRecord.Internal.DBTypes
--- import           DBRecord.Internal.Expr
-import           Data.Functor.Identity
 import qualified Data.Pool as P
 import           Data.String
 import           Database.PostgreSQL.Simple as PGS hiding ( queryWith_ )
@@ -617,18 +613,6 @@ pgDefaultPool connectInfo =
 #else
   P.createPool (PGS.connect connectInfo) PGS.close 10 5 10
 #endif
-
-#if MIN_VERSION_postgresql_simple(0,6,3)
-#else
-instance (FromField a) => FromField (Identity a) where
-  fromField f m = Identity <$> fromField f m
-#endif
-
-instance (FromField v) => FromField (Key (t :: k) v) where
-  fromField f m = Key <$> fromField f m
-
-instance (FromField a) => FromRow (Identity a) where
-  fromRow = Identity <$> field
 
 -- | Implementation based on MonadUnliftIO
 withResource :: (U.MonadUnliftIO m) => P.Pool a -> (a -> m r) -> m r
