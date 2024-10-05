@@ -518,14 +518,11 @@ instance (TypeError ('Text "[DBR-123] Panic: Nested flat composite not allowed")
 instance (TypeError ('Text "[DBR-123] Panic: Nested flat composite not allowed")) => GFromComposite '(t, 'Just '( 'ArrayObjOf ety ('UDTypeObj ('UDRec 'FlatRec)), 'True)) fn fty where
   gfromComposite _ _ = error "[DBR-123]: Unreachable code"
 
-instance (FromCompositeField ety) => GFromComposite '(t, 'Just '( 'NullableObjOf ety ('NativeTypeObj enat), 'True)) fn (Maybe ety) where
+instance (FromCompositeField ety) => GFromComposite '(t, 'Just '( 'NullableObjOf ety t0, 'True)) fn (Maybe ety) where
   gfromComposite _ _ = compositeFieldWith $ optionalCompositeFieldParser $ fromCompositeField @ety
 
 instance (FromCompositeField ety, Typeable ety) => GFromComposite '(t, 'Just '( 'ArrayObjOf ety ('NativeTypeObj enat), 'True)) fn [ety] where
   gfromComposite _ _ = fmap V.toList $ compositeFieldWith $ arrayCompositeFieldParser $ fromCompositeField @ety
-
-instance (FromCompositeField ety) => GFromComposite '(t, 'Just '( 'NullableObjOf ety ('UDTypeObj ('UDEnum enk)), 'True)) fn (Maybe ety) where
-  gfromComposite _ _ = compositeFieldWith $ optionalCompositeFieldParser $ fromCompositeField @ety
 
 instance (DBRepr 'Postgres ety, Typeable ety, Generic ety, FromHK ety, GConstructHK ety (GFromComposite '(ety, 'Nothing)) (TypeFields ety)) => GFromComposite '(t, 'Just '( 'NullableObjOf ety ('UDTypeObj ('UDRec 'CompositeRec)), 'True)) fn (Maybe ety) where
   gfromComposite _ _ = compositeFieldWith $ optionalCompositeFieldParser $ compositeToCompositeFieldWith $ gFromComp @ety
