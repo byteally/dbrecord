@@ -14,41 +14,26 @@ module Database.PostgreSQL.Simple.FromField.Composite
   ) where
 
 import           Control.Applicative
+import           Control.Exception (Exception)
+import           Control.Monad.State.Strict
 import qualified Data.Attoparsec.ByteString.Char8 as A
 import           Data.ByteString ( ByteString )
 import qualified Data.ByteString.Char8 as Char8
+import           Data.Int
+import           Data.Kind
+import qualified Data.List as L
+import           Data.Ratio
 import           Data.Text (Text)
 import           Data.Text.Encoding ( decodeUtf8' )
-import           Data.Kind
-import           Data.Int
-import           Data.Word
 import           Data.Typeable
-import           Data.Ratio
-import           Control.Exception (Exception)
--- import           Database.PostgreSQL.Simple
-import           Database.PostgreSQL.Simple.Types (Null (..))
-import           Database.PostgreSQL.Simple.FromField
--- import           Database.PostgreSQL.Simple.FromRow
--- import           Database.PostgreSQL.Simple.Internal
-import           GHC.Real (infinity, notANumber)
+import qualified Data.UUID as UUID
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
-import qualified Data.List as L
-import Control.Monad.State.Strict
--- import qualified Data.Text as T
--- import qualified Data.Text.Encoding as T
-
-{-
-import qualified Data.ByteString as SB
-import qualified Data.ByteString.Char8 as B8
-import qualified Data.ByteString.Lazy as LB
-import qualified Data.Text.Lazy as LT
-import           Data.CaseInsensitive (CI)
-import qualified Data.CaseInsensitive as CI
-import           Data.UUID.Types   (UUID)
-import qualified Data.UUID.Types as UUID
-import           Data.Scientific (Scientific)
--}
+import           Data.Word
+import           Database.PostgreSQL.Simple.FromField
+import           Database.PostgreSQL.Simple.Types (Null (..))
+import           GHC.Real (infinity, notANumber)
+import qualified Data.Aeson as A
 
 class FromComposite (t :: Type) where
   fromComposite :: CompositeParser t
@@ -282,6 +267,22 @@ instance FromCompositeField Bool where
 
 instance FromCompositeField ByteString where
   fromCompositeField f = nonNullCompositeField pure f
+
+instance FromCompositeField UUID.UUID where
+  fromCompositeField f = nonNullCompositeField go f
+
+    where
+      go s =
+        maybe (returnCompositeError ConversionFailed f (Char8.unpack s)) pure . UUID.fromASCIIBytes $ s
+
+instance FromCompositeField A.Value where
+  fromCompositeField f = nonNullCompositeField go f
+
+    where
+      go bs =
+        case A.eitherDecodeStrict' bs of
+          Left  err -> returnCompositeError ConversionFailed f err
+          Right val -> pure val        
 
 instance FromCompositeField Null where
   fromCompositeField f = \case

@@ -120,6 +120,7 @@ library
                      , monad-control
                      , transformers-base
                      , binary
+                     , uuid
 
 
 test-suite dbrecord-postgres-simple-reify-test
