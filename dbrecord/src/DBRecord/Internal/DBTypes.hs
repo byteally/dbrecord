@@ -1386,7 +1386,7 @@ jsonOf ::
   ( A.ToJSON a
   , DBTypeOf sc a
   ) => a -> Expr sc a
-jsonOf = annotateType . Expr . PQ.ConstExpr . PQ.String . jsonify
+jsonOf = unsafeCoerceExpr . annotateType @(Json a) . Expr . PQ.ConstExpr . PQ.String . jsonify
   where jsonify = T.pack . lazyDecodeUtf8 . A.encode
 
 jsonValue ::

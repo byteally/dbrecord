@@ -38,6 +38,7 @@ import qualified DBRecord.Postgres.Internal.Sql.Pretty as PG
 import           Database.PostgreSQL.Simple.FromField.Composite
 import           DBRecord.Driver
  -- TODO: Internal Modules
+import qualified DBRecord.Types as DB  
 import           DBRecord.Internal.Types
 import           DBRecord.Internal.DBTypes
 import qualified Data.Pool as P
@@ -634,3 +635,5 @@ instance (FromComposite a, Typeable a) => FromField (Composite a) where
 
 instance (FromComposite a, Typeable a) => FromRow (Composite a) where
   fromRow = field
+
+deriving newtype instance (FromCompositeField a) => FromCompositeField (DB.Key k a)
