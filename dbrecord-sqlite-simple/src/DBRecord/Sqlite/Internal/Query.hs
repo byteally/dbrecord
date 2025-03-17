@@ -41,7 +41,7 @@ instance Session SQS where
   data SessionConfig SQS where
     SQSConfig :: Pool SQS.Connection -> SessionConfig SQS
   runSession_ (SQSConfig pool) dbact f =
-    withResource pool (\conn -> f (SQS conn) (runReaderT dbact $ SQS conn))
+    U.withRunInIO (\f0 -> withResource pool (\conn -> f0 (f (SQS conn) (runReaderT dbact $ SQS conn))))
 
 instance HasTransaction SQS where
   withTransaction (SQS conn) dbact =
@@ -87,7 +87,8 @@ instance HasDelete SQS where
     pure 0
 
 sqliteDefaultPool :: FilePath -> IO (Pool Connection)
-sqliteDefaultPool path = createPool (SQS.open path) SQS.close 10 5 10
+sqliteDefaultPool path =
+  newPool (defaultPoolConfig (SQS.open path) SQS.close 1000 24)
 
 instance (FromField a) => FromField (Identity a) where
   fromField f = Identity <$> fromField f

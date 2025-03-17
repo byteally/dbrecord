@@ -535,7 +535,7 @@ instance Session PGS where
   data SessionConfig PGS where
     PGSConfig :: P.Pool PGS.Connection -> SessionConfig PGS
   runSession_ (PGSConfig pool) dbact f = do
-    withResource pool (\conn -> f (PGS conn) (runReaderT dbact (PGS conn)))
+    U.withRunInIO (\f0 -> withResource pool (\conn -> f0 (f (PGS conn) (runReaderT dbact (PGS conn)))))
 
 instance HasTransaction PGS where
   withTransaction (PGS conn) dbact =

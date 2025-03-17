@@ -32,6 +32,13 @@ data Interval = Interval { intervalMonths :: Int32
 zeroInterval :: Interval
 zeroInterval = Interval 0 0 0
 
+minuteInterval :: Int -> Interval
+minuteInterval i =
+  Interval { intervalMonths = 0
+           , intervalDays = 0
+           , intervalMicroseconds = (10^(6 :: Integer) * 60) * fromIntegral i
+           }
+
 twoDigits :: Parser Int
 twoDigits = do
   a <- A.digit
