@@ -507,6 +507,31 @@ instance (Typeable fty, Read fty) => GFromComposite '(t, 'Just '( 'UDTypeObj ('S
       Nothing -> returnCompositeError ConversionFailed f ("Unable to parse: " ++ T.unpack txt)
       Just v -> pure v
 
+
+enumCompositeFieldParser ::
+  forall t enk.
+  ( Typeable t
+  , DBRepr 'Postgres t
+  , ParseEnum enk
+  , GetMatcherRep (Matcher 'Postgres t) ~ EnumMatchRep t
+  ) => Proxy (enk :: UDEnumK) -> CompositeFieldParser t
+enumCompositeFieldParser _ f =
+  nonNullCompositeField go f 
+
+  where
+    go fld =
+      let EnumMatchRep {ctors = cs} = sumRepr (Proxy @'( 'Postgres, t))
+      in either
+           (\msg -> returnCompositeError ConversionFailed f ("[DBR-123] Panic: Unexpected enum tag in db:" ++ (Char8.unpack fld) ++ ": " ++ msg)) pure $
+           parseEnum (Proxy @enk) fld (conAliases @'Postgres @t) cs
+
+instance ( ParseEnum enk
+         , GetMatcherRep (Matcher 'Postgres fty) ~ EnumMatchRep fty
+         , Typeable fty
+         , DBRepr 'Postgres fty
+         ) => GFromComposite '(t, 'Just '( 'UDTypeObj ('UDEnum enk), 'True)) fn fty where
+  gfromComposite _ _ = compositeFieldWith $ enumCompositeFieldParser (Proxy :: Proxy enk)
+
 instance (TypeError ('Text "TODO: GFromComposite - UDRec JSONRec")) => GFromComposite '(t, 'Just '( 'UDTypeObj ('UDRec 'JsonRec), 'True)) fn fty where
   gfromComposite _ _ = error "[DBR-123]: Unreachable code"
 
@@ -519,8 +544,11 @@ instance (TypeError ('Text "[DBR-123] Panic: Nested flat composite not allowed")
 instance (TypeError ('Text "[DBR-123] Panic: Nested flat composite not allowed")) => GFromComposite '(t, 'Just '( 'ArrayObjOf ety ('UDTypeObj ('UDRec 'FlatRec)), 'True)) fn fty where
   gfromComposite _ _ = error "[DBR-123]: Unreachable code"
 
-instance (FromCompositeField ety) => GFromComposite '(t, 'Just '( 'NullableObjOf ety t0, 'True)) fn (Maybe ety) where
-  gfromComposite _ _ = compositeFieldWith $ optionalCompositeFieldParser $ fromCompositeField @ety
+instance (FromCompositeField ety) => GFromComposite '(t, 'Just '( 'NullableObjOf ety ('NativeTypeObj dbk), 'True)) fn (Maybe ety) where
+ gfromComposite _ _ = compositeFieldWith $ optionalCompositeFieldParser $ fromCompositeField @ety
+
+instance (FromCompositeField ety) => GFromComposite '(t, 'Just '( 'NullableObjOf ety ('UDTypeObj ('SerializedBlob ('JsonContent cty))), 'True)) fn (Maybe ety) where
+ gfromComposite _ _ = compositeFieldWith $ optionalCompositeFieldParser $ fromCompositeField @ety
 
 instance (FromCompositeField ety, Typeable ety) => GFromComposite '(t, 'Just '( 'ArrayObjOf ety ('NativeTypeObj enat), 'True)) fn [ety] where
   gfromComposite _ _ = fmap V.toList $ compositeFieldWith $ arrayCompositeFieldParser $ fromCompositeField @ety

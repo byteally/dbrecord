@@ -313,6 +313,7 @@ data Row2 = Row2 { f1 :: Maybe Int
                  , f3 :: Maybe [Int]
                  , f4 :: Maybe [Text]
                  , f5 :: Maybe [Row1]
+                 , f6 :: [Row1]
                  }
   deriving (Show, Eq, Generic)
 

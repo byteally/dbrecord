@@ -54,7 +54,7 @@ type PGDVDRentalDB = DVDRentalDB 'Postgres
 testDBConnectInfo :: ConnectInfo
 testDBConnectInfo = defaultConnectInfo { connectHost = "localhost"
                                        , connectPassword = ".haskell."
-                                       , connectDatabase = "dvdrental"
+                                       , connectDatabase = "postgres"
                                        , connectPort = 5433
                                        }
 
@@ -303,11 +303,11 @@ test_comp_parser = Test.Tasty.withResource
         r <- runSUTSession e $ runRawQuery @_ @(Int,  Row1) "select 1, row(NULL, E'a\"b\"')"
         V.head r === (1,Row1 Nothing (Just "a\"b\""))
     , testProperty "Composite with array(1)" $ withTests 1 $ property $ do
-        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row2) "select 1, row(NULL, E'abc', array[1,2,3], array[E'a', E'b', E'c'], NULL)"
-        V.head r === (1,Row2 Nothing (Just "abc") (Just [1,2,3]) (Just ["a","b","c"]) Nothing)
+        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row2) "select 1, row(NULL, E'abc', array[1,2,3], array[E'a', E'b', E'c'], NULL, array[] :: int8[])"
+        V.head r === (1,Row2 Nothing (Just "abc") (Just [1,2,3]) (Just ["a","b","c"]) Nothing [])
     , testProperty "Composite with array(2)" $ withTests 1 $ property $ do
-        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row2) "select 1, row(NULL, E'abc', array[1,2,3], array[E'a', E'b', E'c'], array [row(NULL, E'a\"b\"'), row(1, E'a\"b\"')])"
-        V.head r === (1,Row2 Nothing (Just "abc") (Just [1,2,3]) (Just ["a","b","c"]) (Just [Row1 Nothing (Just "a\"b\""), Row1 (Just 1) (Just "a\"b\"")]))
+        r <- runSUTSession e $ runRawQuery @_ @(Int,  Row2) "select 1, row(NULL, E'abc', array[1,2,3], array[E'a', E'b', E'c'], array [row(NULL, E'a\"b\"'), row(1, E'a\"b\"')], array[] :: int8[])"
+        V.head r === (1,Row2 Nothing (Just "abc") (Just [1,2,3]) (Just ["a","b","c"]) (Just [Row1 Nothing (Just "a\"b\""), Row1 (Just 1) (Just "a\"b\"")]) [])
     ]
   )
 
@@ -393,6 +393,7 @@ instance FromField Row2 where
 instance FromComposite Row2 where
   fromComposite = Row2
                   <$> compositeField
+                  <*> compositeField
                   <*> compositeField
                   <*> compositeField
                   <*> compositeField
