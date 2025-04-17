@@ -37,7 +37,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.TypeLits
 import GHC.Generics
-import GHC.Exts
+import Data.String
+import Data.Coerce
 import GHC.OverloadedLabels
 import Data.Kind
 import Data.Typeable

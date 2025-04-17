@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                        #-}
 {-# OPTIONS_GHC -Wno-orphans            #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE TypeFamilies               #-}
@@ -13,7 +14,7 @@ import qualified DBRecord.Internal.Sql.SqlGen as SQ
 import qualified DBRecord.Sqlite.Internal.Sql.Pretty as SQ
 import           Data.Functor.Identity
 import           Data.Kind ( Type)
-import           Data.Pool
+import qualified Data.Pool as P
 import           Data.String
 import qualified Data.Vector as V
 import           Database.SQLite.Simple as SQS
@@ -39,9 +40,9 @@ data SQS where
 
 instance Session SQS where
   data SessionConfig SQS where
-    SQSConfig :: Pool SQS.Connection -> SessionConfig SQS
+    SQSConfig :: P.Pool SQS.Connection -> SessionConfig SQS
   runSession_ (SQSConfig pool) dbact f =
-    U.withRunInIO (\f0 -> withResource pool (\conn -> f0 (f (SQS conn) (runReaderT dbact $ SQS conn))))
+    U.withRunInIO (\f0 -> P.withResource pool (\conn -> f0 (f (SQS conn) (runReaderT dbact $ SQS conn))))
 
 instance HasTransaction SQS where
   withTransaction (SQS conn) dbact =
@@ -86,9 +87,21 @@ instance HasDelete SQS where
     execute_ conn (fromString delSQL)
     pure 0
 
-sqliteDefaultPool :: FilePath -> IO (Pool Connection)
-sqliteDefaultPool path =
-  newPool (defaultPoolConfig (SQS.open path) SQS.close 1000 24)
+sqliteDefaultPool :: FilePath -> IO (P.Pool Connection)
+sqliteDefaultPool path = 
+#if MIN_VERSION_resource_pool(0,4,0)
+  P.newPool (P.defaultPoolConfig (SQS.open path) SQS.close 1000 24)
+#elif MIN_VERSION_resource_pool(0,3,0)
+  P.newPool cfg
+  where
+    cfg = P.PoolConfig { P.createResource = SQS.open path
+                       , P.freeResource = SQS.close
+                       , P.poolCacheTTL = 5
+                       , P.poolMaxResources = 10
+                       }
+#else
+  P.createPool (SQS.open path) SQS.close 10 5 10
+#endif
 
 instance (FromField a) => FromField (Identity a) where
   fromField f = Identity <$> fromField f

@@ -363,8 +363,10 @@ sumOfColCompositeParser = do
       (fmap . fmap) f $ gfromComposite (Proxy @'(t, 'Just '(ToDBType 'Postgres (Maybe carg), AutoCodec 'Postgres (Maybe carg)))) (Proxy @'(cn, Maybe carg))
     matchCon :: forall cs.AllSOCConsCxt t (cs) => CtorList t cs -> [CompositeParser (Maybe t)]
     matchCon CtorNil = []
-    matchCon (NullaryCtorCons _ _) = error "[DBR-123] Panic: using Sum-Of-Col repr has nullary constructor"
     matchCon ucs@(UnaryCtorCons _ cs) = getUnaryVal ucs : matchCon cs
+#if __GLASGOW_HASKELL__ < 904
+    matchCon (NullaryCtorCons _ _) = error "[DBR-123] Panic: using Sum-Of-Col repr has nullary constructor"
+#endif
 
   fmap (maybe (error $ "[DBR-123] Panic: Atleast one of the constructor should match") id) $ fmap asum $ sequenceA $ matchCon ctors  
 

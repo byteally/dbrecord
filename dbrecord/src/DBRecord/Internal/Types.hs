@@ -2,7 +2,11 @@
 {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeOperators, GADTs, DeriveGeneric, FlexibleInstances, MultiParamTypeClasses, CPP, GeneralizedNewtypeDeriving, DeriveFunctor, TypeFamilies, UndecidableInstances, UndecidableSuperClasses, ScopedTypeVariables, FunctionalDependencies, AllowAmbiguousTypes, RankNTypes, FlexibleContexts, TypeApplications #-}
 module DBRecord.Internal.Types where
 
+#if __GLASGOW_HASKELL__ < 906
 import GHC.TypeLits
+#else
+import GHC.TypeLits hiding ( SNat )
+#endif
 import qualified Data.Text as T
 import Data.Kind
 import Data.Typeable

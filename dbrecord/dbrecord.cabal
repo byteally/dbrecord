@@ -75,9 +75,9 @@ common common-build-deps
 
 common lib-build-deps
   import:              common-build-deps
-  build-depends:       aeson             >= 1.3 && < 2.2
+  build-depends:       aeson             >= 1.3 && < 2.4
                      , vector
-                     , time              >= 1.5
+                     , time              >= 1.5 && < 1.13
                      , uuid              == 1.3.*
                      , bytestring
                      , containers           >= 0.6
@@ -120,12 +120,12 @@ library
                   DBRecord.Internal.UDType
                   
   build-depends:       uniplate             >= 1.6
-                     , transformers      == 0.5.*
+                     , transformers      >= 0.5     && < 0.7
                      , mtl               == 2.*
                      , base16-bytestring >= 0.1.1.6 && < 1.1
                      , binary            >= 0.8
                      , base64-bytestring >= 1.0
-                     , hashable          >= 1.2   && < 1.5
+                     , hashable          >= 1.2   && < 1.6
                      , rec               >= 0.1.0.0 && < 0.3
                      , unliftio          >= 0.2 && < 0.3
                      , path >= 0.9
