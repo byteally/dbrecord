@@ -18,6 +18,8 @@ module DBRecord.Postgres.Internal.Sql.Pretty
   , ppPGType
   , ppDBTypeName
   , ppPGOIDType
+
+  , escape
   ) where
 
 import           Data.ByteString (ByteString)
