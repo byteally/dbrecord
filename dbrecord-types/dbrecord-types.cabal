@@ -9,6 +9,7 @@ version:             0.1.0.0
 -- description:
 -- bug-reports:
 -- license:
+license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Sreenidhi
 maintainer:          nair.sreenidhi@gmail.com
