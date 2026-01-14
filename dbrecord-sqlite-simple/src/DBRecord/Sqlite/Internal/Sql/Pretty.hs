@@ -211,7 +211,7 @@ ppColumn (SqlColumn s) =
 
 ppTableExpr :: SqlTableExpr -> Doc
 ppTableExpr (NestedSqlSelect sql)     = ppSelect sql
-ppTableExpr (SqlTabName sqltab)       = ppTableName sqltab
+ppTableExpr (SqlTabName sqltab _)       = ppTableName sqltab
 ppTableExpr (SqlTabFun funName args)  = ppTableFun funName args
 
 ppTableFun :: SqlName -> [SqlName] -> Doc
