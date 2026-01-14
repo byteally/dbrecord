@@ -39,6 +39,7 @@ type Attribute  = Text
 type Assoc      = [(Attribute, PrimExpr)]
 type Scheme     = [Attribute]
 type Name       = Text
+type Alias      = Text
 
 data JoinType = LeftJoin
               | RightJoin
@@ -63,7 +64,7 @@ data WithExpr p = WithExpr TableName [Attribute] p
               deriving (Show, Read, Generic, Eq, Ord)
 
 data TableExpr p = PrimQuery p
-                 | TableName TableId
+                 | TableName TableId (Maybe Alias)
                  | TableFun  Name [Attribute]
                  deriving (Show, Read, Generic, Eq, Ord)
 
@@ -301,8 +302,8 @@ data PrimQueryFold p = PrimQueryFold
   -- ^ A relation-valued expression
   }
 
-baseTable :: PrimQueryFold p -> TableId -> Clauses -> p
-baseTable p tId = table p (Just (TableName tId))
+baseTable :: PrimQueryFold p -> TableId -> Maybe Alias -> Clauses -> p
+baseTable p tId talias = table p (Just (TableName tId talias))
 
 innerJoin :: PrimQueryFold p -> PrimExpr -> TableExpr p -> TableExpr p -> Clauses -> p
 innerJoin p e = join p InnerJoin False (Just e)
@@ -340,7 +341,7 @@ foldPrimQuery f = fix fold
         goWith self (WithExpr tn attrs pq) = WithExpr tn attrs (self pq)
 
         goTExpr self (PrimQuery p)      = PrimQuery (self p)
-        goTExpr _    (TableName t)      = TableName t
+        goTExpr _    (TableName t talias) = TableName t talias
         goTExpr _    (TableFun n attrs) = TableFun n attrs
 
         goInlineJoins self js = case js of

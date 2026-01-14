@@ -113,7 +113,7 @@ class ( Schema sc
     ( GConstructHK tab (HasColumn sc tab) (TypeFields tab)
     , MkFieldInvIx (Fields tab)
     ) => (forall s.Clause s sc tab (TableValue sc Identity o)) -> Query' ('ReadQ 'ManyRow) sc o
-  rel (Clause clau) = Query' (TableValue fsix $ constructHK @(HasColumn sc tab) (ExprF . toExprId . coerceExpr . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId)), ReadQType ManyR)
+  rel (Clause clau) = Query' (TableValue fsix $ constructHK @(HasColumn sc tab) (ExprF . toExprId . coerceExpr . getCol (Proxy @'(sc, tab))), clau, PQ.Table (Just (PQ.TableName tabId Nothing)), ReadQType ManyR)
     where tabId = getTableId @sc @tab Proxy Proxy
           fsix = mkFieldInvIx (Proxy @(Fields tab)) emptyFieldInvIx
 
@@ -184,7 +184,7 @@ getMutQ k =
     relq = rel @sc @tab (scoped $ \(clau, (Scoped tabv)) -> (clau, tabv))
     (pq, tabi) = runQuery' relq
     tabId = case pq of
-      PQ.Table (Just (PQ.TableName tabId')) _ -> tabId'
+      PQ.Table (Just (PQ.TableName tabId' _talias)) _ -> tabId'
       _ -> error "Panic: Internal invariant violated! Expected `Table` con from `rel`"
   in k tabId tabi
 
@@ -394,6 +394,12 @@ scoped :: forall i o sc s.
   -> Clause s sc i o
 scoped fn = Clause $ state (\(c,es) -> let (c', o) = fn (c, Scoped es) in (o, (c', es)))
 
+promapClause ::
+  (TableValue sc Identity j -> TableValue sc Identity i) ->
+  (TableValue sc Identity i -> TableValue sc Identity j) ->
+  Clause s sc i o -> Clause s sc j o
+promapClause bw fw (Clause st) = Clause $ StateT $ \s -> (fmap . fmap . fmap) fw $ runStateT st (bw <$> s)
+
 tableToListWith :: (forall g (a :: Type).Typeable a => [Text] -> SomeSymbol -> ExprF sc g a -> r) -> TableValue sc f i -> [r]
 tableToListWith = tableToListWith' []
 
@@ -410,6 +416,7 @@ tableToListWith' pfxs fn (JoinedTables fsix tvals) = concatMap snd $ L.sortOn fs
      in (fnix, tableToListWith' (tagToPfx ssym:pfxs) fn tv)
   ) tvals
 tableToListWith' pfxs fn (OptTable tv) = tableToListWith' pfxs fn tv
+tableToListWith' pfxs fn (PairTable t1 t2) = tableToListWith' pfxs fn t1 ++ tableToListWith' pfxs fn t2
 tableToListWith' _pfxs _ EmptyTable = []
 
 tableToProjections :: TableValue sc f a -> [PQ.Projection]
@@ -427,6 +434,14 @@ fromIdExpr :: Expr sc (Identity x) -> Expr sc x
 fromIdExpr = coerceExpr
 {-# INLINE fromIdExpr #-}
 
+aliasTableValue :: forall (n :: Symbol) r sc f. (KnownSymbol n, Typeable r) =>TableValue sc f r -> TableValue sc f (Rec '[ '(n, r)])
+aliasTableValue tv = JoinedTables (fromListToFieldInvIx [typeRep (Proxy @n)]
+                              ) ( hrecToHKOfRec ( fromLabel @n .= tv
+                                                  .& Record.end))
+
+unaliasTableValue :: forall (n :: Symbol) r sc f. (KnownSymbol n, Typeable r) => TableValue sc f (Rec '[ '(n, r)]) -> TableValue sc f r
+unaliasTableValue (JoinedTables _ hkTabs) = R.getField @n hkTabs
+unaliasTableValue (_) = error "TODO:"
 
 crossRel :: forall r1 r2 n1 n2 f sc.(KnownSymbol n1, KnownSymbol n2, Typeable r1, Typeable r2) => Field n1 (TableValue sc f r1) -> Field n2 (TableValue sc f r2) -> TableValue sc f (Rec '[ '(n1, r1), '(n2, r2)])
 crossRel q1 q2 = JoinedTables (fromListToFieldInvIx [typeRep (Proxy @n1)
@@ -454,6 +469,7 @@ nextStage' :: [Text] -> TableValue sc f i -> TableValue sc f i
 nextStage' pfxs (TableValue fsix hk) = TableValue fsix $ hoistWithKeyAndTagHK (aliasedExprWithPrefix pfxs) hk
 nextStage' pfxs (JoinedTables fsix tvals) = JoinedTables fsix $ hoistWithKeyAndTagHK (\(SomeSymbol ssym) -> nextStage' ((T.pack $ symbolVal ssym) : pfxs)) tvals
 nextStage' pfxs (OptTable tv) = OptTable (nextStage' pfxs tv)
+nextStage' pfxs (PairTable t1 t2) = PairTable (nextStage' pfxs t1) (nextStage' pfxs t2)
 nextStage' _pfxs EmptyTable = EmptyTable
 
 
@@ -461,6 +477,7 @@ hoistMaybeTable :: (forall g x. ExprF sc g x -> ExprF sc Maybe x) -> TableValue 
 hoistMaybeTable fn (TableValue fsix hk) = TableValue fsix $ hoistHK fn hk
 hoistMaybeTable fn (JoinedTables fsix tvals) = JoinedTables fsix $ hoistHK (hoistMaybeTable fn) tvals
 hoistMaybeTable fn (OptTable tv) = OptTable (hoistMaybeTable fn tv)
+hoistMaybeTable fn (PairTable t1 t2) = PairTable (hoistMaybeTable fn t1) (hoistMaybeTable fn t2)
 hoistMaybeTable _ EmptyTable = EmptyTable
 
 toNullExprF :: ExprF sc g x -> ExprF sc Maybe x
@@ -483,6 +500,7 @@ unsafeTableToExpr :: TableValue sc f i -> Expr sc o
 unsafeTableToExpr (TableValue _ hk) = Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym e -> (aliasedExprName ssym, getExpr $ getExprF e)) hk
 unsafeTableToExpr (JoinedTables _ tvals) = Expr $ PQ.FlatComposite $ hkToListWithTag (\ssym tv -> (aliasedExprName ssym, getExpr $ unsafeTableToExpr tv)) tvals
 unsafeTableToExpr (OptTable tv) = unsafeTableToExpr tv
+unsafeTableToExpr (PairTable _t1 _t2) = error "TODO:"
 unsafeTableToExpr EmptyTable = Expr unitExpr
 
 unitExpr :: PQ.PrimExpr
@@ -553,11 +571,27 @@ data TableValue sc f t where
   JoinedTables :: !FieldInvIx -> HK (TableValue sc f) t -> TableValue sc f t
   OptTable :: Typeable t => TableValue sc f t -> TableValue sc f (Maybe t)
 
+  PairTable :: (Typeable t1, Typeable t2) => TableValue sc f t1 -> TableValue sc f t2 -> TableValue sc f (t1, t2)
+
   EmptyTable :: TableValue sc f ()
 
 tableRecAsType :: ValidateRecToType os t => TableValue sc f (Rec os) -> TableValue sc f t
 tableRecAsType (TableValue fsix hk) = TableValue fsix (fromHKOfRec hk)
 tableRecAsType (JoinedTables fsix hk) = JoinedTables fsix (fromHKOfRec hk)
+
+fstTable :: TableValue sc f (t1, t2) -> TableValue sc f t1
+fstTable (PairTable t1 _) = t1
+fstTable _ = error "Expecting only PairTable"
+
+sndTable :: TableValue sc f (t1, t2) -> TableValue sc f t2
+sndTable (PairTable _ t2) = t2
+sndTable _ = error "Expecting only PairTable"
+
+fstOf :: Scoped s sc (a, b) -> Scoped s sc a
+fstOf s = Scoped $ fstTable $ coerce s
+
+sndOf :: Scoped s sc (a, b) -> Scoped s sc b
+sndOf s = Scoped $ sndTable $ coerce s 
 
 newtype Scalar sc t = Scalar (Expr sc t)
 
@@ -567,6 +601,7 @@ instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbo
 instance (R.HasField f i t, KnownSymbol f, Typeable t) => R.HasField (f :: Symbol) (TableValue sc Identity i) (Expr sc t) where
   getField (TableValue _ hk) = fromIdExpr $ getExprF $ R.getField @f hk
   getField EmptyTable = Expr unitExpr
+  getField (PairTable {}) = error "TODO"
   getField optv@(OptTable tv) = go tv optv
     where
       go :: forall r.(Typeable r) => TableValue sc Identity r -> TableValue sc Identity (Maybe r) -> Expr sc t

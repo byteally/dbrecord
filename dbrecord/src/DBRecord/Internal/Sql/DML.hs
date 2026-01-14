@@ -88,7 +88,7 @@ data SqlDelete = SqlDelete SqlTableName [SqlExpr] [SqlExpr]
 type Alias = Maybe String
 
 data SqlTableExpr = NestedSqlSelect SqlSelect
-                  | SqlTabName SqlTableName
+                  | SqlTabName SqlTableName (Maybe Text)
                   | SqlTabFun SqlName [SqlName]
                   deriving (Eq, Show, Read)
 

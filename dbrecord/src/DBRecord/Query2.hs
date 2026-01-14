@@ -56,6 +56,8 @@ module DBRecord.Query2
   , with
   , with2
   , DBRecord.Query2.from -- TODO: clashing with Generics. Revisit!
+  , fstOf
+  , sndOf
   , joins
   -- , joinsL
   -- , joinsR
@@ -69,7 +71,9 @@ module DBRecord.Query2
   , optionOn
   , lateral
   , crossJoins
+  , alias
   , subSelect
+  , exists
   , insertOne
   , insertMany
   , insertFrom
@@ -124,7 +128,7 @@ import DBRecord.Internal.Order hiding (order)
 import DBRecord.Internal.Expr
 import DBRecord.Internal.Predicate
 import DBRecord.Internal.Window
--- import DBRecord.Internal.Schema
+import DBRecord.Internal.Schema
 import DBRecord.Internal.Table hiding (runMQuery)
 import qualified DBRecord.Internal.PrimQuery as PQ
 import qualified Data.Text as T
@@ -846,6 +850,13 @@ SELECT name, (SELECT max(pop) FROM cities WHERE cities.state = states.name)
 
 -}
 
+alias :: forall as tab sc o. (KnownSymbol as, Table sc tab, Typeable tab) => TableExpr sc tab o -> TableExpr sc (Rec '[ '(as, tab)]) o
+alias teF = \c -> case teF (promapClause (aliasTableValue @as) (unaliasTableValue @as) c) of
+  Query' (tv, st, pqF, qt) -> Query' (tv, st, \clau -> case pqF clau of
+                                         PQ.Table (Just (PQ.TableName tid Nothing)) cla -> PQ.Table (Just (PQ.TableName tid $ Just $ T.pack $ symbolVal (Proxy @as))) cla
+                                         pq -> pq
+                                         , qt)
+
 subSelect ::
   forall t r n f sc ps.
   ( Typeable t
@@ -858,6 +869,34 @@ subSelect f cls = do
   let tabExpr = Expr (PQ.TableExpr (execQuery $ f cls))
   
   pure tabExpr
+
+-- Exists, Any, All
+-- exists1 :: forall t r n f sc.
+--   ( Typeable t
+--   , KnownSymbol n
+--   , Schema sc
+--   ) =>
+--   ((forall s.Clause s sc r (TableValue sc f (Rec '[ '(n, t)]))) -> Query sc (Rec '[ '(n, t)])) ->
+--   (forall s1.Clause s1 sc r (TableValue sc f (Rec '[ '(n, t)]))) ->
+--   (Expr sc Bool)
+-- exists1 f cls =
+--   let tabPExpr = PQ.TableExpr (execQuery $ f cls)
+--   in Expr (PQ.PrefixExpr (PQ.OpOtherFun "EXISTS") tabPExpr)
+
+exists :: forall o r pn par f sc ps.
+  ( Schema sc
+  , Typeable r
+  , Typeable par
+  , KnownSymbol pn
+  ) =>
+  ((forall s.Clause s sc r (TableValue sc f o)) -> Query sc o) ->
+  (forall s1.Clause s1 sc (r, Rec '[ '(pn, par)]) (TableValue sc f o)) ->
+  Clause ps sc (Rec '[ '(pn, par)]) (Expr sc Bool)
+exists f cls = scoped $ \(clau, Scoped tpar) -> 
+  let
+    _pname = T.pack $ symbolVal (Proxy @pn)
+    tabPExpr = PQ.TableExpr (execQuery $ f (promapClause (\tr -> (PairTable tr (nextStage tpar))) fstTable cls))
+  in (clau, Expr (PQ.PrefixExpr (PQ.OpOtherFun "EXISTS") tabPExpr))
 
 -- MutationQ
 

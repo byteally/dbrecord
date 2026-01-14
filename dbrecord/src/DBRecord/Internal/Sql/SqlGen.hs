@@ -98,7 +98,7 @@ table tab cs = SqlSelect (toSqlTable <$> tab) $
   (baseClauses cs) { DML.alias  = (T.unpack <$> (PQ.alias cs)) }
 
 toSqlTable :: PQ.TableExpr SqlSelect -> SqlTableExpr
-toSqlTable (PQ.TableName tabId)     = SqlTabName (toSqlTableName tabId)
+toSqlTable (PQ.TableName tabId talias)     = SqlTabName (toSqlTableName tabId) talias
 toSqlTable (PQ.TableFun name attrs) = SqlTabFun name attrs
 toSqlTable (PQ.PrimQuery sq)        = NestedSqlSelect sq
 

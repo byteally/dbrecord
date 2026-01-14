@@ -78,3 +78,6 @@ prefixQ (LTree xs) = LQuery (LTree (xs <> ["*"]))
 
 (@>) :: Expr sc LTree -> Expr sc LTree -> Expr sc Bool
 a @> b = binOp (PQ.OpOther "@>") a b
+
+(<@) :: Expr sc LTree -> Expr sc LTree -> Expr sc Bool
+a <@ b = binOp (PQ.OpOther "<@") a b
