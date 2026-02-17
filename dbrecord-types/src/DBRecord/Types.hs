@@ -9,6 +9,7 @@
 module DBRecord.Types where
 
 import           Data.Aeson
+import           Data.Hashable
 import           Data.Kind
 import qualified Data.Text as T
 import           GHC.Generics
@@ -43,7 +44,7 @@ newtype LQuery = LQuery LTree
               deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
 newtype Key (t :: k) (v :: Type) = Key {getKey :: v}
-  deriving newtype (Show, Read, Eq, Ord, ToJSON, FromJSON)
+  deriving newtype (Show, Read, Eq, Ord, ToJSON, FromJSON, Hashable)
 #ifndef ghcjs_HOST_OS
   deriving newtype (Serialise)
 #endif
