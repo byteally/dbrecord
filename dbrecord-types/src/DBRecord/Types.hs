@@ -5,6 +5,7 @@
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE PolyKinds                  #-}
 {-# LANGUAGE CPP                        #-}
+{-# LANGUAGE OverloadedStrings          #-}
 
 module DBRecord.Types where
 
@@ -39,6 +40,12 @@ newtype Interval = Interval T.Text
 
 newtype LTree = LTree [T.Text]
               deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
+unescape :: [T.Text] -> [T.Text]
+unescape = fmap (\t -> foldr (\(a, b) t0 -> T.replace b a t0) t escapeSequences)
+  where
+    escapeSequences :: [(T.Text, T.Text)]
+    escapeSequences = [ ("-", "_h"), ("_", "__") ]
 
 newtype LQuery = LQuery LTree
               deriving (Show, Eq, Generic, FromJSON, ToJSON)
